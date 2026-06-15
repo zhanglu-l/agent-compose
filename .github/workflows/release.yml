@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - assets/**
+      - cmd/**
+      - go.mod
+      - go.sum
+      - pkg/**
+      - proto/**
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binary:
+    name: Build binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            version="$(git describe --always --tags --long 2>/dev/null || git rev-parse --short=12 HEAD)"
+          fi
+          package="agent-compose-${version}-${GOOS}-${GOARCH}"
+          mkdir -p "dist/${package}"
+          go build \
+            -trimpath \
+            -tags netgo,osusergo \
+            -ldflags "-s -w -X agent-compose/pkg/config.BuildVersion=${version}" \
+            -o "dist/${package}/agent-compose" \
+            ./cmd/agent-compose
+          go version -m "dist/${package}/agent-compose"
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+          sha256sum "dist/${package}.tar.gz" > "dist/${package}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-compose-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag'
+    needs:
+      - binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Prepare assets
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          find release-assets -type f -name '*.tar.gz' -exec cp {} upload/ \;
+          find release-assets -type f -name '*.sha256' -exec cp {} upload/ \;
+          cd upload
+          sha256sum *.tar.gz > SHASUMS256.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" upload/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "agent-compose ${GITHUB_REF_NAME}" \
+            --notes "Release ${GITHUB_REF_NAME}."
