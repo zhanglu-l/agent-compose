@@ -1,0 +1,93 @@
+name: Images
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/images.yml
+      - Dockerfile
+      - cmd/**
+      - frontend/**
+      - guest-images/**
+      - go.mod
+      - go.sum
+      - nginx/**
+      - package-lock.json
+      - package.json
+      - pkg/**
+      - proto/**
+      - runtime/**
+      - scripts/**
+      - vite.config.*
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+  REGISTRY_MIRROR: docker.io
+  GOPROXY: https://goproxy.cn,direct
+
+jobs:
+  images:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agent-compose
+            image: agent-compose
+            dockerfile: Dockerfile
+            context: .
+          - name: agent-compose-frontend
+            image: agent-compose-frontend
+            dockerfile: nginx/Dockerfile
+            context: .
+          - name: agent-compose-guest
+            image: agent-compose-guest
+            dockerfile: guest-images/Dockerfile.agent-compose-guest
+            context: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            REGISTRY_MIRROR=${{ env.REGISTRY_MIRROR }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
