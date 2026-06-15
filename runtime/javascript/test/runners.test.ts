@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeRunner } from "../src/runners/claude.js";
 import { CodexRunner } from "../src/runners/codex.js";
 import { GeminiRunner } from "../src/runners/gemini.js";
 import { captureStdio, runnerOptions, withTempSession } from "./helpers.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe("CodexRunner", () => {
   it("exposes Codex thread options without constructor-only config", async () => {
@@ -135,6 +140,34 @@ describe("CodexRunner", () => {
 });
 
 describe("ClaudeRunner", () => {
+  it("passes explicit Claude executable paths and bypass permissions for non-root users", async () => {
+    await withTempSession(async (root) => {
+      vi.stubEnv("CLAUDE_CODE_EXECUTABLE", "/custom/bin/claude");
+      vi.spyOn(process, "getuid").mockReturnValue(501);
+      const runner = new ClaudeRunner(runnerOptions(root));
+
+      expect(runner.queryOptions(null)).toMatchObject({
+        pathToClaudeCodeExecutable: "/custom/bin/claude",
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+      });
+    });
+  });
+
+  it("passes executable paths and bypass permissions when running as root", async () => {
+    await withTempSession(async (root) => {
+      vi.stubEnv("CLAUDE_CODE_EXECUTABLE", "/usr/bin/claude");
+      vi.spyOn(process, "getuid").mockReturnValue(0);
+      const runner = new ClaudeRunner(runnerOptions(root));
+
+      expect(runner.queryOptions(null)).toMatchObject({
+        pathToClaudeCodeExecutable: "/usr/bin/claude",
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+      });
+    });
+  });
+
   it("appends MPI context and exposes runtime directory", async () => {
     await withTempSession(async (root) => {
       const mpiContext = "catalog body";

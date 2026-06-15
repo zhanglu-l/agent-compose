@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { uniqueDirectories } from "../paths.js";
 import { readStoredSession, writeStoredSession } from "../session-state.js";
 import { jsonString } from "../text.js";
@@ -23,6 +24,14 @@ function contentBlockKey(event: Record<string, unknown>, fallback = ""): string 
   return fallback;
 }
 
+function claudeExecutable(): string | undefined {
+  const configured = process.env.CLAUDE_CODE_EXECUTABLE || process.env.CLAUDE_CODE_PATH;
+  if (configured) {
+    return configured;
+  }
+  return existsSync("/usr/bin/claude") ? "/usr/bin/claude" : undefined;
+}
+
 export class ClaudeRunner {
   private readonly writer = new TranscriptWriter();
   private readonly pendingToolUses = new Map<string, PendingToolUse>();
@@ -30,9 +39,11 @@ export class ClaudeRunner {
   constructor(private readonly options: RunnerOptions) {}
 
   queryOptions(stored: StoredSession | null): Record<string, unknown> {
+    const executable = claudeExecutable();
     return {
       cwd: this.options.workspace,
       env: { ...process.env, IS_SANDBOX: "1" },
+      ...(executable ? { pathToClaudeCodeExecutable: executable } : {}),
       additionalDirectories: uniqueDirectories([this.options.stateRoot, this.options.home, this.options.runtimeRoot]),
       includePartialMessages: true,
       forwardSubagentText: true,
