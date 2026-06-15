@@ -12,8 +12,9 @@ try {
   const dryRun = await execFileAsync("npm", ["pack", "--dry-run", "--json"], { cwd: root });
   const packEntries = JSON.parse(dryRun.stdout);
   const files = packEntries[0]?.files?.map((entry) => entry.path).sort() ?? [];
+  const allowedRootFiles = new Set(["LICENSE", "README.md", "package.json"]);
   const invalid = files.filter((file) => {
-    return file !== "README.md" && file !== "package.json" && !file.startsWith("dist/");
+    return !allowedRootFiles.has(file) && !file.startsWith("dist/");
   });
   if (invalid.length > 0) {
     throw new Error(`npm pack contains unexpected files: ${invalid.join(", ")}`);
