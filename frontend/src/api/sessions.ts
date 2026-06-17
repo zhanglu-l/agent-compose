@@ -56,9 +56,13 @@ export type WorkSessionWatchEvent =
   | { type: 'cell'; cell: WorkSessionCell }
   | { type: 'chunk'; cellId: string; chunk: string; isStderr: boolean };
 
-export async function listWorkSessions(limit = 50): Promise<WorkSession[]> {
-  const response = await sessionClient.listSessions({ limit });
-  return response.sessions.map(sessionFromSummary);
+export async function listWorkSessions(limit = 50, offset = 0): Promise<{ sessions: WorkSession[]; hasMore: boolean; totalCount: number }> {
+  const response = await sessionClient.listSessions({ limit, offset });
+  return {
+    sessions: response.sessions.map(sessionFromSummary),
+    hasMore: response.hasMore,
+    totalCount: response.totalCount,
+  };
 }
 
 export async function getWorkSession(id: string, options: { includeProxy?: boolean } = {}): Promise<WorkSessionDetail> {
@@ -83,6 +87,14 @@ export async function getWorkSessionProxy(id: string): Promise<{ proxyPath: stri
     proxyPath: response.proxyPath,
     notebookUrl: response.notebookUrl,
   };
+}
+
+export async function getWorkSessionStatus(id: string): Promise<WorkSession> {
+  const response = await sessionClient.getSession({ sessionId: id });
+  if (!response.session?.summary) {
+    throw new Error('工作会话不存在');
+  }
+  return sessionFromSummary(response.session.summary);
 }
 
 export async function stopWorkSession(id: string): Promise<WorkSession> {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import ExperimentOutlined from '@ant-design/icons-svg/es/asn/ExperimentOutlined';
   import FilterOutlined from '@ant-design/icons-svg/es/asn/FilterOutlined';
 
@@ -13,12 +13,15 @@
     setAutomationTaskEnabled,
     setAutomationTriggerEnabled,
     validateAutomationTask,
+    type AutomationTaskDetail,
     type AutomationTrigger,
     type AutomationTask,
   } from '../api/loaders';
   import { listAgentDefinitions, type AgentDefinition } from '../api/agents';
   import { listCapabilitySets, type CapabilitySet } from '../api/config';
+  import { formatBeijingTime } from '../time';
   import { appPath } from '../paths';
+  import { currentQueryParams, updateQueryParams } from '../url';
 
   type EnvItem = { name: string; value: string; secret: boolean };
 
@@ -58,9 +61,21 @@
   let draftLoading = false;
   let runningTaskId = '';
   let actionMessage = '';
+  let actionMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let draftTriggers: AutomationTrigger[] = [];
   let codeScrollTop = 0;
   let codeScrollLeft = 0;
+
+  // Detail-pane state for the master/detail layout. Selected task id is
+  // mirrored to the URL (?task=...) so navigating preserves the selection.
+  let selectedTaskId = '';
+  let detailById: Record<string, AutomationTaskDetail> = {};
+  let detailLoadingId = '';
+  let detailError = '';
+  let scriptExpanded = false;
+  let toggleBusyId = '';
+  let triggerBusyId = '';
+  let deleteConfirmId = '';
 
   $: activeAgents = agents.filter((agent) => !agent.deletedAt && agent.enabled);
   $: agentsById = new Map(agents.map((agent) => [agent.id, agent]));
@@ -69,8 +84,79 @@
     [task.name, task.description, task.defaultAgent, agentLabel(task.agentId), task.id].join(' ').toLowerCase().includes(keyword.toLowerCase()) &&
     (!triggerFilter || task.runtime === triggerFilter),
   );
+  // Resolve the active task without coupling back into selectedTaskId — the
+  // explicit fallback to filteredTasks[0] keeps the detail pane non-empty
+  // while the URL still drives selection. Mirror the AgentsPage pattern.
+  $: activeTask = (selectedTaskId && filteredTasks.find((task) => task.id === selectedTaskId)) || filteredTasks[0] || null;
+  $: activeDetail = activeTask ? detailById[activeTask.id] || null : null;
+  $: if (activeTask) {
+    void ensureDetail(activeTask.id);
+  }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    window.addEventListener('popstate', syncFromURL);
+    return () => window.removeEventListener('popstate', syncFromURL);
+  });
+
+  onDestroy(() => {
+    if (actionMessageTimer) {
+      clearTimeout(actionMessageTimer);
+    }
+  });
+
+  function showMessage(text: string): void {
+    actionMessage = text;
+    if (actionMessageTimer) {
+      clearTimeout(actionMessageTimer);
+    }
+    actionMessageTimer = setTimeout(() => {
+      actionMessage = '';
+      actionMessageTimer = null;
+    }, 3000);
+  }
+
+  function syncFromURL(): void {
+    const params = currentQueryParams();
+    const taskId = params.get('task') || '';
+    if (taskId && tasks.some((task) => task.id === taskId)) {
+      selectedTaskId = taskId;
+    } else if (!selectedTaskId && filteredTasks.length > 0) {
+      selectedTaskId = filteredTasks[0].id;
+    }
+  }
+
+  function selectTask(task: AutomationTask): void {
+    selectedTaskId = task.id;
+    scriptExpanded = false;
+    deleteConfirmId = '';
+    detailError = '';
+    updateQueryParams({ task: task.id });
+  }
+
+  async function ensureDetail(taskId: string): Promise<void> {
+    if (!taskId || detailById[taskId] || detailLoadingId === taskId) return;
+    detailLoadingId = taskId;
+    detailError = '';
+    try {
+      const detail = await getAutomationTask(taskId);
+      detailById = { ...detailById, [taskId]: detail };
+    } catch (err) {
+      detailError = err instanceof Error ? err.message : String(err);
+    } finally {
+      if (detailLoadingId === taskId) detailLoadingId = '';
+    }
+  }
+
+  async function reloadDetail(taskId: string): Promise<void> {
+    if (!taskId) return;
+    try {
+      const detail = await getAutomationTask(taskId);
+      detailById = { ...detailById, [taskId]: detail };
+    } catch (err) {
+      detailError = err instanceof Error ? err.message : String(err);
+    }
+  }
 
   async function load(): Promise<void> {
     loading = true;
@@ -87,11 +173,20 @@
       } catch {
         capsets = [];
       }
+      // Drop cached details for tasks that no longer exist after a refresh.
+      const liveIds = new Set(tasks.map((task) => task.id));
+      detailById = Object.fromEntries(Object.entries(detailById).filter(([id]) => liveIds.has(id)));
+      syncFromURL();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
       loading = false;
     }
+  }
+
+  function clearTaskFilters(): void {
+    keyword = '';
+    triggerFilter = '';
   }
 
   function emptyDraft(): DraftTask {
@@ -200,7 +295,7 @@ scheduler.interval("heartbeat", function heartbeat() {
       const result = await validateAutomationTask(scriptForDraft(draft), 'scheduler');
       draftTriggers = result.triggers;
       draft.codeValidationStatus = 'passed';
-      actionMessage = '校验通过';
+      showMessage('校验通过');
     } catch (err) {
       draft.codeValidationStatus = 'failed';
       error = err instanceof Error ? err.message : String(err);
@@ -245,8 +340,12 @@ scheduler.interval("heartbeat", function heartbeat() {
         envItems: draft.envItems,
       });
       tasks = [task, ...tasks.filter((item) => item.id !== task.id)];
+      // saveAutomationTask returns the full detail, including script + triggers
+      // + envItems. Cache it so the right pane updates without an extra fetch.
+      detailById = { ...detailById, [task.id]: task };
+      selectedTaskId = task.id;
       drawerOpen = false;
-      actionMessage = draft.id ? '自动化任务已更新' : '自动化任务已创建';
+      showMessage(draft.id ? '自动化任务已更新' : '自动化任务已创建');
       if (debug && draft.codeValidationStatus !== 'failed') {
         debugTask = task;
         debugPayload = payloadForDraft(draft);
@@ -260,23 +359,37 @@ scheduler.interval("heartbeat", function heartbeat() {
 
   async function toggleTask(task: AutomationTask): Promise<void> {
     error = '';
+    toggleBusyId = task.id;
     try {
       const updated = await setAutomationTaskEnabled(task.id, !task.enabled);
       tasks = tasks.map((item) => item.id === task.id ? updated : item);
+      const cached = detailById[task.id];
+      if (cached) {
+        detailById = { ...detailById, [task.id]: { ...cached, ...updated } };
+      }
+      showMessage(updated.enabled ? '任务已启用' : '任务已暂停');
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
+    } finally {
+      toggleBusyId = '';
     }
   }
 
-  async function toggleTrigger(trigger: AutomationTrigger): Promise<void> {
-    if (!draft.id) return;
+  async function toggleTrigger(taskId: string, trigger: AutomationTrigger): Promise<void> {
     error = '';
+    triggerBusyId = trigger.triggerId;
     try {
-      const detail = await setAutomationTriggerEnabled(draft.id, trigger.triggerId, !trigger.enabled);
-      draftTriggers = detail.triggers;
+      const detail = await setAutomationTriggerEnabled(taskId, trigger.triggerId, !trigger.enabled);
+      detailById = { ...detailById, [detail.id]: detail };
       tasks = tasks.map((item) => item.id === detail.id ? detail : item);
+      // Keep the edit-drawer view in sync if it's open on this task.
+      if (drawerOpen && draft.id === detail.id) {
+        draftTriggers = detail.triggers;
+      }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
+    } finally {
+      triggerBusyId = '';
     }
   }
 
@@ -289,11 +402,24 @@ scheduler.interval("heartbeat", function heartbeat() {
   }
 
   async function deleteTask(task: AutomationTask): Promise<void> {
+    if (deleteConfirmId !== task.id) {
+      deleteConfirmId = task.id;
+      return;
+    }
     error = '';
     try {
       await deleteAutomationTask(task.id);
       tasks = tasks.filter((item) => item.id !== task.id);
-      actionMessage = '自动化任务已删除';
+      const next = { ...detailById };
+      delete next[task.id];
+      detailById = next;
+      if (selectedTaskId === task.id) {
+        const fallback = tasks[0]?.id || '';
+        selectedTaskId = fallback;
+        updateQueryParams({ task: fallback || null });
+      }
+      deleteConfirmId = '';
+      showMessage('自动化任务已删除');
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -310,8 +436,9 @@ scheduler.interval("heartbeat", function heartbeat() {
     }
     try {
       const run = await runAutomationTaskNow(debugTask.id, debugPayload || '{}');
+      const taskUrl = runCenterTaskUrl(debugTask.agentId, debugTask.id, run.id);
       closeDebugDrawer();
-      window.location.assign(appPath(`/runs?type=automation_run&runId=${encodeURIComponent(run.id)}`));
+      window.location.assign(taskUrl);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -321,9 +448,10 @@ scheduler.interval("heartbeat", function heartbeat() {
     runningTaskId = task.id;
     error = '';
     try {
-      const detail = await getAutomationTask(task.id);
+      const detail = detailById[task.id] || await getAutomationTask(task.id);
+      detailById = { ...detailById, [detail.id]: detail };
       const run = await runAutomationTaskNow(task.id, payloadForTask(detail));
-      window.location.assign(appPath(`/runs?type=automation_run&runId=${encodeURIComponent(run.id)}`));
+      window.location.assign(runCenterTaskUrl(task.agentId, task.id, run.id));
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -359,6 +487,19 @@ scheduler.interval("heartbeat", function heartbeat() {
       return runtime;
     }
     return 'cron';
+  }
+
+  // Build a Run Center URL pointing into the agent's "任务执行" (tasks) sub-mode,
+  // pre-selecting the task and just-started run so the user lands where the
+  // execution is observable instead of the default chat view.
+  function runCenterTaskUrl(agentId: string, taskId: string, runId: string): string {
+    const params = new URLSearchParams();
+    params.set('type', 'automation_run');
+    params.set('mode', 'tasks');
+    if (agentId) params.set('agentId', agentId);
+    if (taskId) params.set('taskId', taskId);
+    if (runId) params.set('runId', runId);
+    return appPath(`/runs?${params.toString()}`);
   }
 
   function scriptForDraft(item: DraftTask): string {
@@ -494,6 +635,51 @@ scheduler.cron(${triggerName}, "0 8 * * *", function ${handlerName}(payload) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
   }
+
+  function statusLabel(task: AutomationTask): string {
+    if (task.lastError) return '错误';
+    return task.enabled ? '已启用' : '已暂停';
+  }
+
+  function statusClass(task: AutomationTask): 'green' | 'amber' | 'red' {
+    if (task.lastError) return 'red';
+    return task.enabled ? 'green' : 'amber';
+  }
+
+  function runtimeLabel(task: AutomationTask): string {
+    return task.runtime || 'scheduler';
+  }
+
+  function triggerSpec(trigger: AutomationTrigger): string {
+    if (trigger.kind.includes('CRON')) return trigger.specJson || '-';
+    if (trigger.kind.includes('INTERVAL')) {
+      return trigger.intervalMs ? `每 ${Math.round(trigger.intervalMs / 1000)}s` : (trigger.specJson || '-');
+    }
+    if (trigger.kind.includes('EVENT')) return trigger.topic || trigger.specJson || '-';
+    if (trigger.kind.includes('TIMEOUT')) {
+      return trigger.intervalMs ? `延迟 ${Math.round(trigger.intervalMs / 1000)}s` : (trigger.specJson || '-');
+    }
+    return trigger.specJson || trigger.topic || '-';
+  }
+
+  function formatDateTime(value: string): string {
+    return formatBeijingTime(value);
+  }
+
+  function detailScript(detail: AutomationTaskDetail | null): string {
+    return detail?.script || '';
+  }
+
+  function previewScript(source: string, limit = 14): string {
+    if (!source) return '';
+    const lines = source.split('\n');
+    if (lines.length <= limit) return source;
+    return lines.slice(0, limit).join('\n');
+  }
+
+  function isScriptTruncated(source: string, limit = 14): boolean {
+    return source.split('\n').length > limit;
+  }
 </script>
 
 {#if error}
@@ -503,15 +689,15 @@ scheduler.cron(${triggerName}, "0 8 * * *", function ${handlerName}(payload) {
   <div class="alert success">{actionMessage}</div>
 {/if}
 
-<section class="panel tasks-panel">
-  <div class="list-toolbar">
+<section class="panel agents-panel">
+  <div class="runs-toolbar agent-runs-toolbar">
     <div class="run-command-metrics compact">
       <button><span>全部</span><b>{tasks.length}</b></button>
       <button><span>启用</span><b>{tasks.filter((task) => task.enabled).length}</b></button>
       <button><span>暂停</span><b>{tasks.filter((task) => !task.enabled).length}</b></button>
       <button><span>触发规则</span><b>{tasks.reduce((total, task) => total + task.triggerCount, 0)}</b></button>
     </div>
-    <div class="filters">
+    <div class="runs-filters agent-run-filters">
       <input class="filter-keyword" placeholder="按任务名称、描述、智能体、触发规则筛选" bind:value={keyword}>
       <select bind:value={triggerFilter}><option value="">触发类型</option><option value="cron">定时触发</option><option value="interval">周期触发</option><option value="event">事件触发</option><option value="timeout">延迟触发</option></select>
       <button on:click={load}>{loading ? '刷新中...' : '刷新'}</button>
@@ -536,50 +722,161 @@ scheduler.cron(${triggerName}, "0 8 * * *", function ${handlerName}(payload) {
         <h3>没有匹配的自动化任务</h3>
         <p>当前共有 {tasks.length} 个任务，但都不满足筛选条件。试试调整或清除筛选。</p>
         <div class="empty-state-actions">
-          <button on:click={() => { keyword = ''; triggerFilter = ''; }}>清除筛选</button>
+          <button on:click={clearTaskFilters}>清除筛选</button>
         </div>
       {/if}
     </div>
   {:else}
-    <div class="task-list compact">
-      <div class="task-list-head">
-        <span>任务</span>
-        <span>触发</span>
-        <span>状态</span>
-        <span>运行</span>
-        <span>操作</span>
+    <div class="agents-master-detail">
+      <div class="agent-list-card">
+        <div class="run-list-head">
+          <b>自动化任务</b>
+          <span>{filteredTasks.length} 个</span>
+        </div>
+        <div class="agent-list">
+          {#each filteredTasks as task}
+            <button class="agent-list-item" class:active={activeTask?.id === task.id} on:click={() => selectTask(task)}>
+              <span>
+                <b>{task.name || task.id}</b>
+                <small>{agentLabel(task.agentId)} · {triggerSummary(task)}</small>
+              </span>
+              <em class={statusClass(task)}>{statusLabel(task)}</em>
+            </button>
+          {/each}
+        </div>
       </div>
-      {#each filteredTasks as task}
-        <section class="task-row">
-          <div class="task-main">
-            <div class="task-title">
-              <b>{task.name || task.id}</b>
-              <span class="tag">scheduler</span>
+      <div class="agent-detail-panel">
+        {#if activeTask}
+          {@const detail = activeDetail}
+          {@const linkedAgent = agentsById.get(activeTask.agentId)}
+          <div class="agent-detail-head">
+            <div>
+              <h2>{activeTask.name || activeTask.id}</h2>
+              <p>{activeTask.description || '暂无描述'}</p>
             </div>
-            <p>{task.description || '无描述'}</p>
-            <small>{agentLabel(task.agentId)} · {task.defaultAgent || '-'}</small>
+            <div class="toolbar">
+              <span class="chip {statusClass(activeTask)}">{statusLabel(activeTask)}</span>
+              <button disabled={toggleBusyId === activeTask.id} on:click={() => toggleTask(activeTask)}>{activeTask.enabled ? '暂停' : '启用'}</button>
+              <button disabled={Boolean(activeTask.lastError)} on:click={() => { debugTask = activeTask; debugPayload = '{}'; }}>调试</button>
+              <button on:click={() => openEdit(activeTask)}>编辑</button>
+              <button class="primary" disabled={runningTaskId === activeTask.id} on:click={() => runTaskNow(activeTask)}>{runningTaskId === activeTask.id ? '运行中...' : '立即运行'}</button>
+              <button class="danger-button" class:confirming={deleteConfirmId === activeTask.id} on:click={() => deleteTask(activeTask)}>{deleteConfirmId === activeTask.id ? '确认删除' : '删除'}</button>
+            </div>
           </div>
-          <div class="task-cell">
-            <b>{task.triggerCount}</b>
-            <small>{triggerSummary(task)}</small>
+
+          {#if detailError}
+            <div class="alert danger">{detailError}</div>
+          {/if}
+
+          <div class="agent-detail-grid">
+            <section>
+              <h3>基础信息</h3>
+              <div class="side-facts">
+                <div><span>ID</span><b>{activeTask.id || '-'}</b></div>
+                <div><span>运行时</span><b>{runtimeLabel(activeTask)}</b></div>
+                <div><span>触发规则</span><b>{activeTask.triggerCount} 条</b></div>
+                <div><span>并发策略</span><b>{activeTask.concurrencyPolicy === 'parallel' ? '允许并行运行' : '已有运行时跳过'}</b></div>
+                <div><span>会话策略</span><b>{activeTask.sessionPolicy === 'reuse_session' ? '继续使用同一会话' : '每次新建会话'}</b></div>
+                <div><span>创建时间</span><b>{formatDateTime(activeTask.createdAt)}</b></div>
+                <div><span>更新时间</span><b>{formatDateTime(activeTask.updatedAt)}</b></div>
+                {#if activeTask.lastError}
+                  <div><span>最近错误</span><b>{activeTask.lastError}</b></div>
+                {/if}
+              </div>
+            </section>
+            <section>
+              <h3>关联智能体</h3>
+              <div class="side-facts">
+                <div><span>智能体</span><b>{agentLabel(activeTask.agentId)}</b></div>
+                <div><span>Provider</span><b>{linkedAgent?.provider || activeTask.defaultAgent || '-'}</b></div>
+                <div><span>运行驱动</span><b>{linkedAgent?.driver || activeTask.driver || '默认'}</b></div>
+                <div><span>Guest 镜像</span><b>{activeTask.guestImage || linkedAgent?.guestImage || '默认'}</b></div>
+                <div><span>工作区</span><b>{linkedAgent?.workFiles.workspaceName || linkedAgent?.workspaceId || '默认'}</b></div>
+                <div><span>最近运行</span><b>{activeTask.latestRunAt ? formatDateTime(activeTask.latestRunAt) : '-'}</b></div>
+                <div><span>累计运行</span><b>{activeTask.runCount}</b></div>
+              </div>
+            </section>
           </div>
-          <div class="task-cell">
-            <span class="chip {task.enabled ? 'green' : 'amber'}">{task.enabled ? '已启用' : '已暂停'}</span>
-            <small>{task.lastError ? '存在错误' : '健康'}</small>
+
+          <section class="agent-prompt-panel">
+            <div class="form-section-head">
+              <h3>触发规则</h3>
+              {#if detailLoadingId === activeTask.id && !detail}
+                <span class="form-muted">加载中...</span>
+              {/if}
+            </div>
+            {#if !detail}
+              <div class="empty">{detailLoadingId === activeTask.id ? '正在加载触发规则…' : '触发规则未加载'}</div>
+            {:else if detail.triggers.length === 0}
+              <div class="empty">未配置触发规则</div>
+            {:else}
+              <div class="config-list">
+                {#each detail.triggers as trigger}
+                  <div class="config-list-item">
+                    <div>
+                      <b>{trigger.triggerId || '自动生成触发规则'}</b>
+                      <p>{triggerKindLabel(trigger.kind)} · {triggerSpec(trigger)}{trigger.nextFireAt ? ` · 下次 ${formatDateTime(trigger.nextFireAt)}` : ''}</p>
+                    </div>
+                    <div class="toolbar">
+                      <span class="chip {trigger.enabled ? 'green' : 'amber'}">{trigger.enabled ? '已启用' : '已暂停'}</span>
+                      <button disabled={triggerBusyId === trigger.triggerId} on:click={() => toggleTrigger(activeTask.id, trigger)}>{trigger.enabled ? '暂停' : '开启'}</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </section>
+
+          <div class="agent-detail-grid">
+            <section>
+              <h3>环境变量</h3>
+              <div class="side-facts side-facts-wide">
+                {#if !detail}
+                  <div><span>变量</span><b>{detailLoadingId === activeTask.id ? '加载中…' : '未加载'}</b></div>
+                {:else if detail.envItems.length === 0}
+                  <div><span>变量</span><b>未配置</b></div>
+                {:else}
+                  {#each detail.envItems as item}
+                    <div><span>{item.name}</span><b>{item.secret ? '已加密/隐藏' : item.value}</b></div>
+                  {/each}
+                {/if}
+              </div>
+            </section>
+            <section>
+              <h3>能力集</h3>
+              <div class="side-facts">
+                {#if activeTask.capsetIds.length === 0}
+                  <div><span>能力集</span><b>未选择</b></div>
+                {:else}
+                  {#each activeTask.capsetIds as capsetId}
+                    {@const capset = capsets.find((item) => item.id === capsetId)}
+                    <div><span>能力集</span><b>{capset?.name || capsetId}</b></div>
+                  {/each}
+                {/if}
+              </div>
+            </section>
           </div>
-          <div class="task-cell">
-            <b>空闲</b>
-            <small>最近运行 -</small>
-          </div>
-          <div class="task-actions">
-            <button on:click={() => toggleTask(task)}>{task.enabled ? '暂停' : '开启'}</button>
-            <button disabled={Boolean(task.lastError)} on:click={() => { debugTask = task; debugPayload = '{}'; }}>调试</button>
-            <button on:click={() => openEdit(task)}>编辑</button>
-            <button disabled={runningTaskId === task.id} on:click={() => runTaskNow(task)}>{runningTaskId === task.id ? '运行中...' : '运行'}</button>
-            <button on:click={() => deleteTask(task)}>删除</button>
-          </div>
-        </section>
-      {/each}
+
+          <section class="agent-prompt-panel">
+            <div class="form-section-head">
+              <h3>任务脚本</h3>
+              {#if detail && isScriptTruncated(detailScript(detail))}
+                <button type="button" on:click={() => (scriptExpanded = !scriptExpanded)}>{scriptExpanded ? '折叠' : '展开'}</button>
+              {/if}
+            </div>
+            {#if !detail}
+              <div class="empty">{detailLoadingId === activeTask.id ? '正在加载脚本…' : '脚本未加载'}</div>
+            {:else if !detailScript(detail)}
+              <pre>未配置脚本</pre>
+            {:else}
+              <pre class="agent-config-preview script-preview" class:collapsed={!scriptExpanded && isScriptTruncated(detailScript(detail))}>{@html highlightedJavaScript(scriptExpanded ? detailScript(detail) : previewScript(detailScript(detail)))}</pre>
+              {#if !scriptExpanded && isScriptTruncated(detailScript(detail))}
+                <small class="form-muted">已展示前 14 行，点击“展开”查看完整脚本，或点击右上角“编辑”进行修改。</small>
+              {/if}
+            {/if}
+          </section>
+        {/if}
+      </div>
     </div>
   {/if}
 </section>
@@ -734,7 +1031,7 @@ scheduler.cron(${triggerName}, "0 8 * * *", function ${handlerName}(payload) {
                   </div>
                   <div class="toolbar">
                     <span class="chip {trigger.enabled ? 'green' : 'amber'}">{trigger.enabled ? '已启用' : '已暂停'}</span>
-                    <button disabled={!draft.id} on:click={() => toggleTrigger(trigger)}>{trigger.enabled ? '暂停' : '开启'}</button>
+                    <button disabled={!draft.id} on:click={() => draft.id && toggleTrigger(draft.id, trigger)}>{trigger.enabled ? '暂停' : '开启'}</button>
                   </div>
                 </div>
               {/each}
@@ -781,11 +1078,32 @@ scheduler.cron(${triggerName}, "0 8 * * *", function ${handlerName}(payload) {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     cursor: pointer;
   }
   .capset-check input {
     width: auto;
     margin: 0;
+  }
+
+  .script-preview {
+    max-height: 320px;
+    overflow: auto;
+    font-family: var(--mono);
+  }
+  .script-preview.collapsed {
+    max-height: 260px;
+    overflow: hidden;
+    /* The fade hint at the bottom signals there's more content; the
+       "展开" button next to the heading is the actual affordance. */
+    -webkit-mask-image: linear-gradient(180deg, #000 78%, transparent);
+            mask-image: linear-gradient(180deg, #000 78%, transparent);
+  }
+
+  .form-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
 </style>

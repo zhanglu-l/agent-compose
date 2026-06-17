@@ -11,6 +11,7 @@ export type ProductRun = {
   agent: string;
   automationId: string;
   automation: string;
+  sourceSessionTags: Array<{ name: string; value: string }>;
   trigger: string;
   capabilitySet: string;
   workspace: string;
@@ -19,6 +20,8 @@ export type ProductRun = {
   duration: string;
   rawStatus: string;
   agentProvider: string;
+  messageCount: number;
+  eventCount: number;
   errorSummary: string;
   output: string;
   input: string;
@@ -46,6 +49,8 @@ export type ProductRun = {
 export function sessionToRun(session: WorkSession): ProductRun {
   const agentID = tagValue(session.tags, 'agent_id');
   const agentName = tagValue(session.tags, 'agent_name') || tagValue(session.tags, 'agent_definition') || tagValue(session.tags, 'agent_template');
+  const loaderID = tagValue(session.tags, 'loader_id');
+  const loaderName = tagValue(session.tags, 'loader_name');
   return {
     id: session.id,
     title: session.title || session.id,
@@ -53,8 +58,9 @@ export function sessionToRun(session: WorkSession): ProductRun {
     status: mapSessionStatus(session.status),
     agentId: agentID,
     agent: agentName,
-    automationId: '',
-    automation: '-',
+    automationId: loaderID,
+    automation: loaderName || (loaderID ? loaderID : '-'),
+    sourceSessionTags: session.tags.map((tag) => ({ name: tag.name, value: tag.value })),
     trigger: mapTriggerLabel(session.triggerSource || 'manual'),
     capabilitySet: '',
     workspace: session.workspacePath,
@@ -63,6 +69,8 @@ export function sessionToRun(session: WorkSession): ProductRun {
     duration: '-',
     rawStatus: session.status,
     agentProvider: '',
+    messageCount: Number(session.cellCount || 0),
+    eventCount: Number(session.eventCount || 0),
     errorSummary: '',
     output: '',
     input: '',
@@ -82,6 +90,7 @@ export function automationRunToRun(run: AutomationRun): ProductRun {
     agent: '',
     automationId: run.loaderId,
     automation: run.loaderId,
+    sourceSessionTags: [],
     trigger: mapTriggerLabel(run.triggerSource || run.triggerKind || '-'),
     capabilitySet: '',
     workspace: '',
@@ -90,6 +99,8 @@ export function automationRunToRun(run: AutomationRun): ProductRun {
     duration: run.durationMs > 0 ? `${Math.round(run.durationMs / 1000)}s` : '-',
     rawStatus: run.status,
     agentProvider: '',
+    messageCount: 0,
+    eventCount: 0,
     errorSummary: run.error,
     output: run.resultJson || run.error,
     input: run.payloadJson,
@@ -101,7 +112,10 @@ export function automationRunToRun(run: AutomationRun): ProductRun {
 
 export function mapSessionStatus(status: string): string {
   const normalized = status.toUpperCase();
-  if (normalized === 'PENDING' || normalized === 'STARTING') {
+  if (normalized === 'PENDING') {
+    return '等待中';
+  }
+  if (normalized === 'STARTING') {
     return '启动中';
   }
   if (normalized === 'RUNNING') {
@@ -147,7 +161,7 @@ export function mapLoaderRunStatus(status: string): string {
 export function statusTone(status: string): 'blue' | 'green' | 'red' | 'gray' {
   if (['启动失败', '失败', '跳过', '已取消'].includes(status)) return 'red';
   if (['成功', '已停止'].includes(status)) return 'green';
-  if (['启动中', '等待中', '运行中', '恢复中', '停止中'].includes(status)) return 'blue';
+  if (['运行中'].includes(status)) return 'blue';
   return 'gray';
 }
 

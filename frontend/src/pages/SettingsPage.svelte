@@ -663,7 +663,7 @@
   <div>
     <h2>系统配置</h2>
   </div>
-  <div class="run-command-metrics">
+  <div class="run-command-metrics five">
     <button class:active={activeSection === 'gateway'} on:click={() => selectSection('gateway')}><span>能力</span><b>{capabilityCount}</b></button>
     <button class:active={activeSection === 'webhook'} on:click={() => selectSection('webhook')}><span>Webhook</span><b>{webhookSources.length}</b></button>
     <button class:active={activeSection === 'runtime'} on:click={() => selectSection('runtime')}><span>运行环境</span><b>1</b></button>
@@ -956,7 +956,7 @@
   }
   .cap-sets h3 {
     margin: 0 0 6px;
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     color: var(--muted);
   }
@@ -976,11 +976,11 @@
   .cap-set-desc {
     margin: 2px 0 4px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
   }
   .cap-empty {
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     margin: 4px 0;
   }
 </style>

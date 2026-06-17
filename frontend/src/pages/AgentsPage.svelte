@@ -281,7 +281,7 @@
   }
 
   function openRun(agent: AgentDraft): void {
-    if (isDeletedAgent(agent)) return;
+    if (isDeletedAgent(agent) || running) return;
     runAgent = agent;
     runWorkspaceMode = agent.workSource === 'git' || agent.workSource === 'file' ? agent.workSource : 'empty';
     runWorkspaceId = agent.workspaceId;
@@ -307,9 +307,11 @@
     error = '';
     message = '';
     try {
+      const task = runTask.trim();
+      const title = task ? `${task} ${formatSessionTime(new Date())}` : `${runAgent.name} ${formatSessionTime(new Date())}`;
       const sessionId = await createAgentDefinitionSession({
         agentId: runAgent.id,
-        title: `${runAgent.name} ${formatSessionTime(new Date())}`,
+        title,
         workspaceId: runWorkspaceMode === 'git' || runWorkspaceMode === 'file' ? runWorkspaceId : '',
         driver: runAgent.driver || 'docker',
         guestImage: runAgent.guestImage,
@@ -449,16 +451,16 @@
 {/if}
 
 <section class="panel agents-panel">
-  <div class="list-toolbar">
+  <div class="runs-toolbar agent-runs-toolbar">
     <div class="run-command-metrics compact">
       <button><span>全部</span><b>{visibleAgents.length}</b></button>
       <button><span>可用</span><b>{visibleAgents.filter((agent) => agent.availabilityClass === 'green').length}</b></button>
       <button><span>运行中</span><b>{visibleAgents.filter((agent) => agent.currentRun.runningSessionCount + agent.currentRun.runningLoaderRunCount > 0).length}</b></button>
       <button><span>异常</span><b>{visibleAgents.filter((agent) => agent.availabilityClass === 'red' || agent.healthClass === 'red').length}</b></button>
     </div>
-    <label class="filter-checkbox agent-deleted-toggle"><input type="checkbox" bind:checked={showDeletedAgents} on:change={toggleDeletedAgents}><span>显示已删除</span></label>
-    <div class="filters">
+    <div class="runs-filters agent-run-filters">
       <input class="filter-keyword" placeholder="按名称、描述、运行环境筛选" bind:value={keyword}>
+      <label class="filter-checkbox agent-deleted-toggle"><input type="checkbox" bind:checked={showDeletedAgents} on:change={toggleDeletedAgents}><span>显示已删除</span></label>
       <button on:click={load}>{loading ? '刷新中...' : '刷新'}</button>
       <button class="primary" on:click={() => openEdit(null)}>创建智能体</button>
     </div>
@@ -515,7 +517,7 @@
               <span class="chip {agentStatusClass(activeAgent)}">{agentStatusLabel(activeAgent)}</span>
               <span class="chip {activeAgent.healthClass}">{activeAgent.health}</span>
               <button disabled={isDeletedAgent(activeAgent)} on:click={() => openEdit(activeAgent)}>编辑</button>
-              <button class="primary" disabled={isDeletedAgent(activeAgent) || !activeAgent.enabled || activeAgent.availabilityClass === 'red'} on:click={() => { selectAgent(activeAgent); openRun(activeAgent); }}>运行</button>
+              <button class="primary" disabled={isDeletedAgent(activeAgent) || !activeAgent.enabled || activeAgent.availabilityClass === 'red' || running} on:click={() => { selectAgent(activeAgent); openRun(activeAgent); }}>{running ? '运行中...' : '运行'}</button>
             </div>
           </div>
           <div class="agent-detail-grid">
@@ -548,7 +550,7 @@
           <div class="agent-detail-grid">
             <section>
               <h3>环境变量</h3>
-              <div class="side-facts">
+              <div class="side-facts side-facts-wide">
                 {#if activeAgent.envItems.length === 0}
                   <div><span>变量</span><b>未配置</b></div>
                 {:else}
@@ -748,7 +750,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     cursor: pointer;
   }
   .capset-check input {

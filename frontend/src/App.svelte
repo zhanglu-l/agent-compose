@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import AppstoreOutlined from '@ant-design/icons-svg/es/asn/AppstoreOutlined';
-  import DashboardOutlined from '@ant-design/icons-svg/es/asn/DashboardOutlined';
   import ExperimentOutlined from '@ant-design/icons-svg/es/asn/ExperimentOutlined';
   import MenuFoldOutlined from '@ant-design/icons-svg/es/asn/MenuFoldOutlined';
   import MenuUnfoldOutlined from '@ant-design/icons-svg/es/asn/MenuUnfoldOutlined';
@@ -14,7 +13,6 @@
   import { getDashboardOverview, watchDashboardOverview, type DashboardOverview } from './api/dashboard';
   import { getHealthStatus, watchHealthStatus, type HealthStatus } from './api/health';
   import AntIcon from './components/AntIcon.svelte';
-  import WorkbenchPage from './pages/WorkbenchPage.svelte';
   import RunsPage from './pages/RunsPage.svelte';
   import AgentsPage from './pages/AgentsPage.svelte';
   import AutomationTasksPage from './pages/AutomationTasksPage.svelte';
@@ -24,7 +22,7 @@
   import LoginPage from './pages/LoginPage.svelte';
   import { stripAppBase, appPath } from './paths';
 
-  type Page = 'workbench' | 'runs' | 'agents' | 'automation-tasks' | 'settings' | 'debug-run' | 'event-detail' | 'login';
+  type Page = 'runs' | 'agents' | 'automation-tasks' | 'settings' | 'debug-run' | 'event-detail' | 'login';
 
   let debugRunId = '';
   let eventDetailId = '';
@@ -42,10 +40,11 @@
   let sidebarCollapsed = false;
   let currentUsername = '';
   let authReady = false;
+  let sidebarForcedByViewport = false;
   const sidebarCollapsedStorageKey = 'agent-compose.sidebarCollapsed';
+  const sidebarBreakpoint = 1440;
 
   const pagePaths: Record<Page, string> = {
-    workbench: appPath('/'),
     runs: appPath('/runs'),
     agents: appPath('/agents'),
     'automation-tasks': appPath('/automation-tasks'),
@@ -71,7 +70,7 @@
       return 'login';
     }
     if (normalized === '/' || normalized === '/workbench') {
-      return 'workbench';
+      return 'agents';
     }
     if (normalized === '/runs') {
       return 'runs';
@@ -85,7 +84,17 @@
     if (normalized === '/settings') {
       return 'settings';
     }
-    return 'workbench';
+    return 'agents';
+  }
+
+  function redirectLegacyEntryPath(): void {
+    const normalized = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (normalized !== '/ui' && normalized !== '/ui/workbench') return;
+    const nextPath = `${appPath('/agents')}${window.location.search}${window.location.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (current !== nextPath) {
+      history.replaceState({ page: 'agents' }, '', nextPath);
+    }
   }
 
   function isLoginLocation(): boolean {
@@ -135,15 +144,29 @@
   }
 
   const navItems: Array<{ page: Page; label: string; icon: IconDefinition }> = [
-    { page: 'workbench', label: '工作台', icon: DashboardOutlined },
-    { page: 'runs', label: '运行中心', icon: PlayCircleOutlined },
     { page: 'agents', label: '智能体', icon: RobotOutlined },
     { page: 'automation-tasks', label: '自动化任务', icon: ExperimentOutlined },
+    { page: 'runs', label: '运行中心', icon: PlayCircleOutlined },
     { page: 'settings', label: '系统配置', icon: SettingOutlined },
   ];
 
+  function applyViewportSidebar(): void {
+    if (window.innerWidth <= sidebarBreakpoint) {
+      sidebarForcedByViewport = true;
+      sidebarCollapsed = true;
+    } else {
+      sidebarForcedByViewport = false;
+      sidebarCollapsed = window.localStorage.getItem(sidebarCollapsedStorageKey) === 'true';
+    }
+  }
+
   onMount(() => {
+    redirectLegacyEntryPath();
+    activePage = pageFromPath(stripAppBase(window.location.pathname));
     sidebarCollapsed = window.localStorage.getItem(sidebarCollapsedStorageKey) === 'true';
+    applyViewportSidebar();
+    const mediaQuery = window.matchMedia(`(max-width: ${sidebarBreakpoint}px)`);
+    mediaQuery.addEventListener('change', applyViewportSidebar);
     void bootstrap();
     const syncFromLocation = () => {
       activePage = pageFromPath(stripAppBase(window.location.pathname));
@@ -173,6 +196,7 @@
     document.addEventListener('visibilitychange', handleVisible);
     return () => {
       stopGlobalWatches();
+      mediaQuery.removeEventListener('change', applyViewportSidebar);
       window.removeEventListener('popstate', syncFromLocation);
       window.removeEventListener('focus', handleVisible);
       document.removeEventListener('visibilitychange', handleVisible);
@@ -398,6 +422,9 @@
 
   function toggleSidebar(): void {
     sidebarCollapsed = !sidebarCollapsed;
+    if (sidebarForcedByViewport) {
+      sidebarForcedByViewport = false;
+    }
     window.localStorage.setItem(sidebarCollapsedStorageKey, sidebarCollapsed ? 'true' : 'false');
   }
 </script>
@@ -465,9 +492,7 @@
       </div>
     </header>
     <section class="content">
-      {#if activePage === 'workbench'}
-        <WorkbenchPage on:navigate={(event) => navigate(event.detail)} on:openRun={(event) => navigateRunsWithRun(event.detail)} />
-      {:else if activePage === 'runs'}
+      {#if activePage === 'runs'}
         <RunsPage on:debug={(event) => navigateToDebug(event.detail)} />
       {:else if activePage === 'agents'}
         <AgentsPage />

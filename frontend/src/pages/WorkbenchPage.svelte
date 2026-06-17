@@ -41,7 +41,7 @@
     try {
       const [agents, sessions, tasks] = await Promise.all([
         listAgentDefinitions(),
-        listWorkSessions(5),
+        listWorkSessions(5).then((r) => r.sessions),
         listAutomationTasks(),
       ]);
       agentCount = agents.length;
