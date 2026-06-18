@@ -26,6 +26,60 @@ func TestServiceConfigAndLoaderAPIs(t *testing.T) {
 	testServiceConfigAndLoaderAPIs(t)
 }
 
+func TestUpdateGlobalEnvConfigPreservesUnchangedSecrets(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+
+	if _, err := service.UpdateGlobalEnvConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateGlobalEnvConfigRequest{
+		EnvItems: []*agentcomposev1.SessionEnvVar{
+			{Name: "PLAIN", Value: "visible"},
+			{Name: "TOKEN", Value: "secret-value", Secret: true},
+		},
+	})); err != nil {
+		t.Fatalf("UpdateGlobalEnvConfig(initial) returned error: %v", err)
+	}
+	if _, err := service.UpdateGlobalEnvConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateGlobalEnvConfigRequest{
+		EnvItems: []*agentcomposev1.SessionEnvVar{
+			{Name: "FOO", Value: "bar"},
+			{Name: "PLAIN", Value: "visible"},
+			{Name: "TOKEN", Value: "", Secret: true},
+		},
+	})); err != nil {
+		t.Fatalf("UpdateGlobalEnvConfig(preserve secret) returned error: %v", err)
+	}
+	stored, err := service.configDB.ListGlobalEnv(ctx)
+	if err != nil {
+		t.Fatalf("ListGlobalEnv returned error: %v", err)
+	}
+	env := sessionEnvMap(stored)
+	if got := env["TOKEN"]; got != "secret-value" {
+		t.Fatalf("stored TOKEN = %q, want preserved secret value", got)
+	}
+	if got := env["FOO"]; got != "bar" {
+		t.Fatalf("stored FOO = %q, want bar", got)
+	}
+
+	if _, err := service.UpdateGlobalEnvConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateGlobalEnvConfigRequest{
+		EnvItems: []*agentcomposev1.SessionEnvVar{{Name: "NEW_TOKEN", Value: "", Secret: true}},
+	})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("UpdateGlobalEnvConfig(new empty secret) code = %v, want invalid_argument", connect.CodeOf(err))
+	}
+
+	if _, err := service.UpdateGlobalEnvConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateGlobalEnvConfigRequest{
+		EnvItems: []*agentcomposev1.SessionEnvVar{{Name: "PLAIN", Value: "visible"}},
+	})); err != nil {
+		t.Fatalf("UpdateGlobalEnvConfig(delete secret) returned error: %v", err)
+	}
+	stored, err = service.configDB.ListGlobalEnv(ctx)
+	if err != nil {
+		t.Fatalf("ListGlobalEnv(after delete) returned error: %v", err)
+	}
+	env = sessionEnvMap(stored)
+	if _, ok := env["TOKEN"]; ok {
+		t.Fatalf("TOKEN was preserved after deletion request: %#v", stored)
+	}
+}
+
 func TestServiceSessionKernelAgentAndLLMAPIs(t *testing.T) {
 	testServiceSessionKernelAgentAndLLMAPIs(t)
 }

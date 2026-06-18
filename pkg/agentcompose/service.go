@@ -254,11 +254,43 @@ func (s *Service) UpdateGlobalEnvConfig(ctx context.Context, req *connect.Reques
 	for _, item := range req.Msg.GetEnvItems() {
 		items = append(items, SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
 	}
+	items = normalizeEnvItems(items)
+	items, err := s.preserveUnchangedGlobalEnvSecrets(ctx, items)
+	if err != nil {
+		return nil, err
+	}
 	saved, err := s.configDB.ReplaceGlobalEnv(ctx, items)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(toProtoGlobalEnvConfig(saved)), nil
+}
+
+func (s *Service) preserveUnchangedGlobalEnvSecrets(ctx context.Context, items []SessionEnvVar) ([]SessionEnvVar, error) {
+	existingItems, err := s.configDB.ListGlobalEnv(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	existingByName := make(map[string]SessionEnvVar, len(existingItems))
+	for _, item := range existingItems {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		existingByName[name] = item
+	}
+	for index, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" || !item.Secret || strings.TrimSpace(item.Value) != "" {
+			continue
+		}
+		existing, ok := existingByName[name]
+		if !ok || !existing.Secret || existing.Value == "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("secret env %s requires a value", name))
+		}
+		items[index].Value = existing.Value
+	}
+	return items, nil
 }
 
 func (s *Service) ListWorkspaceConfigs(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[agentcomposev1.ListWorkspaceConfigsResponse], error) {

@@ -278,9 +278,9 @@
   }
 
   async function saveEnvItems(): Promise<void> {
-    const unknownSecrets = envItems.filter((item) => item.secret && !item.valueKnown);
-    if (unknownSecrets.length > 0) {
-      error = `请重新输入或删除这些 Secret 后再保存：${unknownSecrets.map((item) => item.name || '未命名').join(', ')}`;
+    const emptyKnownSecrets = envItems.filter((item) => item.secret && item.valueKnown && item.value.trim() === '');
+    if (emptyKnownSecrets.length > 0) {
+      error = `请填写这些 Secret 的值，或删除对应变量：${emptyKnownSecrets.map((item) => item.name || '未命名').join(', ')}`;
       return;
     }
     savingEnv = true;
@@ -288,9 +288,7 @@
     message = '';
     try {
       await updateEnvItems(envItems);
-      envItems = envItems
-        .filter((item) => item.name.trim())
-        .map((item) => ({ ...item, name: item.name.trim(), valueKnown: true }));
+      envItems = await listEnvItems();
       envDirty = false;
       message = '全局环境变量已保存';
     } catch (err) {
