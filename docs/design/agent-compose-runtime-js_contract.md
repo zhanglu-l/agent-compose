@@ -132,7 +132,9 @@ guest: /data/state/agents/system-prompts/<provider>-<unix_nano>.txt
 ```
 
 The guest path is passed through `--system-prompt-file`. If the agent
-`system_prompt` is empty, this flag is omitted.
+`system_prompt` is empty, this flag is omitted. If an older guest runtime rejects
+the flag as unknown, the host logs a warning and retries once without the system
+prompt file.
 
 ### 3.4 Agent HOME And Initial Config
 
@@ -549,7 +551,7 @@ networkAccessEnabled=true
 The JavaScript runtime composes system context in this order:
 
 1. `## Agent Identity` from `--system-prompt-file` (when provided)
-2. `## Capabilities (MPI)` from `/data/runtime/mpi/catalog.md` (when readable)
+2. `## MPI Catalog` from `/data/runtime/mpi/catalog.md` (when readable)
 
 The combined context is injected through Codex `config.developer_instructions`.
 

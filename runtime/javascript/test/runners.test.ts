@@ -12,7 +12,7 @@ afterEach(() => {
 describe("CodexRunner", () => {
   it("exposes Codex thread options without constructor-only config", async () => {
     await withTempSession(async (root) => {
-      const systemContext = "## Capabilities (MPI)\n\ncatalog body";
+      const systemContext = "## MPI Catalog\n\ncatalog body";
       const runner = new CodexRunner(runnerOptions(root, systemContext));
 
       const threadOptions = runner.threadOptions();

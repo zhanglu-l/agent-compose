@@ -7,13 +7,18 @@ import { withTempSession } from "./helpers.js";
 
 describe("system-context", () => {
   it("builds agent identity section before mpi section", () => {
-    const combined = buildSystemContext("Reply only in Chinese", "MPI catalog body");
+    const mpiFormatted = [
+      "## MPI Catalog",
+      "",
+      "MPI catalog body",
+    ].join("\n");
+    const combined = buildSystemContext("Reply only in Chinese", mpiFormatted);
     expect(combined).toBe([
       "## Agent Identity",
       "",
       "Reply only in Chinese",
       "",
-      "## Capabilities (MPI)",
+      "## MPI Catalog",
       "",
       "MPI catalog body",
     ].join("\n"));

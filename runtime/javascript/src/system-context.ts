@@ -9,7 +9,7 @@ export function buildSystemContext(agentPrompt: string, mpiContext: string): str
   const parts: string[] = ["## Agent Identity", "", agent];
   const mpi = mpiContext.trim();
   if (mpi) {
-    parts.push("", "## Capabilities (MPI)", "", mpi);
+    parts.push("", mpi);
   }
   return parts.join("\n").trim();
 }

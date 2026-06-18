@@ -25,7 +25,7 @@ without introducing a full platform runtime brief.
 | Layer | Storage / source | Runtime behavior (pre–Phase 1) |
 | --- | --- | --- |
 | Agent identity | `AgentDefinition.system_prompt` in `config_store` | **Not injected** |
-| Capabilities (MPI) | Host writes `runtime/mpi/catalog.md` from OctoBus capsets | Injected into Codex / Claude only |
+| MPI catalog | Host writes `runtime/mpi/catalog.md` from OctoBus capsets | Injected into Codex / Claude only |
 | Per-turn task | Host writes `state/agents/prompts/<provider>-<nano>.txt` | Passed via `--message-file` |
 
 Provider injection before Phase 1:
@@ -54,7 +54,7 @@ skills discovery.
 
 - Make configured `system_prompt` affect Codex, Claude, and Gemini runs
 - Preserve per-turn message isolation (`--message-file` carries task text only)
-- Compose Agent Identity **before** Capabilities (MPI) when both are present
+- Compose Agent Identity **before** the MPI catalog when both are present
 - Remain backward compatible when `system_prompt` is empty or no agent binding exists
 - Pass live combined context on Codex resume (via constructor-level config)
 - Cover loader runs and managed project runs that bind an agent definition
@@ -81,7 +81,7 @@ Implemented composition for provider system / developer instructions:
 │  │ ## Agent Identity                                      │  │
 │  │ AgentDefinition.system_prompt (DB, per agent)          │  │
 │  ├────────────────────────────────────────────────────────┤  │
-│  │ ## Capabilities (MPI)                                  │  │
+│  │ ## MPI Catalog                                         │  │
 │  │ OctoBus capset guides → runtime/mpi/catalog.md         │  │
 │  └────────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────────┤
@@ -93,9 +93,9 @@ Implemented composition for provider system / developer instructions:
 Rules:
 
 - Agent Identity is omitted when `system_prompt` is empty after trim.
-- Capabilities (MPI) is omitted when no readable MPI catalog exists.
-- When only MPI is present, the runtime preserves the pre–Phase 1 MPI string
-  (including the existing `## MPI Catalog` header from `formatMpiContext`).
+- MPI is omitted when no readable MPI catalog exists.
+- When MPI is present, the runtime preserves the MPI string from
+  `formatMpiContext`, including the existing `## MPI Catalog` header.
 - `description` is catalog metadata only and MUST NOT appear in runtime instructions.
 
 ## End-to-End Data Flow
@@ -151,11 +151,11 @@ Primary files: `pkg/agentcompose/service.go`, `pkg/agentcompose/exec.go`,
 
 ### Resolve agent system prompt
 
-**Function:** `Executor.resolveAgentSystemPrompt(ctx, session, providerAgent string) (string, error)`
+**Function:** `Executor.resolveAgentSystemPrompt(ctx, session, agentDefinitionID string) (string, error)`
 
 Resolution order:
 
-1. If `providerAgent` (now `ExecuteAgentRequest.AgentDefinitionID`) is non-empty,
+1. If `agentDefinitionID` (`ExecuteAgentRequest.AgentDefinitionID`) is non-empty,
    load that agent definition directly.
 2. Else, if the session has tags `source=agent` and `agent_id=<uuid>`, load by
    tagged agent id.
@@ -222,10 +222,10 @@ Composition logic:
 
 - When agent prompt is non-empty: emit `## Agent Identity`, blank line, trimmed
   agent text.
-- When MPI is non-empty and agent prompt is also non-empty: append
-  `## Capabilities (MPI)`, blank line, trimmed MPI body.
-- When agent prompt is empty but MPI exists: return MPI unchanged (preserves
-  `## MPI Catalog` header from `formatMpiContext` for backward compatibility).
+- When MPI is non-empty and agent prompt is also non-empty: append the trimmed
+  MPI context unchanged, preserving its `## MPI Catalog` header.
+- When agent prompt is empty but MPI exists: return MPI unchanged for backward
+  compatibility.
 - When both are empty: return `""`.
 
 `readSystemPromptFile` returns `""` for missing path, `ENOENT`, or empty file
@@ -285,13 +285,8 @@ const userPrompt = systemContext
 The subprocess is invoked with `-p userPrompt`. This intentionally merges identity
 and task into one CLI argument until a native system channel exists.
 
-Additional Gemini runner adjustments in Phase 1:
-
-- `--skip-trust` CLI flag
-- `GEMINI_CLI_TRUST_WORKSPACE=true` in the subprocess environment
-
-These reduce interactive trust prompts during automated runs; they are unrelated
-to prompt layering but landed in the same change set.
+No Gemini trust or permission flags are changed in Phase 1; those remain outside
+the system prompt wiring scope.
 
 ## Binding Scenarios
 
@@ -403,14 +398,6 @@ composed brief, similar to Cursor Agent Skills.
 Replace the `-p` prepend fallback when the Gemini CLI or SDK exposes a dedicated
 system-instruction parameter. Until then, per-turn message isolation remains
 relaxed for Gemini only.
-
-### MPI header alignment
-
-Unify MPI section labeling. Phase 1 leaves `formatMpiContext` output as
-`## MPI Catalog`; when both agent identity and MPI are present,
-`buildSystemContext` adds an outer `## Capabilities (MPI)` header, which can
-produce nested headers. A follow-up should strip or rename the inner header for
-consistent labeling in all cases.
 
 ### Field rename: `system_prompt` → `instructions`
 

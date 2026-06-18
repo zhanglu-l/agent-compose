@@ -423,7 +423,7 @@ describe("runner execution", () => {
         expect(result.transcript).toContain("file contents");
         expect(childProcessState.spawnCalls.at(-1)).toMatchObject({
           command: "gemini",
-          args: ["-p", `${systemContext}\n\nprompt`, "--output-format", "stream-json", "--approval-mode", "yolo", "--skip-trust"],
+          args: ["-p", `${systemContext}\n\nprompt`, "--output-format", "stream-json", "--approval-mode", "yolo"],
         });
       } finally {
         stdio.restore();

@@ -270,7 +270,7 @@ describe("commander CLI", () => {
       const options = codexSpy.mock.calls.at(-1)?.[0] as { systemContext: string };
       expect(options.systemContext).toContain("## Agent Identity");
       expect(options.systemContext).toContain("Reply only in Chinese");
-      expect(options.systemContext).toContain("## Capabilities (MPI)");
+      expect(options.systemContext).toContain("## MPI Catalog");
       expect(options.systemContext).toContain("# Email tools");
     });
   });

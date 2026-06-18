@@ -1247,11 +1247,11 @@ func sanitizeAgentExecResult(result ExecResult) ExecResult {
 	return cleaned
 }
 
-func (e *Executor) resolveAgentSystemPrompt(ctx context.Context, session *Session, providerAgent string) (string, error) {
+func (e *Executor) resolveAgentSystemPrompt(ctx context.Context, session *Session, agentDefinitionID string) (string, error) {
 	if e == nil || e.configDB == nil {
 		return "", nil
 	}
-	agentID := strings.TrimSpace(providerAgent)
+	agentID := strings.TrimSpace(agentDefinitionID)
 	if agentID == "" {
 		taggedAgentID := sessionTagValue(session.Summary.Tags, agentSessionTagID)
 		if !sessionHasAgentTag(session, taggedAgentID) {
@@ -1264,13 +1264,14 @@ func (e *Executor) resolveAgentSystemPrompt(ctx context.Context, session *Sessio
 	}
 	agentDef, err := e.configDB.GetAgentDefinition(ctx, agentID)
 	if err != nil {
+		// Agent identity is optional at execution time; lookup failures degrade to MPI-only context.
 		slog.Warn("resolve agent system prompt failed", "agent_id", agentID, "error", err)
 		return "", nil
 	}
 	return strings.TrimSpace(agentDef.SystemPrompt), nil
 }
 
-func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent, providerAgent, message, outputSchemaJSON string, stream ExecStreamWriter) (ExecResult, AgentRunResult, error) {
+func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent, agentDefinitionID, message, outputSchemaJSON string, stream ExecStreamWriter) (ExecResult, AgentRunResult, error) {
 	if session.Summary.VMStatus != VMStatusRunning {
 		return ExecResult{}, AgentRunResult{}, fmt.Errorf("session is not running")
 	}
@@ -1286,7 +1287,7 @@ func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent,
 	if err != nil {
 		return ExecResult{}, AgentRunResult{}, err
 	}
-	systemPrompt, err := e.resolveAgentSystemPrompt(ctx, session, providerAgent)
+	systemPrompt, err := e.resolveAgentSystemPrompt(ctx, session, agentDefinitionID)
 	if err != nil {
 		return ExecResult{}, AgentRunResult{}, err
 	}

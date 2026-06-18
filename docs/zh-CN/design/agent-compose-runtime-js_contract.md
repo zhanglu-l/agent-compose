@@ -475,7 +475,7 @@ networkAccessEnabled=true
 JS runtime 会按以下顺序组装 system context：
 
 1. `## Agent Identity`（来自 `--system-prompt-file`，可选）
-2. `## Capabilities (MPI)`（来自 `/data/runtime/mpi/catalog.md`，可选）
+2. `## MPI Catalog`（来自 `/data/runtime/mpi/catalog.md`，可选）
 
 组合后的上下文通过 Codex `config.developer_instructions` 注入。
 

@@ -31,13 +31,9 @@ export class GeminiRunner {
       "-p", userPrompt,
       "--output-format", "stream-json",
       "--approval-mode", "yolo",
-      "--skip-trust",
     ], {
       cwd: this.options.workspace,
-      env: {
-        ...process.env,
-        GEMINI_CLI_TRUST_WORKSPACE: "true",
-      },
+      env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
