@@ -731,10 +731,12 @@ type RuntimeLLMResult<T = unknown> = {
 };
 ```
 
-`runtime.llm` structured output semantics match `runtime.agent`: schema is sent
-to LLM service as `output_schema`; when schema is set, `text` must be a JSON
-string, which the SDK parses into `json`. Zod schemas are validated a second time
-inside the SDK.
+With `outputSchema`, the SDK sends JSON Schema to `LLMService.Generate` as
+`output_schema`. When schema is set, `text` must be a JSON string; the SDK
+parses it into `json` and validates Zod schemas again locally. With
+`LLM_API_PROTOCOL=responses`, the daemon enforces strict JSON Schema via the
+Responses API. With `chat_completions`, it uses prompt guidance and
+`response_format: json_object` instead.
 
 `runtime.env` provides:
 

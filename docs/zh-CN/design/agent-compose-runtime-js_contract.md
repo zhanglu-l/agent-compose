@@ -617,7 +617,11 @@ type RuntimeLLMResult<T = unknown> = {
 };
 ```
 
-`runtime.llm` 的结构化输出语义与 `runtime.agent` 一致：schema 会作为 `output_schema` 字符串发给 LLM service；设置 schema 时，`text` 必须是 JSON 字符串，SDK 会解析并把对象放入 `json`。Zod schema 会在 SDK 侧二次校验。
+设置 `outputSchema` 时，SDK 会将 JSON Schema 作为 `output_schema` 发给
+`LLMService.Generate`；`text` 必须是 JSON 字符串，SDK 解析到 `json` 并对 Zod
+schema 二次校验。`LLM_API_PROTOCOL=responses` 时，daemon 通过 Responses API
+做 strict JSON Schema 约束；`chat_completions` 则改为 prompt 引导并设置
+`json_object`。
 
 `runtime.env` 提供：
 

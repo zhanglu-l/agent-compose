@@ -212,7 +212,9 @@ Error behavior:
 
 Calls the agent-compose LLM service. The daemon selects the HTTP protocol via
 `LLM_API_PROTOCOL` (`responses` by default, or `chat_completions` for
-OpenAI-compatible Chat Completions backends).
+OpenAI-compatible Chat Completions backends). With `outputSchema`,
+`chat_completions` uses prompt guidance and `response_format: json_object`, not
+Responses API strict JSON Schema.
 
 ```ts
 const result = await runtime.llm("Summarize the workspace risk.", {

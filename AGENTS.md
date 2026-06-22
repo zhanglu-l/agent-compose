@@ -58,6 +58,7 @@ Important defaults:
 Daemon LLM client (`LLMService`, `scheduler.llm`, SDK `runtime.llm`):
 - `LLM_API_ENDPOINT`, `LLM_API_KEY`, `OPENAI_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`
 - `LLM_API_PROTOCOL`: `responses` (default) or `chat_completions` for OpenAI-compatible backends (aliases: `chat`, `chat_completion`)
+- `chat_completions` structured output uses prompt guidance + `json_object`; use `responses` for strict JSON Schema enforcement
 - Guest agent providers remain `codex`, `claude`, and `gemini` CLI runners in guest containers
 
 ## Persistence

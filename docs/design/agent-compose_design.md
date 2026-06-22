@@ -627,7 +627,8 @@ locally. Passing plain JSON Schema performs JSON parsing.
 Global env from the UI/database overrides process environment for these keys.
 The `chat_completions` protocol is for unary text generation only. It does not
 create workspace-capable agent sessions or grant file, command, or MCP tool
-access.
+access. With `outputSchema`, it uses prompt guidance and `json_object` instead
+of Responses API strict JSON Schema.
 
 Guest agent providers (`codex`, `claude`, `gemini`) remain separate CLI runners
 inside guest containers with their own API keys and session state.

@@ -461,7 +461,7 @@ project compose 的 `scheduler.script` 使用同一套 runtime。脚本在 valid
 - `LLM_API_ENDPOINT`、`LLM_API_KEY`、`OPENAI_API_KEY`、`LLM_MODEL`、`LLM_TIMEOUT`
 - `LLM_API_PROTOCOL`：`responses`（默认，OpenAI Responses API）或 `chat_completions`（OpenAI 兼容 Chat Completions；别名：`chat`、`chat_completion`）
 
-UI/数据库中的 global env 会覆盖进程环境变量。`chat_completions` 仅用于单次文本生成，不会创建具备 workspace 能力的 agent session，也不提供文件、命令或 MCP 工具访问。
+UI/数据库中的 global env 会覆盖进程环境变量。`chat_completions` 仅用于单次文本生成，不会创建具备 workspace 能力的 agent session，也不提供文件、命令或 MCP 工具访问。使用 `outputSchema` 时，`chat_completions` 通过 prompt 引导并设置 `json_object`，不等价于 Responses API strict JSON Schema。
 
 Guest agent provider（`codex`、`claude`、`gemini`）仍是 guest 容器内的 CLI runner，使用各自的 API key 和 session 状态。
 

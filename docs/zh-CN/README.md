@@ -161,6 +161,8 @@ LLM_MODEL=your-model
 
 该路径不会创建具备 workspace 能力的 agent session，也不提供文件、命令或 MCP 工具访问。
 
+使用 `outputSchema` 时，`chat_completions` 通过 prompt 引导并设置 `response_format: json_object`，不等价于 Responses API 的 strict JSON Schema。
+
 ## 安全提醒
 
 默认配置面向本地开发。公开部署前需要审查并加固：

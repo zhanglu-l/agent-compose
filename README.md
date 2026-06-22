@@ -302,6 +302,9 @@ Compatible backends include DeepSeek, local OpenAI-compatible proxies
 This does not create a workspace-capable agent session and does not grant file,
 command, or MCP tool access.
 
+With `outputSchema`, `chat_completions` uses prompt guidance and
+`response_format: json_object` (not Responses API strict JSON Schema).
+
 ## Security Notes
 
 The default configuration is designed for local development. Review and harden
