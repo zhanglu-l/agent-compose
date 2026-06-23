@@ -1,5 +1,8 @@
 # agent-compose
 
+[![CI](https://github.com/chaitin/agent-compose/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/chaitin/agent-compose/actions/workflows/ci.yml)
+[![Images & Release](https://github.com/chaitin/agent-compose/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/chaitin/agent-compose/actions/workflows/images.yml)
+
 agent-compose is an experimental control plane for running isolated agent
 sessions. It provides a daemon, CLI, Connect APIs, runtime drivers, workspace
 provisioning, scheduler automation, event history, and a Jupyter proxy for
