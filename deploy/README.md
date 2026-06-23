@@ -61,6 +61,7 @@ On first run the installer generates an admin password and prints it once:
 ./install.sh --image-prefix registry.example.com/agent-compose   # mirror / private registry
 ./install.sh --upgrade                # update an existing install to this release
 ./install.sh --no-start               # write files but don't pull images or start
+./install.sh --yes                    # skip the confirmation prompt
 ```
 
 ## Requirements
@@ -89,3 +90,7 @@ secrets or image refs, but it does not overwrite image refs already set in
 `.env` unless `--upgrade` is passed. Use `--upgrade` with a newer
 `agent-compose-installer.run` to update an existing installation to that
 release and restart the stack.
+
+Before changing the installation directory, the installer prints a deployment
+plan and asks for confirmation. Use `--yes` or `AGENT_COMPOSE_YES=1` for
+non-interactive automation.
