@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
 
+  import { getCapabilityStatus } from '../api/config';
   import { listAgentDefinitions } from '../api/agents';
   import { listAutomationTasks, listRecentAutomationRuns } from '../api/loaders';
   import { listWorkSessions } from '../api/sessions';
@@ -19,17 +20,13 @@
   let runCount = 0;
   let capabilityCount = 0;
   let attentionCount = 0;
-  let recentItems: Array<{ id: string; title: string; type: string; status: string }> = [];
+  let recentItems: Array<{ id: string; title: string; type: string; status: string; at: string }> = [];
   let timelineRange: '12h' | '24h' | '36h' | '48h' | 'custom' = '24h';
   let customFrom = '';
   let customTo = '';
 
   $: attentionItems = recentItems.filter((item) => isAttentionStatus(item.status));
   $: timelineItems = recentItems
-    .map((item, index) => ({
-      ...item,
-      at: new Date(Date.now() - index * 45 * 60 * 1000).toISOString(),
-    }))
     .filter((item) => inTimelineRange(item.at))
     .sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
 
@@ -39,21 +36,22 @@
     loading = true;
     error = '';
     try {
-      const [agents, sessions, tasks] = await Promise.all([
+      const [agents, sessions, tasks, capabilityStatus] = await Promise.all([
         listAgentDefinitions(),
         listWorkSessions(5).then((r) => r.sessions),
         listAutomationTasks(),
+        getCapabilityStatus().catch(() => null),
       ]);
       agentCount = agents.length;
       taskCount = tasks.length;
       const runs = await listRecentAutomationRuns(tasks.map((item) => item.id), 5);
       runCount = sessions.length + runs.length;
       recentItems = [
-        ...sessions.map((item) => ({ id: item.id, title: item.title || item.id, type: '工作会话', status: mapSessionStatus(item.status) })),
-        ...runs.map((item) => ({ id: item.id, title: item.id, type: '自动化运行', status: mapLoaderRunStatus(item.status) })),
-      ].slice(0, 6);
+        ...sessions.map((item) => ({ id: item.id, title: item.title || item.id, type: '工作会话', status: mapSessionStatus(item.status), at: item.updatedAt || item.createdAt })),
+        ...runs.map((item) => ({ id: item.id, title: item.id, type: '自动化运行', status: mapLoaderRunStatus(item.status), at: item.completedAt || item.startedAt })),
+      ].sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime()).slice(0, 6);
       attentionCount = recentItems.filter((item) => isAttentionStatus(item.status)).length;
-      capabilityCount = 0;
+      capabilityCount = capabilityStatus?.serviceCount ?? 0;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {

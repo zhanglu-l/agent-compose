@@ -23,6 +23,7 @@
   } from '../api/sessions';
   import { automationRunToRun, sessionToRun, type ProductRun } from '../model/runs';
   import { CellType } from '../gen/proto/agentcompose/v1/agentcompose_pb.js';
+  import { appPath } from '../paths';
   import { formatBeijingTime } from '../time';
   import { currentQueryParams, updateQueryParams } from '../url';
 
@@ -1496,14 +1497,14 @@
 
   function goAgentDetail(agent: AgentObservation): void {
     if (!agent.agentId || agent.deleted) return;
-    window.location.assign(`/ui/agents?agent=${encodeURIComponent(agent.agentId)}`);
+    window.location.assign(appPath(`/agents?agent=${encodeURIComponent(agent.agentId)}`));
   }
 
   function goAgentManualRun(agent: AgentObservation): void {
     if (!agent.agentId || agent.deleted) return;
     const def = agentDefinitions.find((item) => item.id === agent.agentId);
     if (!def) {
-      window.location.assign(`/ui/agents?agent=${encodeURIComponent(agent.agentId)}`);
+      window.location.assign(appPath(`/agents?agent=${encodeURIComponent(agent.agentId)}`));
       return;
     }
     openRun(def);
@@ -1701,7 +1702,7 @@
 
   function goTaskDetail(run: ProductRun): void {
     if (!run.automationId || isRunTaskDeleted(run)) return;
-    window.location.assign(`/ui/automation-tasks?task=${encodeURIComponent(run.automationId)}`);
+    window.location.assign(appPath(`/automation-tasks?task=${encodeURIComponent(run.automationId)}`));
   }
 
   function mergeSessionUpdate(existing: ProductRun, updated: ReturnType<typeof sessionToRun>): ProductRun {
@@ -3892,7 +3893,7 @@
       <div class="empty-state-icon"><AntIcon definition={InboxOutlined} /></div>
       <h3>还没有智能体</h3>
       <p>先创建智能体，再从智能体页运行或创建自动化任务。</p>
-      <div class="empty-state-actions"><button class="primary" on:click={() => window.location.assign('/ui/agents')}>创建智能体</button></div>
+      <div class="empty-state-actions"><button class="primary" on:click={() => window.location.assign(appPath('/agents'))}>创建智能体</button></div>
     </div>
   {:else if filteredAgentObservations.length === 0}
     <div class="empty-state">
@@ -4417,7 +4418,7 @@
                       <div><span>失败记录</span><b>{selectedAutomationTaskItem.failedCount > 0 ? `${selectedAutomationTaskItem.failedCount} 次` : '无'}</b></div>
                     </div>
                     <div class="toolbar">
-                      <button disabled={selectedAutomationTaskItem.deletedTask} on:click={() => window.location.assign(`/ui/automation-tasks?task=${encodeURIComponent(selectedAutomationTaskItem.taskId)}`)}>{selectedAutomationTaskItem.deletedTask ? '任务已删除' : '查看任务详情'}</button>
+                      <button disabled={selectedAutomationTaskItem.deletedTask} on:click={() => window.location.assign(appPath(`/automation-tasks?task=${encodeURIComponent(selectedAutomationTaskItem.taskId)}`))}>{selectedAutomationTaskItem.deletedTask ? '任务已删除' : '查看任务详情'}</button>
                       <button on:click={clearTaskFilter}>清除任务筛选</button>
                     </div>
                   </section>
