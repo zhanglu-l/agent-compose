@@ -910,6 +910,18 @@ type runtimeCommandRequestJSON struct {
 	ArtifactDir    string            `json:"artifactDir"`
 }
 
+const agentSystemPromptFileName = "system-prompt.txt" // keep in sync with runtime/javascript/src/system-context.ts
+
+// hostAgentSystemPromptPath is the session agent identity file the host writes and the
+// guest reads via convention from --state-root (guest /data/state/agents/system-prompts/system-prompt.txt).
+// Returns "" when the session workspace path is unknown.
+func hostAgentSystemPromptPath(session *Session) string {
+	if session == nil || strings.TrimSpace(session.Summary.WorkspacePath) == "" {
+		return ""
+	}
+	return filepath.Join(hostSessionDir(session), "state", "agents", "system-prompts", agentSystemPromptFileName)
+}
+
 func writeAgentPromptFile(config *appconfig.Config, session *Session, agent, message string) (string, error) {
 	hostSessionDir := filepath.Dir(session.Summary.WorkspacePath)
 	promptDir := filepath.Join(hostSessionDir, "state", "agents", "prompts")
@@ -922,6 +934,37 @@ func writeAgentPromptFile(config *appconfig.Config, session *Session, agent, mes
 		return "", fmt.Errorf("write agent prompt file: %w", err)
 	}
 	return filepath.Join(config.GuestStateRoot, "agents", "prompts", name), nil
+}
+
+// writeAgentSystemPromptFile materializes agent identity for the guest runtime at a
+// fixed convention path under the session state tree:
+//
+//	state/agents/system-prompts/system-prompt.txt
+//
+// The guest discovers this file from --state-root (no CLI flag). When systemPrompt is
+// empty, the file is removed so later runs in the same session cannot read stale identity.
+func writeAgentSystemPromptFile(session *Session, systemPrompt string) error {
+	systemPrompt = strings.TrimSpace(systemPrompt)
+	hostPath := hostAgentSystemPromptPath(session)
+	if hostPath == "" {
+		if systemPrompt == "" {
+			return nil
+		}
+		return fmt.Errorf("session workspace path is required to write agent system prompt")
+	}
+	if systemPrompt == "" {
+		if err := os.Remove(hostPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove agent system prompt file: %w", err)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
+		return fmt.Errorf("create agent system prompt dir: %w", err)
+	}
+	if err := os.WriteFile(hostPath, []byte(systemPrompt), 0o644); err != nil {
+		return fmt.Errorf("write agent system prompt file: %w", err)
+	}
+	return nil
 }
 
 func writeAgentOutputSchemaFile(config *appconfig.Config, session *Session, agent, schemaJSON string) (string, error) {
@@ -1249,7 +1292,31 @@ func sanitizeAgentExecResult(result ExecResult) ExecResult {
 	return cleaned
 }
 
-func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent, message, outputSchemaJSON string, stream ExecStreamWriter) (ExecResult, AgentRunResult, error) {
+func (e *Executor) resolveAgentSystemPrompt(ctx context.Context, session *Session, agentDefinitionID string) (string, error) {
+	if e == nil || e.configDB == nil {
+		return "", nil
+	}
+	agentID := strings.TrimSpace(agentDefinitionID)
+	if agentID == "" {
+		taggedAgentID := sessionTagValue(session.Summary.Tags, agentSessionTagID)
+		if !sessionHasAgentTag(session, taggedAgentID) {
+			return "", nil
+		}
+		agentID = taggedAgentID
+	}
+	if agentID == "" {
+		return "", nil
+	}
+	agentDef, err := e.configDB.GetAgentDefinition(ctx, agentID)
+	if err != nil {
+		// Agent identity is optional at execution time; lookup failures degrade to MPI-only context.
+		slog.Warn("resolve agent system prompt failed", "agent_id", agentID, "error", err)
+		return "", nil
+	}
+	return strings.TrimSpace(agentDef.SystemPrompt), nil
+}
+
+func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent, agentDefinitionID, message, outputSchemaJSON string, stream ExecStreamWriter) (ExecResult, AgentRunResult, error) {
 	if session.Summary.VMStatus != VMStatusRunning {
 		return ExecResult{}, AgentRunResult{}, fmt.Errorf("session is not running")
 	}
@@ -1263,6 +1330,13 @@ func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent,
 	}
 	schemaPath, err := writeAgentOutputSchemaFile(e.config, session, agent, outputSchemaJSON)
 	if err != nil {
+		return ExecResult{}, AgentRunResult{}, err
+	}
+	systemPrompt, err := e.resolveAgentSystemPrompt(ctx, session, agentDefinitionID)
+	if err != nil {
+		return ExecResult{}, AgentRunResult{}, err
+	}
+	if err := writeAgentSystemPromptFile(session, systemPrompt); err != nil {
 		return ExecResult{}, AgentRunResult{}, err
 	}
 	runtime, err := e.runtimes.ForSession(session)

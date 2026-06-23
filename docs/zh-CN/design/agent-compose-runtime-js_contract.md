@@ -102,6 +102,15 @@ guest: /data/state/agents/prompts/<provider>-<unix_nano>.txt
 
 guest 路径随后通过 `--message-file` 传给 JS runtime。
 
+当 run 绑定到非空 `system_prompt` 的 agent definition 时，host 将 trim 后的文本写入固定约定路径：
+
+```text
+host:  <session>/state/agents/system-prompts/system-prompt.txt
+guest: /data/state/agents/system-prompts/system-prompt.txt
+```
+
+Guest runtime 在 `prompt.ts` 中通过 `agentSystemPromptPath(stateRoot)` 读取该路径。文件缺失或为空时，`readSystemPromptFile` 返回 `""`，run 组合为 MPI-only context。当 `system_prompt` 变为空时，host 删除 `system-prompt.txt`，避免同 session 后续 run 读到过期 identity。
+
 ### 3.3 agent HOME 与初始配置
 
 host 为 agent 执行设置：
@@ -143,9 +152,11 @@ CLI 使用 `commander` 解析命令和参数。npm 包的 `bin` 入口为 `agent
 |---|---:|---|
 | `--provider` | 是 | `codex`、`claude`、`gemini`，支持少量别名 |
 | `--message-file` | 是 | prompt 文件路径 |
-| `--state-root` | 否 | agent-compose runtime 状态根目录，默认 `/srv/agent-compose/session/state` |
+| `--state-root` | 否 | agent-compose runtime 状态根目录，默认 `/srv/agent-compose/session/state`。Guest 从此根路径按约定发现 agent identity（`agents/system-prompts/system-prompt.txt`）与 MPI catalog |
 | `--workspace` | 否 | agent 工作目录，默认 `WORKSPACE` 或 `/workspace` |
 | `--home` | 否 | agent HOME，默认 `HOME` 或 `/root` |
+
+Agent identity 使用 §3.2 文档中的固定约定路径。
 
 在 agent-compose session 中，host 总是显式传入 `--state-root`、`--workspace`、`--home`。
 
@@ -655,6 +666,7 @@ runtime.env.all()
 - `agent-compose-runtime prompt` 子命令继续可用。
 - `agent-compose-runtime exec` 子命令继续输出带 `__COMMAND_RESULT__` 前缀的 command result JSON。
 - `--provider`、`--message-file`、`--state-root`、`--workspace`、`--home` 参数语义不变。
+- Agent identity 通过 `<state-root>/agents/system-prompts/system-prompt.txt` 约定路径发现。
 - 成功时 stdout 必须输出可解析的 agent result JSON，推荐使用 `__AGENT_RESULT__` 前缀。
 - 人类可读过程输出应继续走 stderr，避免污染 stdout 协议通道。
 - provider state 文件路径保持 `/data/state/agents/providers/<provider>.json`。

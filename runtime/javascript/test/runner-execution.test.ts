@@ -387,6 +387,37 @@ describe("runner execution", () => {
     });
   });
 
+  it("runs Gemini stream-json output and prepends system context to the user prompt", async () => {
+    const { GeminiRunner } = await import("../src/runners/gemini.js");
+    await withTempSession(async (root) => {
+      childProcessState.stdoutLines = [
+        JSON.stringify({ type: "init", sessionId: "gemini-session" }),
+        JSON.stringify({ type: "message", message: { text: "hello" } }),
+        JSON.stringify({ type: "result", response: "gemini final" }),
+      ];
+      childProcessState.stderrChunks = [];
+      childProcessState.exitCode = 0;
+      childProcessState.error = null;
+      const systemContext = "## Agent Identity\n\nReply only in Chinese";
+      const stdio = captureStdio();
+      try {
+        const result = await new GeminiRunner(runnerOptions(root, systemContext, "gemini")).runPrompt("prompt");
+
+        expect(result).toMatchObject({
+          provider: "gemini",
+          sessionId: "gemini-session",
+          finalText: "gemini final",
+        });
+        expect(childProcessState.spawnCalls.at(-1)).toMatchObject({
+          command: "gemini",
+          args: ["-p", `${systemContext}\n\nprompt`, "--output-format", "stream-json", "--approval-mode", "yolo"],
+        });
+      } finally {
+        stdio.restore();
+      }
+    });
+  });
+
   it("runs Gemini stream-json output and keeps stdout protocol clean", async () => {
     const { GeminiRunner } = await import("../src/runners/gemini.js");
     await withTempSession(async (root) => {

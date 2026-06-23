@@ -121,6 +121,20 @@ guest: /data/state/agents/prompts/<provider>-<unix_nano>.txt
 
 The guest path is then passed to the JavaScript runtime through `--message-file`.
 
+When a run is bound to an agent definition with non-empty `system_prompt`, the
+host writes the trimmed text to a fixed convention path:
+
+```text
+host:  <session>/state/agents/system-prompts/system-prompt.txt
+guest: /data/state/agents/system-prompts/system-prompt.txt
+```
+
+The guest runtime reads this path via `agentSystemPromptPath(stateRoot)` in
+`prompt.ts`. If the file is missing or empty, `readSystemPromptFile` returns
+`""` and the run composes MPI-only context. When `system_prompt` becomes empty,
+the host removes `system-prompt.txt` to avoid stale identity on later runs in
+the same session.
+
 ### 3.3 Agent HOME And Initial Config
 
 The host sets these values for agent execution:
@@ -168,9 +182,11 @@ Command arguments:
 | --- | ---: | --- |
 | `--provider` | yes | `codex`, `claude`, `gemini`, with a small set of aliases |
 | `--message-file` | yes | Prompt file path |
-| `--state-root` | no | agent-compose runtime state root; default `/srv/agent-compose/session/state` |
+| `--state-root` | no | agent-compose runtime state root; default `/srv/agent-compose/session/state`. Guest discovers agent identity at `agents/system-prompts/system-prompt.txt` and MPI catalog from this root |
 | `--workspace` | no | Agent working directory; default `WORKSPACE` or `/workspace` |
 | `--home` | no | Agent HOME; default `HOME` or `/root` |
+
+Agent identity uses the fixed convention path documented in §3.2.
 
 Inside an agent-compose session, the host always passes `--state-root`,
 `--workspace`, and `--home` explicitly.
@@ -531,8 +547,10 @@ approvalPolicy=never
 networkAccessEnabled=true
 ```
 
-If `/data/runtime/mpi/catalog.md` exists and is readable, the JavaScript runtime
-injects MPI catalog context through Codex `config.developer_instructions`.
+If `/data/state/agents/system-prompts/system-prompt.txt` and/or
+`/data/runtime/mpi/catalog.md` exist and are readable, the JavaScript runtime
+composes Agent Identity + MPI into `systemContext` and injects it through Codex
+`config.developer_instructions`.
 
 Codex events are converted into a human-readable transcript, including agent
 messages, reasoning, command execution, file changes, MCP calls, web search, and
@@ -554,20 +572,22 @@ allowDangerouslySkipPermissions=true
 resume=<stored session id>
 ```
 
-If `/data/runtime/mpi/catalog.md` exists and is readable, the JavaScript runtime
-injects MPI catalog context through
-`systemPrompt: { type: "preset", preset: "claude_code", append: <mpi-context> }`.
+If `/data/state/agents/system-prompts/system-prompt.txt` and/or
+`/data/runtime/mpi/catalog.md` exist and are readable, the JavaScript runtime
+composes Agent Identity + MPI into `systemContext` and injects it through
+`systemPrompt: { type: "preset", preset: "claude_code", append: <systemContext> }`.
 
 ### 10.3 Gemini
 
 The JavaScript runtime invokes Gemini as a subprocess:
 
 ```sh
-gemini -p <prompt> --output-format stream-json --approval-mode yolo
+gemini -p <systemContext + user prompt> --output-format stream-json --approval-mode yolo
 ```
 
-The current Gemini runner reads stream-json and generates a transcript, but does
-not write `/data/state/agents/providers/gemini.json`.
+When `systemContext` is non-empty, it is prepended to the user prompt separated
+by a blank line. The current Gemini runner reads stream-json and generates a
+transcript, but does not write `/data/state/agents/providers/gemini.json`.
 
 ## 11. Error Semantics
 
@@ -774,6 +794,7 @@ Changes to the JavaScript runtime or host invocation should preserve:
   the `__COMMAND_RESULT__` prefix.
 - Existing semantics for `--provider`, `--message-file`, `--state-root`,
   `--workspace`, and `--home`.
+- Agent identity discovery via `<state-root>/agents/system-prompts/system-prompt.txt`.
 - On success, stdout must contain parseable agent result JSON. The
   `__AGENT_RESULT__` prefix is recommended.
 - Human-readable process output should continue to use stderr to avoid

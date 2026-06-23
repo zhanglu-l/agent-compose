@@ -218,6 +218,48 @@ describe("commander CLI", () => {
     });
   });
 
+  it("runPromptCommand composes agent identity and mpi into systemContext", async () => {
+    await withTempSession(async (root) => {
+      const messageFile = path.join(root, "message.txt");
+      const stateRoot = path.join(root, "state");
+      const mpiRoot = path.join(root, "runtime", "mpi");
+      const systemPromptPath = path.join(stateRoot, "agents", "system-prompts", "system-prompt.txt");
+      await fs.mkdir(path.dirname(systemPromptPath), { recursive: true });
+      await fs.mkdir(mpiRoot, { recursive: true });
+      await fs.writeFile(messageFile, "task body", "utf8");
+      await fs.writeFile(systemPromptPath, "Reply only in Chinese", "utf8");
+      await fs.writeFile(path.join(mpiRoot, "catalog.md"), "# Email tools\n", "utf8");
+
+      const runPrompt = vi.fn().mockResolvedValue({
+        provider: "codex",
+        sessionId: "",
+        stopReason: "completed",
+        finalText: "ok",
+        transcript: "ok",
+        stderr: "",
+      });
+      const codexSpy = vi.spyOn(await import("../src/runners/codex.js"), "CodexRunner").mockImplementation(function mockCodex(this: unknown, options: unknown) {
+        Object.assign(this as object, { options, runPrompt });
+      } as never);
+      const { runPromptCommand } = await import("../src/prompt.js");
+
+      await runPromptCommand({
+        provider: "codex",
+        messageFile,
+        stateRoot,
+        workspace: path.join(root, "workspace"),
+        home: path.join(root, "home"),
+      });
+
+      expect(runPrompt).toHaveBeenCalledWith("task body");
+      const options = codexSpy.mock.calls.at(-1)?.[0] as { systemContext: string };
+      expect(options.systemContext).toContain("## Agent Identity");
+      expect(options.systemContext).toContain("Reply only in Chinese");
+      expect(options.systemContext).toContain("## MPI Catalog");
+      expect(options.systemContext).toContain("# Email tools");
+    });
+  });
+
   it("runPromptCommand rejects invalid output schema files", async () => {
     await withTempSession(async (root) => {
       const messageFile = path.join(root, "message.txt");

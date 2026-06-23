@@ -81,7 +81,7 @@ agent-compose down
 
 agent 常用字段：
 
-- `provider` / `model` / `system_prompt`：guest agent 配置（`provider` 选择 guest CLI runner；`model` 传给该 agent runtime）。目前支持 `codex`、`claude`、`gemini`。daemon 侧 LLM 调用（`LLMService`、`scheduler.llm`）使用 `LLM_MODEL`，不是 compose 里的 agent `model`。
+- `provider` / `model` / `system_prompt`：guest agent 配置（`provider` 选择 guest CLI runner；`model` 传给该 agent runtime）。非空 `system_prompt` 在运行时生效，并作为 Agent Identity 层注入 provider system/developer 指令。目前支持 `codex`、`claude`、`gemini`。daemon 侧 LLM 调用（`LLMService`、`scheduler.llm`）使用 `LLM_MODEL`，不是 compose 里的 agent `model`。
 - `image`：guest 镜像引用；为空时使用 driver 对应默认镜像。
 - `driver`：每个 agent 可选择一个 runtime，支持 `boxlite`、`docker`、`microsandbox`。
 - `env`：agent 级环境变量，支持 scalar 或 `{ value, secret }` 形状。
@@ -189,6 +189,7 @@ task test
 
 - [英文文档索引](../README.md)
 - [架构说明](design/agent-compose_design.md)
+- [Agent system prompt（Phase 1）](design/agent_system_prompt_design.md)
 - [Runtime JS contract](design/agent-compose-runtime-js_contract.md)
 - [Webhook design](design/webhook_design.md)
 - [Loader script API](../../loader-script/README.md)

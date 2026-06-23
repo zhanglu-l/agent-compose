@@ -377,6 +377,40 @@ State queries primarily use project/run relationships in SQLite. Session tags
 are used for compatibility queries, `down` stopping project sessions, and
 file-level debugging.
 
+### Agent system prompt (Phase 1)
+
+`AgentDefinition.system_prompt` is persisted on agent definitions (manual and
+managed) and exposed through v1/v2 APIs and the Agents UI. At execution time the
+host resolves this field and materializes agent identity for the guest runtime.
+
+Layered prompt model:
+
+1. **Agent Identity** — per-agent `system_prompt` (omitted when empty)
+2. **Capabilities (MPI)** — OctoBus capset catalog under `runtime/mpi/catalog.md`
+3. **Per-turn task** — user message in `--message-file` (never mixed with identity)
+
+Transport uses a **fixed convention path** under the session state tree:
+
+```text
+<session>/state/agents/system-prompts/system-prompt.txt  →  guest /data/state/agents/system-prompts/system-prompt.txt
+```
+
+Resolution paths:
+
+- Managed project runs: `RunService` passes `run.ManagedAgentID` into
+  `ExecuteAgentRequest`
+- Loader runs: `loaderRunHost.Agent` passes the loader-bound agent definition id
+- Session chat: session tags `source=agent` and `agent_id`
+
+The guest JS runtime (`runtime/javascript`) reads the convention file from
+`--state-root`, composes identity + MPI via `buildSystemContext`, and injects the
+result into Codex `developer_instructions`, Claude `systemPrompt.append`, or
+Gemini user prompt prepend.
+
+See [agent_system_prompt_design.md](agent_system_prompt_design.md) and
+[agent-compose-runtime-js_contract.md](agent-compose-runtime-js_contract.md) for
+the full contract.
+
 ## Command Execution And Images
 
 `ExecService` does not create sessions. It executes commands only inside an

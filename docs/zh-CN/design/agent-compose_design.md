@@ -277,6 +277,35 @@ Run 是一次 agent 执行记录，可来自 CLI manual run、scheduler trigger 
 
 状态类查询以 SQLite 中的 project/run 关系为主要来源；session tag 用于兼容查询、`down` 停止 project session 和文件级调试。
 
+### Agent system prompt（Phase 1）
+
+`AgentDefinition.system_prompt` 持久化在 agent definition（手动与受管）上，并通过 v1/v2 API 与 Agents UI 暴露。执行时 host 解析该字段，并为 guest runtime 物化 agent identity。
+
+分层 prompt 模型：
+
+1. **Agent Identity** — 每个 agent 的 `system_prompt`（为空时省略）
+2. **Capabilities (MPI)** — OctoBus capset catalog，位于 `runtime/mpi/catalog.md`
+3. **Per-turn task** — `--message-file` 中的用户消息（不与 identity 混合）
+
+传输使用 session state 树下的**固定约定路径**：
+
+```text
+<session>/state/agents/system-prompts/system-prompt.txt  →  guest /data/state/agents/system-prompts/system-prompt.txt
+```
+
+解析路径：
+
+- 受管 project run：`RunService` 将 `run.ManagedAgentID` 传入 `ExecuteAgentRequest`
+- Loader run：`loaderRunHost.Agent` 传入 loader 绑定的 agent definition id
+- Session chat：依赖 session tags `source=agent` 与 `agent_id`
+
+Guest JS runtime（`runtime/javascript`）从 `--state-root` 读取约定文件，通过
+`buildSystemContext` 组合 identity + MPI，并注入 Codex `developer_instructions`、
+Claude `systemPrompt.append` 或 Gemini user prompt prepend。
+
+详见 [agent_system_prompt_design.md](agent_system_prompt_design.md) 与
+[agent-compose-runtime-js_contract.md](agent-compose-runtime-js_contract.md)。
+
 ## 命令执行和镜像
 
 `ExecService` 不创建 session。它只能在已有 running session 内执行命令，定位方式包括：

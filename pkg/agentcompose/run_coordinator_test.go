@@ -795,7 +795,7 @@ func setupRunPreparationProject(t *testing.T, spec *agentcomposev2.ProjectSpec, 
 	streams := &SessionStreamBroker{subscribers: map[string]map[int]chan sessionWatchEvent{}}
 	service.runtimes = runtimes
 	service.streams = streams
-	service.executor = &Executor{config: service.config, store: service.store, runtimes: runtimes, streams: streams}
+	service.executor = &Executor{config: service.config, store: service.store, configDB: store, runtimes: runtimes, streams: streams}
 	ctx := context.Background()
 	composePath := filepath.Join(projectDir, "agent-compose.yml")
 	resp, err := service.ApplyProject(ctx, connect.NewRequest(&agentcomposev2.ApplyProjectRequest{
