@@ -12,6 +12,7 @@ import {
   LoaderService,
   SessionService,
 } from '../gen/proto/agentcompose/v1/agentcompose_connect.js';
+import { RunService } from '../gen/proto/agentcompose/v2/agentcompose_connect.js';
 import { HealthService } from '../gen/proto/health/v1/health_connect.js';
 import { connectBaseUrl } from '../paths';
 
@@ -29,3 +30,4 @@ export const configClient = createClient(ConfigService, grpcWebTransport);
 export const capabilityClient = createClient(CapabilityService, grpcWebTransport);
 export const dashboardClient = createClient(DashboardService, grpcWebTransport);
 export const healthClient = createClient(HealthService, grpcWebTransport);
+export const runClient = createClient(RunService, grpcWebTransport);

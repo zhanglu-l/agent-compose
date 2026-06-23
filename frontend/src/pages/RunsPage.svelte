@@ -401,7 +401,11 @@
     activeMode = workbenchMode;
     selectedConversationId = params.get('conversationId') || '';
     conversationId = selectedConversationId;
-    selectedRunId = workbenchMode === 'chat' ? (selectedConversationId || params.get('runId') || '') : (params.get('runId') || selectedConversationId);
+    const requestedSessionId = params.get('sessionId') || '';
+    const requestedRunId = params.get('runId') || '';
+    selectedRunId = workbenchMode === 'chat'
+      ? (selectedConversationId || requestedSessionId || requestedRunId)
+      : (requestedRunId || requestedSessionId || selectedConversationId);
     selectedAgentId = rawAgentId;
     selectedGroupKey = selectedAgentId;
     selectedContextKey = selectedTaskId ? `task:${selectedTaskId}` : (selectedRunId ? '' : 'overview');
@@ -463,6 +467,7 @@
       q: timelineQuery.trim() || null,
       mock: null,
       runId: selectedRunParam(),
+      sessionId: selectedSessionParam(),
       detailTab: null,
       groupKey: null,
       groupTab: null,
@@ -488,7 +493,18 @@
   function selectedRunParam(): string | null {
     if (workbenchMode === 'chat') return null;
     if (!selectedRunId) return null;
-    return selectedRunId;
+    return selectedRunForURL()?.type === 'automation_run' ? selectedRunId : null;
+  }
+
+  function selectedSessionParam(): string | null {
+    if (!selectedRunId) return null;
+    if (workbenchMode === 'chat') return selectedConversationId || selectedRunId;
+    return selectedRunForURL()?.type === 'work_session' ? selectedRunId : null;
+  }
+
+  function selectedRunForURL(): ProductRun | null {
+    if (!selectedRunId) return null;
+    return runs.find((run) => run.id === selectedRunId) || selectedRun || selectedChatRun || null;
   }
 
   function mirrorTimelineState(): void {

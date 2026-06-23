@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
 
+  import { getProjectRunDebugTarget } from '../api/runs';
   import { getWorkSession, type WorkSessionDetail } from '../api/sessions';
   import { formatBeijingTime } from '../time';
 
@@ -14,6 +15,7 @@
   let notebookUrl = '';
   let debugStatus = '未知';
   let debugMessage = '';
+  let sessionId = '';
 
   $: notebookUrl = statusLabel(session?.status || '') === '运行中' ? session?.notebookUrl || '' : '';
   $: debugStatus = statusLabel(session?.status || '');
@@ -27,13 +29,24 @@
     if (!runId) return;
     loading = true;
     error = '';
+    sessionId = '';
     try {
-      session = await getWorkSession(runId);
+      session = await loadDebugSession(runId);
+      sessionId = session.id;
     } catch (err) {
       session = null;
       error = err instanceof Error ? err.message : String(err);
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadDebugSession(id: string): Promise<WorkSessionDetail> {
+    try {
+      return await getWorkSession(id);
+    } catch {
+      const target = await getProjectRunDebugTarget(id);
+      return getWorkSession(target.sessionId);
     }
   }
 
@@ -86,7 +99,7 @@
     <h2>调试工具</h2>
   </div>
   <div class="toolbar">
-    <button on:click={() => dispatch('navigateRuns', runId)}>返回运行中心</button>
+    <button on:click={() => dispatch('navigateRuns', sessionId || runId)}>返回运行中心</button>
     <button on:click={load}>{loading ? '连接中...' : '刷新 / 重新连接'}</button>
   </div>
 </div>
@@ -98,6 +111,7 @@
     </div>
     <div class="descriptions-small debug-descriptions">
       <div><span>runId</span><b>{#if runId}<span class="mono-text">{runId}</span>{:else}<span class="muted">-</span>{/if}</b></div>
+      <div><span>sessionId</span><b>{#if sessionId}<span class="mono-text">{sessionId}</span>{:else}<span class="muted">-</span>{/if}</b></div>
       <div>
         <span>Jupyter 状态</span>
         <b><em class={`home-pill ${statusTone(session?.status || '')}`}>{debugStatus}</em></b>

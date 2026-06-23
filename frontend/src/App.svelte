@@ -134,12 +134,12 @@
     }
   }
 
-  function navigateRunsWithRun(runId: string): void {
+  function navigateRunsWithRun(sessionId: string): void {
     activePage = 'runs';
-    const nextPath = runId ? appPath(`/runs?runId=${encodeURIComponent(runId)}`) : appPath('/runs');
+    const nextPath = sessionId ? appPath(`/runs?sessionId=${encodeURIComponent(sessionId)}`) : appPath('/runs');
     const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (current !== nextPath) {
-      history.pushState({ page: 'runs', runId }, '', nextPath);
+      history.pushState({ page: 'runs', sessionId }, '', nextPath);
     }
   }
 
