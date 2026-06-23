@@ -138,7 +138,7 @@
   function mergeSessionLinks(explicitLinks: TopicEventSession[], inferredLinks: TopicEventSession[]): TopicEventSession[] {
     const merged = new Map<string, TopicEventSession>();
     for (const link of [...explicitLinks, ...inferredLinks]) {
-      const key = `${link.sessionId}:${link.runId || link.loaderId || ''}`;
+      const key = link.sessionId;
       if (link.sessionId && !merged.has(key)) {
         merged.set(key, link);
       }
@@ -173,7 +173,7 @@
 
   function compactTime(value: string): string {
     const formatted = formatTime(value);
-    return formatted === '-' ? '-' : formatted.replace(/^\d{4}-/, '');
+    return formatted === '-' ? '-' : formatted.replace(/^\d{4}[/-]/, '');
   }
 
   function shortId(value: string, size = 8): string {
@@ -636,7 +636,7 @@
           {#if sessionTraces.length === 0}
             <div class="empty">这个事件没有产生或绑定工作会话。</div>
           {:else}
-            <div class="trace-list">
+            <div class="trace-list" class:single-session={sessionTraces.length === 1}>
               {#each sessionTraces as trace}
                 <article class="trace-card session-card">
                   <div class="trace-card-head">
@@ -707,14 +707,14 @@
       </div>
 
       <aside class="side-column">
-        <section class="panel side-panel timeline-panel">
+        <section class="panel side-panel event-summary-panel">
           <h2>事件摘要</h2>
           <div class="facts side-facts">
-            <div><span>事件 ID</span><b>{event.eventId}</b></div>
-            <div><span>Topic</span><b>{event.topic}</b></div>
+            <div class="wide-fact"><span>事件 ID</span><b>{event.eventId}</b></div>
+            <div class="wide-fact"><span>Topic</span><b>{event.topic}</b></div>
             <div><span>来源</span><b>{eventSourceLabel(event.source)}</b></div>
             <div><span>Provider</span><b>{event.provider || '-'}</b></div>
-            <div><span>Correlation</span><b>{event.correlationId || '-'}</b></div>
+            <div class="wide-fact"><span>Correlation</span><b>{event.correlationId || '-'}</b></div>
             <div><span>创建时间</span><b>{formatTime(event.createdAt)}</b></div>
           </div>
         </section>
@@ -733,7 +733,7 @@
                   <div class="run-card-head">
                     <div>
                       <h3>{trace.task?.name || trace.delivery.loaderId}</h3>
-                      <p>{trace.delivery.loaderId}</p>
+                      <p title={trace.delivery.runId || '-'}>Run {trace.delivery.runId || '-'}</p>
                     </div>
                     <em class={`home-pill ${deliveryTone(trace.delivery.status)}`}>{deliveryLabel(trace.delivery.status)}</em>
                   </div>
@@ -741,10 +741,6 @@
                     <div><span>运行</span><b>{trace.run ? mapLoaderRunStatus(trace.run.status) : '-'}</b></div>
                     <div><span>开始</span><b>{compactTime(trace.run?.startedAt || trace.delivery.createdAt)}</b></div>
                     <div><span>完成</span><b>{compactTime(trace.run?.completedAt || trace.delivery.updatedAt)}</b></div>
-                  </div>
-                  <div class="run-id-line">
-                    <span>Run</span>
-                    <b>{trace.delivery.runId || '-'}</b>
                   </div>
                   {#if trace.delivery.error || trace.run?.error}
                     <div class="run-error">{trace.delivery.error || trace.run?.error}</div>
@@ -947,7 +943,7 @@
   }
 
   .side-column {
-    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(240px, 1.15fr) minmax(180px, 0.85fr);
     align-self: stretch;
   }
 
@@ -959,7 +955,12 @@
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .timeline-panel {
+  .event-summary-panel {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .side-column > .side-panel:last-child {
     grid-template-rows: auto minmax(0, 1fr);
   }
 
@@ -972,12 +973,17 @@
   }
 
   .side-facts {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 10px;
+  }
+
+  .wide-fact {
+    grid-column: 1 / -1;
   }
 
   .facts div {
     display: grid;
-    gap: 2px;
+    gap: 1px;
     min-width: 0;
   }
 
@@ -990,6 +996,16 @@
     line-height: 16px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .event-summary-panel .facts span {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .event-summary-panel .facts b {
+    font-size: 11px;
+    line-height: 15px;
   }
 
   .section-head,
@@ -1029,8 +1045,9 @@
   }
 
   .session-card {
-    height: 100%;
-    min-height: 0;
+    height: auto;
+    min-height: 300px;
+    max-height: calc(100vh - 230px);
     grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 10px;
     padding: 12px;
@@ -1041,10 +1058,21 @@
 
   .trace-list {
     grid-template-columns: 1fr;
+    grid-auto-rows: max-content;
     min-height: 0;
-    align-content: stretch;
-    overflow: hidden;
+    align-content: start;
+    overflow: auto;
     padding-right: 2px;
+  }
+
+  .trace-list.single-session {
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .trace-list.single-session .session-card {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
   }
 
   .session-panel {
@@ -1058,8 +1086,8 @@
   }
 
   .run-card {
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px;
     background: #fff;
     box-shadow: none;
   }
@@ -1067,13 +1095,13 @@
   .run-card-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: start;
+    gap: 8px;
+    align-items: center;
   }
 
   .run-card h3 {
-    font-size: 14px;
-    line-height: 1.35;
+    font-size: 13px;
+    line-height: 18px;
   }
 
   .run-card p {
@@ -1087,27 +1115,25 @@
   .run-meta-grid {
     display: grid;
     grid-template-columns: 0.8fr 1fr 1fr;
-    gap: 8px;
+    gap: 6px 8px;
     min-width: 0;
-    padding: 8px;
+    padding: 7px 8px;
     border-radius: 6px;
     background: var(--surface-2);
   }
 
-  .run-meta-grid div,
-  .run-id-line {
+  .run-meta-grid div {
     min-width: 0;
   }
 
-  .run-meta-grid span,
-  .run-id-line span {
+  .run-meta-grid span {
     display: block;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 10px;
+    line-height: 13px;
   }
 
-  .run-meta-grid b,
-  .run-id-line b {
+  .run-meta-grid b {
     display: block;
     min-width: 0;
     overflow: hidden;
@@ -1117,17 +1143,6 @@
     line-height: 1.4;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .run-id-line {
-    display: grid;
-    grid-template-columns: 32px minmax(0, 1fr);
-    gap: 6px;
-    align-items: baseline;
-  }
-
-  .run-id-line span {
-    display: inline;
   }
 
   .run-error {
