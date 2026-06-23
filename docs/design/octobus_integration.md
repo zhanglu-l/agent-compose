@@ -153,12 +153,12 @@ uses `?format=md&grpc=true` to render capability instructions into the guest
 
 OctoBus catalog structure: `?all=true` returns three parallel arrays: `grpc`,
 `mcp`, and `connect_rpc`; each method appears once in each array. gRPC entries
-include a complete metadata triple: `x-octobus-capset`,
-`x-octobus-service`, and `x-octobus-instance`. agent-compose merges entries by
-join key `(service_id, instance_id, method_full_name)` into
-`CapabilityMethod`, using `endpoints` to represent gRPC / MCP / Connect entry
-types. `endpoints` are for UI display only and do not include the OctoBus
-address.
+include routing metadata for `x-octobus-capset` and `x-octobus-instance`.
+`service_id` remains a catalog/UI field, but it is not part of the current
+OctoBus gRPC routing metadata. agent-compose merges entries by join key
+`(service_id, instance_id, method_full_name)` into `CapabilityMethod`, using
+`endpoints` to represent gRPC / MCP / Connect entry types. `endpoints` are for
+UI display only and do not include the OctoBus address.
 
 ## Data-Plane Forwarding: gRPC Only
 
@@ -168,30 +168,27 @@ injected capability guide markdown:
 
 ```text
 x-capability-session-token: <CAP_TOKEN>
-x-octobus-service: <service_id>     # provided by guest
 x-octobus-instance: <instance_id>   # provided by guest
 ```
 
 Boundary: **capset is the session-level isolation boundary enforced by
-capproxy; service / instance is routing inside the capset and is selected by the
-guest.** capproxy handles each stream:
+capproxy; instance is routing inside the capset and is selected by the guest.**
+OctoBus instance ids are globally unique and already identify the service.
+capproxy handles each stream:
 
 ```text
 1. Look up in-memory index by token -> (session, allowed_capsets)
 2. Validate guest-provided x-octobus-capset is in the session's allowed_capsets
 3. Reflection methods (grpc.reflection.*): require only x-octobus-capset and pass through
 4. Business methods:
-     - guest already provides x-octobus-service / x-octobus-instance -> pass both through
-     - guest does not provide them -> look up catalog by (capset, method_full_name):
-       unique match -> fill automatically; zero matches -> NotFound; multiple matches -> FailedPrecondition
+     - require x-octobus-instance from the guest
      - inject OctoBus token read from ConfigStore
      - forward to OctoBus daemon
 ```
 
-OctoBus business methods strictly require all three metadata values:
-`x-octobus-capset` / `x-octobus-service` / `x-octobus-instance`
-(`findGRPCExposedMethod`). capset is enforced by capproxy, while service /
-instance are provided by the guest or filled by capproxy.
+OctoBus business methods require `x-octobus-capset` and `x-octobus-instance`
+(`findGRPCExposedMethod`). capset is enforced by capproxy, while instance is
+provided by the guest from the injected capability guide.
 
 Implementation notes:
 
@@ -201,16 +198,15 @@ Implementation notes:
   `token -> (session_id, capset_ids)`: rebuilt from existing sessions at
   startup, incrementally maintained on session create/stop.
 - capproxy validates `x-octobus-capset` belongs to the session binding set,
-  injects OctoBus token, and passes through guest `x-octobus-service` /
-  `x-octobus-instance`.
-- Normalized catalog used for filling missing routing metadata is cached by
-  capset with TTL; after expiry, the next resolution pulls again.
+  requires guest `x-octobus-instance` for business calls, and injects the
+  OctoBus token.
 - OctoBus addr / token are read from `ConfigStore` during forwarding.
 - Auth and isolation: capset set is bound to the session; guest can choose only
-  within the bound set. service / instance is routing inside a capset and may be
-  specified by the guest. `CAP_TOKEN` is an agent-compose-issued session
-  credential used only to resolve session -> capset binding. It cannot access
-  OctoBus. OctoBus token stays server-side and does not enter the guest.
+  within the bound set. instance is routing inside a capset and must be
+  specified by the guest for business calls. `CAP_TOKEN` is an
+  agent-compose-issued session credential used only to resolve session ->
+  capset binding. It cannot access OctoBus. OctoBus token stays server-side and
+  does not enter the guest.
 
 ## Session / Loader Injection
 
@@ -255,10 +251,10 @@ guide markdown, then write it to the **session MPI catalog**
 (preset `claude_code` + `append`). Therefore, once a session is created, the
 agent knows available capabilities as soon as it starts without having to cat
 the file itself. Rendered content includes each gRPC method, its `x-octobus-*`
-metadata (capset / service / instance), and guidance to use server reflection to
-obtain descriptors. The guest uses this to include `x-octobus-capset`,
-`x-octobus-service`, and `x-octobus-instance` when calling. It does not include
-OctoBus address or token and uses only the `grpc` section. **If OctoBus is
+metadata (capset / instance), and guidance to use server reflection to obtain
+descriptors. The guest uses this to include `x-octobus-capset` and
+`x-octobus-instance` when calling. It does not include OctoBus address or token
+and uses only the `grpc` section. **If OctoBus is
 unreachable or rendering fails, record an event and continue; session/loader
 starts normally.**
 
@@ -319,8 +315,8 @@ Session creation and loader:
 | Control-plane OctoBus returns non-2xx | Return Connect error with HTTP status |
 | Control-plane `GetCapabilityCatalog` capset not found | not found / invalid argument |
 | Injection-stage OctoBus unreachable / markdown render failure | **Does not block**: record session event + log; session/loader is still created and runs best-effort |
-| Data-plane method not in capset, when guest did not specify instance and fill lookup misses | gRPC `NotFound` |
-| Data-plane guest did not specify instance and method has multiple instances | gRPC `FailedPrecondition`; guest must include `x-octobus-service` / `x-octobus-instance` |
+| Data-plane business call missing `x-octobus-instance` | gRPC `FailedPrecondition`; guest must include `x-octobus-instance` |
+| Data-plane method / instance not exposed by capset | OctoBus gRPC status is passed through |
 | Data-plane OctoBus returns gRPC status | Status code / message are passed through |
 
 Errors returned to frontend must not leak private network parameters. HTTP
@@ -340,9 +336,8 @@ Backend:
    on every call.
 4. Data-plane capproxy: read OctoBus addr / token from `ConfigStore`; maintain
    token -> session in-memory index; validate guest `x-octobus-capset` belongs
-   to session binding; pass through guest `x-octobus-service` /
-   `x-octobus-instance`; when missing, fill from normalized catalog cache by
-   capset; run a dedicated gRPC listener.
+   to session binding; require guest `x-octobus-instance` for business calls;
+   run a dedicated gRPC listener.
 5. Two-step injection shared by work sessions and loader runs:
    `buildCapabilityGatewaySessionVars` before DB creation to generate
    `CAP_GRPC_TARGET` / `CAP_TOKEN` env + `capset` tags; `writeCapabilityGuide`
@@ -362,13 +357,12 @@ Tests:
 
 8. Control plane: unconfigured, connection failure, capsets normalization,
    catalog normalization, capset not found.
-9. Data plane: validate guest capset belongs to session binding; pass through
-   guest service / instance; fill unique service / instance when missing;
-   reflection stream validates capset; inject OctoBus token; method not in
-   capset -> `NotFound`; missing instance with multiple matches ->
-   `FailedPrecondition`.
+9. Data plane: validate guest capset belongs to session binding; require and
+   pass through guest instance; reflection stream validates capset; inject
+   OctoBus token; missing instance ->
+   `FailedPrecondition`; OctoBus routing errors are passed through.
 10. Injection consistency and tolerance: loader and work session share the same
     injection result; capability guide markdown is written into MPI catalog
-    (`runtime/mpi/catalog.md`, not workspace) and includes method service /
-    instance; **when OctoBus is unreachable or markdown render fails, session
+    (`runtime/mpi/catalog.md`, not workspace) and includes method instance
+    routing metadata; **when OctoBus is unreachable or markdown render fails, session
     and loader still create and run successfully (best-effort, non-blocking).**

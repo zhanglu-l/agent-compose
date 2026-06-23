@@ -112,40 +112,6 @@ func (c *Client) CatalogMarkdown(ctx context.Context, capsetID string) ([]byte, 
 	return io.ReadAll(resp.Body)
 }
 
-func (c *Client) ResolveBinding(ctx context.Context, capsetID, methodFullName string) (Binding, error) {
-	catalog, err := c.Catalog(ctx, capsetID)
-	if err != nil {
-		return Binding{}, err
-	}
-	methodFullName = strings.TrimPrefix(strings.TrimSpace(methodFullName), "/")
-	var matches []Binding
-	for _, method := range catalog.Methods {
-		if method.MethodFullName != methodFullName {
-			continue
-		}
-		for _, endpoint := range method.Endpoints {
-			if endpoint.Protocol != ProtocolGRPC {
-				continue
-			}
-			matches = append(matches, Binding{
-				CapsetID:       catalog.CapsetID,
-				MethodFullName: method.MethodFullName,
-				ServiceID:      method.ServiceID,
-				InstanceID:     method.InstanceID,
-				Metadata:       cloneMap(endpoint.Metadata),
-			})
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return Binding{}, fmt.Errorf("%w: method %q is not exposed by capset %q", ErrMethodNotFound, methodFullName, capsetID)
-	case 1:
-		return matches[0], nil
-	default:
-		return Binding{}, fmt.Errorf("%w: capset %q method %q has %d grpc bindings", ErrConflict, capsetID, methodFullName, len(matches))
-	}
-}
-
 func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.addr+path, nil)
 	if err != nil {
@@ -173,6 +139,4 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 var (
 	ErrNotConfigured  = errors.New("octobus is not configured")
 	ErrInvalidCatalog = errors.New("invalid capability catalog")
-	ErrConflict       = errors.New("capability method binding conflict")
-	ErrMethodNotFound = errors.New("capability method not found")
 )

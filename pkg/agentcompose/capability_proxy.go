@@ -24,7 +24,7 @@ func NewCapProxyServer(di do.Injector) (*capproxy.Server, error) {
 			}
 			return settings.Addr, settings.Token, true
 		},
-	}, do.MustInvoke[*Store](di), do.MustInvoke[capabilityIntegration](di)), nil
+	}, do.MustInvoke[*Store](di)), nil
 }
 
 func (s *Store) ResolveCapabilitySession(ctx context.Context, token string) (capproxy.SessionBinding, error) {

@@ -57,11 +57,3 @@ type Catalog struct {
 	Description string
 	Methods     []Method
 }
-
-type Binding struct {
-	CapsetID       string
-	MethodFullName string
-	ServiceID      string
-	InstanceID     string
-	Metadata       map[string]string
-}

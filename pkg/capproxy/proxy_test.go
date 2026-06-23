@@ -17,8 +17,6 @@ type testResolver struct {
 	binding SessionBinding
 }
 
-type testBindingResolver struct{}
-
 func (r testResolver) ResolveCapabilitySession(_ context.Context, token string) (SessionBinding, error) {
 	if token != "session-token" {
 		return SessionBinding{}, status.Error(codes.Unauthenticated, "bad token")
@@ -26,25 +24,10 @@ func (r testResolver) ResolveCapabilitySession(_ context.Context, token string) 
 	return r.binding, nil
 }
 
-func (testBindingResolver) ResolveCapabilityBinding(_ context.Context, _, _ string) (map[string]string, error) {
-	return map[string]string{
-		"x-octobus-service":  "svc",
-		"x-octobus-instance": "inst",
-	}, nil
-}
-
 func staticOctoBus(addr, token string) OctoBusResolver {
 	return func(context.Context) (string, string, bool) {
 		return addr, token, true
 	}
-}
-
-// recordingBindingResolver flags whether the catalog fill path was invoked.
-type recordingBindingResolver struct{ called bool }
-
-func (r *recordingBindingResolver) ResolveCapabilityBinding(context.Context, string, string) (map[string]string, error) {
-	r.called = true
-	return map[string]string{"x-octobus-service": "from-catalog", "x-octobus-instance": "from-catalog"}, nil
 }
 
 func TestProxyInjectsOctoBusMetadata(t *testing.T) {
@@ -66,7 +49,10 @@ func TestProxyInjectsOctoBusMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close() }()
-	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(SessionTokenMetadata, "session-token"))
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		SessionTokenMetadata, "session-token",
+		"x-octobus-instance", "inst",
+	))
 	out := rawFrame(nil)
 	if err := conn.Invoke(ctx, "/pkg.Service/Call", rawFrame("ping"), &out); err != nil {
 		t.Fatal(err)
@@ -76,7 +62,6 @@ func TestProxyInjectsOctoBusMetadata(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"x-octobus-capset":   "dev",
-		"x-octobus-service":  "svc",
 		"x-octobus-instance": "inst",
 		"authorization":      "Bearer octo-token",
 	} {
@@ -86,7 +71,7 @@ func TestProxyInjectsOctoBusMetadata(t *testing.T) {
 	}
 }
 
-func TestProxyForwardsGuestSuppliedRouting(t *testing.T) {
+func TestProxyForwardsGuestInstance(t *testing.T) {
 	var received metadata.MD
 	octoAddr, stopOcto := startTestRawGRPC(t, func(_ any, stream grpc.ServerStream) error {
 		received, _ = metadata.FromIncomingContext(stream.Context())
@@ -97,8 +82,7 @@ func TestProxyForwardsGuestSuppliedRouting(t *testing.T) {
 		return stream.SendMsg(rawFrame("ok:" + string(req)))
 	})
 	defer stopOcto()
-	bindings := &recordingBindingResolver{}
-	proxyAddr, stopProxy := startTestProxyWithBindings(t, Config{Listen: "127.0.0.1:0", OctoBus: staticOctoBus(octoAddr, "")}, testResolver{binding: SessionBinding{SessionID: "s1", CapsetIDs: []string{"dev"}}}, bindings)
+	proxyAddr, stopProxy := startTestProxy(t, Config{Listen: "127.0.0.1:0", OctoBus: staticOctoBus(octoAddr, "")}, testResolver{binding: SessionBinding{SessionID: "s1", CapsetIDs: []string{"dev"}}})
 	defer stopProxy()
 
 	conn, err := grpc.NewClient(proxyAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultCallOptions(grpc.ForceCodec(rawCodec{})))
@@ -106,11 +90,8 @@ func TestProxyForwardsGuestSuppliedRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close() }()
-	// Guest supplies an allowed capset plus its own service/instance (from the
-	// injected guide); all three are forwarded and the catalog fill is skipped.
 	ctx := metadata.NewOutgoingContext(context.Background(), metadata.MD{
 		SessionTokenMetadata: []string{"session-token"},
-		"x-octobus-service":  []string{"guest-svc"},
 		"x-octobus-instance": []string{"guest-inst"},
 		"x-octobus-capset":   []string{"dev"},
 	})
@@ -118,17 +99,32 @@ func TestProxyForwardsGuestSuppliedRouting(t *testing.T) {
 	if err := conn.Invoke(ctx, "/pkg.Service/Call", rawFrame("ping"), &out); err != nil {
 		t.Fatal(err)
 	}
-	if bindings.called {
-		t.Fatalf("catalog fill must be skipped when guest supplies service/instance")
-	}
 	for key, want := range map[string]string{
-		"x-octobus-capset":   "dev",        // guest-supplied, validated in the allowed set
-		"x-octobus-service":  "guest-svc",  // guest value forwarded
-		"x-octobus-instance": "guest-inst", // guest value forwarded
+		"x-octobus-capset":   "dev",
+		"x-octobus-instance": "guest-inst",
 	} {
 		if got := firstMetadata(received, key); got != want {
 			t.Fatalf("metadata %s = %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestProxyRejectsMissingInstanceForBusinessCall(t *testing.T) {
+	octoAddr, stopOcto := startTestRawGRPC(t, func(_ any, stream grpc.ServerStream) error { return nil })
+	defer stopOcto()
+	proxyAddr, stopProxy := startTestProxy(t, Config{Listen: "127.0.0.1:0", OctoBus: staticOctoBus(octoAddr, "")}, testResolver{binding: SessionBinding{SessionID: "s1", CapsetIDs: []string{"dev"}}})
+	defer stopProxy()
+
+	conn, err := grpc.NewClient(proxyAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultCallOptions(grpc.ForceCodec(rawCodec{})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(SessionTokenMetadata, "session-token"))
+	out := rawFrame(nil)
+	err = conn.Invoke(ctx, "/pkg.Service/Call", rawFrame("ping"), &out)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition for missing instance, got %v", err)
 	}
 }
 
@@ -174,10 +170,6 @@ func TestProxyRejectsMissingSessionToken(t *testing.T) {
 }
 
 func startTestProxy(t *testing.T, config Config, resolver SessionResolver) (string, func()) {
-	return startTestProxyWithBindings(t, config, resolver, testBindingResolver{})
-}
-
-func startTestProxyWithBindings(t *testing.T, config Config, resolver SessionResolver, bindings BindingResolver) (string, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", config.Listen)
 	if err != nil {
@@ -185,7 +177,7 @@ func startTestProxyWithBindings(t *testing.T, config Config, resolver SessionRes
 	}
 	addr := ln.Addr().String()
 	config.Listen = addr
-	server := NewServer(config, resolver, bindings)
+	server := NewServer(config, resolver)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.serve(ctx, ln) }()

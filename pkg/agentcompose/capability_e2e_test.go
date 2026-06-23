@@ -39,7 +39,7 @@ func startFakeOctobus(t *testing.T) *fakeOctobus {
 			}})
 		case r.URL.Path == "/admin/v1/catalog/dev" && r.URL.Query().Get("format") == "md":
 			w.Header().Set("Content-Type", "text/markdown")
-			_, _ = w.Write([]byte("# Catalog: dev\n\n## gRPC\n\n| Method | Metadata |\n| --- | --- |\n| `/pkg.Service/Call` | `x-octobus-service=svc, x-octobus-instance=inst` |\n"))
+			_, _ = w.Write([]byte("# Catalog: dev\n\n## gRPC\n\n| Method | Metadata |\n| --- | --- |\n| `/pkg.Service/Call` | `x-octobus-capset=dev, x-octobus-instance=inst` |\n"))
 		case r.URL.Path == "/admin/v1/catalog/dev":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"capset_id": "dev",
@@ -51,7 +51,6 @@ func startFakeOctobus(t *testing.T) *fakeOctobus {
 					"method_path":      "/pkg.Service/Call",
 					"metadata": map[string]string{
 						"x-octobus-capset":   "dev",
-						"x-octobus-service":  "svc",
 						"x-octobus-instance": "inst",
 					},
 				}},

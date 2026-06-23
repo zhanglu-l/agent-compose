@@ -28,14 +28,7 @@ type CapabilityProvider interface {
 	ProxyTarget() string
 }
 
-type CapabilityBindingResolver interface {
-	ResolveCapabilityBinding(ctx context.Context, capsetID, methodFullName string) (map[string]string, error)
-}
-
-type capabilityIntegration interface {
-	CapabilityProvider
-	CapabilityBindingResolver
-}
+type capabilityIntegration interface{ CapabilityProvider }
 
 // capabilityProvider reads the OctoBus connection from source on every call, so
 // page edits take effect without a restart. An empty addr means disabled.
@@ -100,22 +93,6 @@ func (p *capabilityProvider) CapabilityGuide(ctx context.Context, capsetID strin
 
 func (p *capabilityProvider) ProxyTarget() string {
 	return p.proxyTarget
-}
-
-func (p *capabilityProvider) ResolveCapabilityBinding(ctx context.Context, capsetID, methodFullName string) (map[string]string, error) {
-	client, ok := p.client(ctx)
-	if !ok {
-		return nil, capability.ErrNotConfigured
-	}
-	binding, err := client.ResolveBinding(ctx, capsetID, methodFullName)
-	if err != nil {
-		return nil, err
-	}
-	metadata := make(map[string]string, len(binding.Metadata))
-	for key, value := range binding.Metadata {
-		metadata[key] = value
-	}
-	return metadata, nil
 }
 
 func (s *Service) GetCapabilityStatus(ctx context.Context, req *connect.Request[agentcomposev1.GetCapabilityStatusRequest]) (*connect.Response[agentcomposev1.CapabilityStatusResponse], error) {
@@ -201,8 +178,6 @@ func toProtoCapabilityGatewayConfig(settings CapabilityGatewaySettings) *agentco
 func capabilityConnectError(err error) error {
 	switch {
 	case errors.Is(err, capability.ErrNotConfigured):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, capability.ErrConflict):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, capability.ErrInvalidCatalog):
 		return connect.NewError(connect.CodeInvalidArgument, err)

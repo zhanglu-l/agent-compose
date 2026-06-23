@@ -131,7 +131,7 @@ message GetCapabilityCatalogResponse {
 
 > 同一 catalog 端点还提供 `?format=md`（`text/markdown`，由 OctoBus `RenderCatalogMarkdown` 渲染）；agent-compose 在 session 注入时用 `?format=md&grpc=true` 渲染能力说明写入 guest（见 [session / loader 注入](#session--loader-注入)）。
 
-OctoBus catalog 结构：`?all=true` 返回 `grpc` / `mcp` / `connect_rpc` 三个并列数组，每个方法在三者各出现一次；gRPC 条目的 `metadata` 自带完整三元组 `x-octobus-capset` / `x-octobus-service` / `x-octobus-instance`。agent-compose 按 join key `(service_id, instance_id, method_full_name)` 合并成 `CapabilityMethod`，用 `endpoints` 表达 gRPC / MCP / Connect 三类入口。`endpoints` 仅供 UI 展示，不含 OctoBus 地址。
+OctoBus catalog 结构：`?all=true` 返回 `grpc` / `mcp` / `connect_rpc` 三个并列数组，每个方法在三者各出现一次；gRPC 条目的 `metadata` 自带 `x-octobus-capset` / `x-octobus-instance` 路由信息。`service_id` 仍是 catalog/UI 字段，但不再属于当前 OctoBus gRPC 路由 metadata。agent-compose 按 join key `(service_id, instance_id, method_full_name)` 合并成 `CapabilityMethod`，用 `endpoints` 表达 gRPC / MCP / Connect 三类入口。`endpoints` 仅供 UI 展示，不含 OctoBus 地址。
 
 ## 数据面转发（仅 gRPC）
 
@@ -139,33 +139,30 @@ guest 连接 `CAP_GRPC_TARGET`，按 `method_full_name` 发起 gRPC 调用，met
 
 ```text
 x-capability-session-token: <CAP_TOKEN>
-x-octobus-service: <service_id>     # guest 提供
 x-octobus-instance: <instance_id>   # guest 提供
 ```
 
-边界划分：**capset 是会话级隔离边界，由 capproxy 校验；service / instance 是 capset 内的路由，由 guest 选择。** capproxy 处理每个流：
+边界划分：**capset 是会话级隔离边界，由 capproxy 校验；instance 是 capset 内的路由，由 guest 选择。** OctoBus instance id 全局唯一，且已关联 service。capproxy 处理每个流：
 
 ```text
 1. 按 token 查内存索引 -> (session, allowed_capsets)
 2. 校验 guest 传入的 x-octobus-capset 属于 session 绑定的 allowed_capsets，guest 不能越权到别的 capset
 3. reflection 方法（grpc.reflection.*）：只需 x-octobus-capset，透传
 4. 业务方法：
-     - guest 已带 x-octobus-service / x-octobus-instance -> 透传该二者
-     - guest 未带 -> 按 (capset, method_full_name) 查 catalog 补齐：唯一命中自动填，命中 0 条 -> NotFound，命中多条 -> FailedPrecondition
+     - 要求 guest 带 x-octobus-instance
      - 注入 OctoBus token（从 ConfigStore 读）
      - 透传到 OctoBus daemon
 ```
 
-OctoBus 侧业务方法硬性要求 `x-octobus-capset` / `x-octobus-service` / `x-octobus-instance` 三者齐全（`findGRPCExposedMethod`）：capset 由 capproxy 强制，service / instance 由 guest 提供或 capproxy 补齐。
+OctoBus 侧业务方法要求 `x-octobus-capset` / `x-octobus-instance`（`findGRPCExposedMethod`）：capset 由 capproxy 强制，instance 由 guest 根据注入的能力说明提供。
 
 实现要点：
 
 - gRPC server 用 `UnknownServiceHandler` + raw passthrough codec，双向流式透传帧到 OctoBus daemon（`grpc.NewClient` + raw codec）。
 - token → session 绑定用内存索引 `token -> (session_id, capset_ids)`：启动时从已有 session 重建，session 创建/停止时增量维护。
-- capproxy 校验 `x-octobus-capset` 属于 session 绑定集合并注入 OctoBus token，guest 的 `x-octobus-service` / `x-octobus-instance` 透传。
-- 补齐用的归一 catalog 按 capset 缓存，带 TTL；过期后下次解析重新拉取。
+- capproxy 校验 `x-octobus-capset` 属于 session 绑定集合；业务调用要求 guest 带 `x-octobus-instance`；注入 OctoBus token。
 - OctoBus addr / token 在转发时从 `ConfigStore` 读取。
-- 鉴权与隔离：capset 集合由 session 绑定，guest 只能在绑定集合内选择；service / instance 是 capset 内路由，允许 guest 指定。`CAP_TOKEN` 是 agent-compose 签发的 session 凭证，只用于解析 session→capset 绑定，不能用于访问 OctoBus；OctoBus token 只在服务端，不进入 guest。
+- 鉴权与隔离：capset 集合由 session 绑定，guest 只能在绑定集合内选择；instance 是 capset 内路由，业务调用必须由 guest 指定。`CAP_TOKEN` 是 agent-compose 签发的 session 凭证，只用于解析 session→capset 绑定，不能用于访问 OctoBus；OctoBus token 只在服务端，不进入 guest。
 
 ## session / loader 注入
 
@@ -182,7 +179,7 @@ CAP_TOKEN=<每会话新生成 uuid>   # secret
 
 tag：每个能力集一个 `capset=<capset_id>`。前提仅是至少一个 capset 已选 + `CAP_GRPC_TARGET` 已配置；后者缺失则跳过能力注入并记 warning，不阻塞创建。
 
-**步骤 2：`writeCapabilityGuide(session, capset_ids)`（`prepareSessionWorkspace` 之后、`StartSessionVM` 之前，best-effort）** —— 对每个 capset 调 OctoBus `GET /admin/v1/catalog/{capset_id}?format=md&grpc=true` 渲染能力说明 markdown，写入**会话 MPI catalog** `<sessionDir>/runtime/mpi/catalog.md`（经挂载出现在 guest `/data/runtime/mpi/catalog.md`）。`agent-compose-runtime-js`（`runtime/javascript`）的 `readMpiContext` 会读这个 catalog，把它作为**高优先级上下文注入 agent system prompt**：codex 进 `config.developer_instructions`，claude 进 `systemPrompt`（preset `claude_code` + `append`）。所以创建会话后 agent 一启动就知道有哪些能力可调，无需自己 cat 文件。渲染内容含每个 gRPC 方法及其 `x-octobus-*` metadata（capset / service / instance）和「用 server reflection 获取描述符」的指引，guest 据此在调用时携带 `x-octobus-capset` / `x-octobus-service` / `x-octobus-instance`。不含 OctoBus 地址与 token（只取 `grpc` 段）。**OctoBus 不可达 / 渲染失败时记事件并继续，session/loader 照常启动**。
+**步骤 2：`writeCapabilityGuide(session, capset_ids)`（`prepareSessionWorkspace` 之后、`StartSessionVM` 之前，best-effort）** —— 对每个 capset 调 OctoBus `GET /admin/v1/catalog/{capset_id}?format=md&grpc=true` 渲染能力说明 markdown，写入**会话 MPI catalog** `<sessionDir>/runtime/mpi/catalog.md`（经挂载出现在 guest `/data/runtime/mpi/catalog.md`）。`agent-compose-runtime-js`（`runtime/javascript`）的 `readMpiContext` 会读这个 catalog，把它作为**高优先级上下文注入 agent system prompt**：codex 进 `config.developer_instructions`，claude 进 `systemPrompt`（preset `claude_code` + `append`）。所以创建会话后 agent 一启动就知道有哪些能力可调，无需自己 cat 文件。渲染内容含每个 gRPC 方法及其 `x-octobus-*` metadata（capset / instance）和「用 server reflection 获取描述符」的指引，guest 据此在调用时携带 `x-octobus-capset` / `x-octobus-instance`。不含 OctoBus 地址与 token（只取 `grpc` 段）。**OctoBus 不可达 / 渲染失败时记事件并继续，session/loader 照常启动**。
 
 > 覆盖范围：codex、claude 经 `mpiContext` 注入 system prompt；gemini runner 当前未消费 `mpiContext`（已有 gap，本期不处理）。
 
@@ -230,8 +227,8 @@ agent definition、创建会话与 loader 都保存能力集选择，`capset_ids
 | 控制面 OctoBus 返回非 2xx | 返回 Connect error，含 HTTP status |
 | 控制面 `GetCapabilityCatalog` 的 capset 不存在 | not found / invalid argument |
 | 注入阶段 OctoBus 不可达 / md 渲染失败 | **不阻塞**：记 session event + log，session/loader 照常创建运行（best-effort） |
-| 数据面方法不在 capset（guest 未指定 instance 时补齐查无） | gRPC `NotFound` |
-| 数据面 guest 未指定 instance 且方法多实例 | gRPC `FailedPrecondition`（需 guest 带 `x-octobus-service` / `x-octobus-instance`） |
+| 数据面业务调用缺少 `x-octobus-instance` | gRPC `FailedPrecondition`（需 guest 带 `x-octobus-instance`） |
+| 数据面 method / instance 未暴露给 capset | 透传 OctoBus gRPC status |
 | 数据面 OctoBus 返回 gRPC status | 透传 status code / message |
 
 响应给前端的错误不泄漏敏感网络参数；HTTP client 设置 timeout。
@@ -243,7 +240,7 @@ agent definition、创建会话与 loader 都保存能力集选择，`capset_ids
 1. `ConfigStore` 增加 `capability_gateway` 表（单行 `addr`、`token`）与 `Get` / `Save`。
 2. proto：`ConfigService` 增加 `GetCapabilityGatewayConfig` / `UpdateCapabilityGatewayConfig`；`CreateSessionRequest`、agent definition 与 loader messages 增加 `capset_ids`；`CapabilityService` 三个 rpc。重新生成 Go / TS。
 3. 控制面 provider 依赖 `ConfigStore`，每次调用读 `addr` / `token`。
-4. 数据面 capproxy：从 `ConfigStore` 读 OctoBus addr / token；token→session 内存索引；校验 `x-octobus-capset` 属于 session 绑定集合、透传 guest 的 `x-octobus-service` / `x-octobus-instance`、未带时按 capset 缓存的归一 catalog 补齐；专用 gRPC listener。
+4. 数据面 capproxy：从 `ConfigStore` 读 OctoBus addr / token；token→session 内存索引；校验 `x-octobus-capset` 属于 session 绑定集合；业务调用要求 guest 带 `x-octobus-instance`；专用 gRPC listener。
 5. 两步注入，工作会话与 loader run 共用：`buildCapabilityGatewaySessionVars`（建库前，生成 `CAP_GRPC_TARGET` / `CAP_TOKEN` env + `capset` tags）；`writeCapabilityGuide`（建库后、VM 启动前，`?format=md&grpc=true` 渲染能力说明 md 写入会话 MPI catalog `runtime/mpi/catalog.md`，由 `agent-compose-runtime-js` 注入 codex / claude 的 system prompt）。
 
 前端：
@@ -254,5 +251,5 @@ agent definition、创建会话与 loader 都保存能力集选择，`capset_ids
 测试：
 
 8. 控制面：未配置、连接失败、capsets 归一、catalog 归一、capset 不存在。
-9. 数据面：校验 guest 传入的 capset 属于 session 绑定集合、透传 guest 的 service / instance、未带 service / instance 时唯一命中补齐、reflection 流校验 capset、OctoBus token 注入、方法不在 capset → `NotFound`、未指定且多实例 → `FailedPrecondition`。
-10. 注入一致性与容错：loader 与工作会话经同一函数注入结果一致；能力说明 md 已写入 MPI catalog（`runtime/mpi/catalog.md`，非工作区）且含方法的 service / instance；**OctoBus 不可达 / md 渲染失败时 session、loader 仍成功创建运行（best-effort，不阻塞）**。
+9. 数据面：校验 guest 传入的 capset 属于 session 绑定集合；要求并透传 guest 的 instance；reflection 流校验 capset；OctoBus token 注入；缺少 instance → `FailedPrecondition`；OctoBus 路由错误透传。
+10. 注入一致性与容错：loader 与工作会话经同一函数注入结果一致；能力说明 md 已写入 MPI catalog（`runtime/mpi/catalog.md`，非工作区）且含方法的 instance 路由 metadata；**OctoBus 不可达 / md 渲染失败时 session、loader 仍成功创建运行（best-effort，不阻塞）**。

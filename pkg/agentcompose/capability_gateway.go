@@ -131,7 +131,7 @@ any method in the catalog below:
 
 - Endpoint: %s (plaintext HTTP/2 gRPC; also in env CAP_GRPC_TARGET)
 - On every call, send metadata `+"`%s: $CAP_TOKEN`"+` (token value is in env CAP_TOKEN)
-- Also send the per-method `+"`x-octobus-capset` / `x-octobus-service` / `x-octobus-instance`"+`
+- Also send the per-method `+"`x-octobus-capset` / `x-octobus-instance`"+`
   metadata shown in the table below
 - Schemas can be discovered via gRPC server reflection using the same
   `+"`x-octobus-capset`"+` metadata

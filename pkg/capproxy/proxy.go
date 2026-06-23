@@ -32,10 +32,6 @@ type SessionResolver interface {
 	ResolveCapabilitySession(ctx context.Context, token string) (SessionBinding, error)
 }
 
-type BindingResolver interface {
-	ResolveCapabilityBinding(ctx context.Context, capsetID, methodFullName string) (map[string]string, error)
-}
-
 // OctoBusResolver returns the current OctoBus dial target and token. ok is
 // false when the gateway is not configured, so the data plane stays in sync
 // with page edits without a restart.
@@ -45,7 +41,6 @@ type Server struct {
 	listen     string
 	octobus    OctoBusResolver
 	sessions   SessionResolver
-	bindings   BindingResolver
 	grpcServer *grpc.Server
 }
 
@@ -54,17 +49,16 @@ type Config struct {
 	OctoBus OctoBusResolver
 }
 
-func NewServer(config Config, sessions SessionResolver, bindings BindingResolver) *Server {
+func NewServer(config Config, sessions SessionResolver) *Server {
 	return &Server{
 		listen:   strings.TrimSpace(config.Listen),
 		octobus:  config.OctoBus,
 		sessions: sessions,
-		bindings: bindings,
 	}
 }
 
 func (s *Server) Configured() bool {
-	return s != nil && s.listen != "" && s.octobus != nil && s.sessions != nil && s.bindings != nil
+	return s != nil && s.listen != "" && s.octobus != nil && s.sessions != nil
 }
 
 func (s *Server) Serve(ctx context.Context) error {
@@ -112,21 +106,10 @@ func (s *Server) handleUnknown(_ any, stream grpc.ServerStream) error {
 	}
 	outgoing := buildOutgoingMetadata(stream.Context(), capset)
 	if !isReflectionMethod(method) {
-		// Business call. The guest supplies x-octobus-service / x-octobus-instance
-		// from the injected capability guide; we forward them as-is. Only when the
-		// guest omits one do we fill the triple from the resolved capset's catalog.
-		if firstMetadata(outgoing, "x-octobus-service") == "" || firstMetadata(outgoing, "x-octobus-instance") == "" {
-			fill, err := s.bindings.ResolveCapabilityBinding(stream.Context(), capset, strings.TrimPrefix(method, "/"))
-			if err != nil {
-				if strings.Contains(err.Error(), "not found") {
-					return status.Error(codes.NotFound, err.Error())
-				}
-				return status.Error(codes.FailedPrecondition, err.Error())
-			}
-			for key, value := range fill {
-				outgoing.Set(key, value)
-			}
-			outgoing.Set("x-octobus-capset", capset)
+		// Business calls route by capset + instance + method. The instance comes
+		// from the injected guide.
+		if firstMetadata(outgoing, "x-octobus-instance") == "" {
+			return status.Error(codes.FailedPrecondition, "x-octobus-instance is required")
 		}
 	}
 	return s.proxyStream(stream, method, outgoing)
@@ -160,9 +143,10 @@ func containsString(values []string, target string) bool {
 }
 
 // buildOutgoingMetadata forwards the guest's incoming metadata to OctoBus,
-// except agent-compose's own session credential and any authorization (OctoBus auth
-// is injected in proxyStream). x-octobus-capset is forced to the resolved,
-// session-allowed value so the guest cannot reach a capset outside its set.
+// except agent-compose's own session credential and any authorization (OctoBus
+// auth is injected in proxyStream).
+// x-octobus-capset is forced to the resolved, session-allowed value so the guest
+// cannot reach a capset outside its set.
 func buildOutgoingMetadata(ctx context.Context, capset string) metadata.MD {
 	incoming, _ := metadata.FromIncomingContext(ctx)
 	outgoing := incoming.Copy()

@@ -3,7 +3,6 @@ package capability
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -146,52 +145,5 @@ func TestNormalizeCatalogAllowsDuplicateGRPCMethodBindings(t *testing.T) {
 	}
 	if len(catalog.Methods) != 2 {
 		t.Fatalf("expected duplicate method bindings to be preserved, got %+v", catalog.Methods)
-	}
-}
-
-func TestResolveBinding(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(octobusCatalogResponse{
-			CapsetID: "dev",
-			GRPC: []octobusGRPCItem{{
-				ServiceID:      "svc",
-				InstanceID:     "inst",
-				MethodFullName: "pkg.Service/Call",
-				Metadata: map[string]string{
-					"x-octobus-capset":   "dev",
-					"x-octobus-service":  "svc",
-					"x-octobus-instance": "inst",
-				},
-			}},
-		})
-	}))
-	defer server.Close()
-
-	client := NewClient(Config{Addr: server.URL})
-	binding, err := client.ResolveBinding(context.Background(), "dev", "/pkg.Service/Call")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if binding.ServiceID != "svc" || binding.InstanceID != "inst" || binding.Metadata["x-octobus-service"] != "svc" {
-		t.Fatalf("unexpected binding %+v", binding)
-	}
-}
-
-func TestResolveBindingRejectsAmbiguousMethod(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(octobusCatalogResponse{
-			CapsetID: "dev",
-			GRPC: []octobusGRPCItem{
-				{ServiceID: "svc-a", InstanceID: "inst-a", MethodFullName: "pkg.Service/Call"},
-				{ServiceID: "svc-b", InstanceID: "inst-b", MethodFullName: "pkg.Service/Call"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	client := NewClient(Config{Addr: server.URL})
-	_, err := client.ResolveBinding(context.Background(), "dev", "/pkg.Service/Call")
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("expected conflict, got %v", err)
 	}
 }

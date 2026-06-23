@@ -308,7 +308,7 @@ func TestSessionRPCBridgeCreateSessionInjectsCapabilityGatewayVars(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin/v1/catalog/dev" && r.URL.Query().Get("format") == "md" {
 			w.Header().Set("Content-Type", "text/markdown")
-			_, _ = w.Write([]byte("# Catalog: dev\n\n## gRPC\n\n| Method | Metadata |\n| --- | --- |\n| `/pkg.Service/Call` | `x-octobus-service=svc, x-octobus-instance=inst` |\n"))
+			_, _ = w.Write([]byte("# Catalog: dev\n\n## gRPC\n\n| Method | Metadata |\n| --- | --- |\n| `/pkg.Service/Call` | `x-octobus-capset=dev, x-octobus-instance=inst` |\n"))
 			return
 		}
 		t.Errorf("unexpected request %s?%s", r.URL.Path, r.URL.RawQuery)
@@ -346,7 +346,7 @@ func TestSessionRPCBridgeCreateSessionInjectsCapabilityGatewayVars(t *testing.T)
 	if err != nil {
 		t.Fatalf("capability guide not written to MPI catalog: %v", err)
 	}
-	if !strings.Contains(string(guide), "x-octobus-service=svc") {
+	if !strings.Contains(string(guide), "x-octobus-instance=inst") {
 		t.Fatalf("capability guide missing routing info: %s", guide)
 	}
 }
