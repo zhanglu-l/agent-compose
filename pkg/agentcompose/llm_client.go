@@ -295,21 +295,6 @@ func (c *LLMClient) resolveSetting(ctx context.Context, fallback string, keys ..
 	return ""
 }
 
-func (c *LLMClient) resolveAPIKey(ctx context.Context, keys ...string) string {
-	if value := strings.TrimSpace(c.lookupGlobalEnv(ctx, keys...)); value != "" {
-		return value
-	}
-	for _, key := range keys {
-		if value := strings.TrimSpace(os.Getenv(strings.TrimSpace(key))); value != "" {
-			return value
-		}
-	}
-	if c != nil && c.config != nil {
-		return strings.TrimSpace(c.config.LLMAPIKey)
-	}
-	return ""
-}
-
 func (c *LLMClient) resolveEndpoint(ctx context.Context) string {
 	return c.resolveEndpointForProtocol(ctx, c.resolveProtocol(ctx))
 }

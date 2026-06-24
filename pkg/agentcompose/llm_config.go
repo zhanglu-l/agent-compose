@@ -917,7 +917,7 @@ func providerForwardHeaders(provider LLMProvider) (http.Header, error) {
 			if forbiddenProviderHeader(key, provider.AuthHeader) {
 				continue
 			}
-			headers.Set(http.CanonicalHeaderKey(strings.TrimSpace(key)), value)
+			headers.Set(strings.TrimSpace(key), value)
 		}
 	}
 	authHeader := firstNonEmpty(strings.TrimSpace(provider.AuthHeader), "Authorization")
