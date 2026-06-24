@@ -3,6 +3,7 @@ package agentcompose
 import (
 	appconfig "agent-compose/pkg/config"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,14 +17,35 @@ import (
 // than letting it live for the whole session lifetime.
 const llmFacadeTokenSourceAgent = "agent"
 
+type agentRuntimeLLMConfig struct {
+	Env map[string]string
+}
+
 func ensureSessionLLMFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, agent, model, source, runID string) (map[string]string, error) {
+	runtimeConfig, err := ensureSessionAgentRuntimeLLMConfig(ctx, config, configDB, session, agent, model, source, runID)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeConfig.Env, nil
+}
+
+func ensureSessionAgentRuntimeLLMConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, agent, model, source, runID string) (agentRuntimeLLMConfig, error) {
 	if config == nil || configDB == nil || session == nil {
-		return nil, nil
+		return agentRuntimeLLMConfig{}, nil
 	}
-	if normalizeAgentKind(agent) == "claude" {
-		return ensureSessionClaudeLLMFacadeConfig(ctx, config, configDB, session, model, source, runID)
+	switch normalizeAgentKind(agent) {
+	case "codex":
+		env, err := ensureSessionCodexLLMFacadeConfig(ctx, config, configDB, session, model, source, runID)
+		return agentRuntimeLLMConfig{Env: env}, err
+	case "claude":
+		env, err := ensureSessionClaudeLLMFacadeConfig(ctx, config, configDB, session, model, source, runID)
+		return agentRuntimeLLMConfig{Env: env}, err
+	case "opencode":
+		env, err := ensureSessionOpenCodeLLMFacadeConfig(ctx, config, configDB, session, model, source, runID)
+		return agentRuntimeLLMConfig{Env: env}, err
+	default:
+		return agentRuntimeLLMConfig{}, nil
 	}
-	return ensureSessionCodexLLMFacadeConfig(ctx, config, configDB, session, model, source, runID)
 }
 
 func ensureSessionCodexLLMFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
@@ -98,6 +120,152 @@ func ensureSessionClaudeLLMFacadeConfig(ctx context.Context, config *appconfig.C
 		env["CLAUDE_MODEL"] = tokenModel
 	}
 	return env, nil
+}
+
+func ensureSessionOpenCodeLLMFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
+	providerID, modelName, err := splitOpenCodeModel(model)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := guestRuntimeLLMBaseURL(config, session)
+	if strings.TrimSpace(baseURL) == "" {
+		return nil, nil
+	}
+	switch providerID {
+	case "opencode":
+		return nil, nil
+	case "anthropic":
+		return ensureSessionOpenCodeAnthropicFacadeConfig(ctx, config, configDB, session, modelName, source, runID)
+	case "openai":
+		return ensureSessionOpenCodeOpenAIFacadeEnv(ctx, config, configDB, session, modelName, source, runID)
+	default:
+		return ensureSessionOpenCodeCustomProviderConfig(ctx, config, configDB, session, providerID, modelName, source, runID)
+	}
+}
+
+func splitOpenCodeModel(model string) (string, string, error) {
+	model = strings.TrimSpace(model)
+	providerID, modelName, ok := strings.Cut(model, "/")
+	providerID = strings.TrimSpace(providerID)
+	modelName = strings.TrimSpace(modelName)
+	if !ok || providerID == "" || modelName == "" {
+		return "", "", fmt.Errorf("opencode model must be in provider/model format")
+	}
+	return providerID, modelName, nil
+}
+
+func ensureSessionOpenCodeAnthropicFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
+	baseURL := guestRuntimeLLMBaseURL(config, session)
+	if strings.TrimSpace(baseURL) == "" {
+		return nil, nil
+	}
+	providerEnv := sessionLLMProviderEnvItems(session)
+	target, err := resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, session.Summary.ID, llmProviderFamilyAnthropic, model, "", providerEnv)
+	if err != nil {
+		return nil, err
+	}
+	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolMessages, source, runID)
+	if err != nil {
+		return nil, err
+	}
+	if err := configDB.SaveLLMFacadeToken(ctx, token); err != nil {
+		return nil, err
+	}
+	anthropicBaseURL := strings.TrimRight(baseURL, "/") + "/api/runtime/sessions/" + session.Summary.ID + "/llm/anthropic"
+	return map[string]string{
+		"AGENT_COMPOSE_SESSION_TOKEN": tokenValue,
+		"LLM_API_ENDPOINT":            anthropicBaseURL,
+		"LLM_API_KEY":                 tokenValue,
+		"LLM_API_PROTOCOL":            llmAPIProtocolMessages,
+		"ANTHROPIC_API_KEY":           tokenValue,
+		"ANTHROPIC_BASE_URL":          anthropicBaseURL,
+	}, nil
+}
+
+func ensureSessionOpenCodeOpenAIFacadeEnv(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
+	target, err := resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, session.Summary.ID, llmProviderFamilyOpenAI, model, "", sessionLLMProviderEnvItems(session))
+	if err != nil {
+		return nil, err
+	}
+	baseURL := guestRuntimeLLMBaseURL(config, session)
+	if strings.TrimSpace(baseURL) == "" {
+		return nil, nil
+	}
+	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolChatCompletions, source, runID)
+	if err != nil {
+		return nil, err
+	}
+	if err := configDB.SaveLLMFacadeToken(ctx, token); err != nil {
+		return nil, err
+	}
+	openAIBaseURL := strings.TrimRight(baseURL, "/") + "/api/runtime/sessions/" + session.Summary.ID + "/llm/openai/v1"
+	if err := writeOpenCodeLLMConfig(session, "openai", target.Model.Name, openAIBaseURL); err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"AGENT_COMPOSE_SESSION_TOKEN": tokenValue,
+		"LLM_API_ENDPOINT":            openAIBaseURL,
+		"LLM_API_KEY":                 tokenValue,
+		"LLM_API_PROTOCOL":            llmAPIProtocolChatCompletions,
+		"OPENAI_API_KEY":              tokenValue,
+		"OPENAI_BASE_URL":             openAIBaseURL,
+		"OPENCODE_CONFIG":             guestOpenCodeLLMConfigPath(config),
+	}, nil
+}
+
+func ensureSessionOpenCodeCustomProviderConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, providerID, model, source, runID string) (map[string]string, error) {
+	target, err := resolveOpenCodeCustomProviderTarget(ctx, config, configDB, session, providerID, model)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := guestRuntimeLLMBaseURL(config, session)
+	if strings.TrimSpace(baseURL) == "" {
+		return nil, nil
+	}
+	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolChatCompletions, source, runID)
+	if err != nil {
+		return nil, err
+	}
+	if err := configDB.SaveLLMFacadeToken(ctx, token); err != nil {
+		return nil, err
+	}
+	openAIBaseURL := strings.TrimRight(baseURL, "/") + "/api/runtime/sessions/" + session.Summary.ID + "/llm/openai/v1"
+	if err := writeOpenCodeLLMConfig(session, providerID, target.Model.Name, openAIBaseURL); err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"AGENT_COMPOSE_SESSION_TOKEN": tokenValue,
+		"LLM_API_ENDPOINT":            openAIBaseURL,
+		"LLM_API_KEY":                 tokenValue,
+		"LLM_API_PROTOCOL":            llmAPIProtocolChatCompletions,
+		"OPENAI_API_KEY":              tokenValue,
+		"OPENAI_BASE_URL":             openAIBaseURL,
+		"OPENCODE_CONFIG":             guestOpenCodeLLMConfigPath(config),
+	}, nil
+}
+
+func resolveOpenCodeCustomProviderTarget(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, providerID, model string) (LLMResolvedTarget, error) {
+	envItems := sessionLLMProviderEnvItems(session)
+	sessionID := ""
+	if session != nil {
+		sessionID = session.Summary.ID
+	}
+	if hasEnabledLLMProviderID(ctx, configDB, providerID) {
+		return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, providerID, envItems)
+	}
+	if sessionID != "" && hasOpenAIEnvProviderInput(envItems) {
+		sessionProviderID, err := ensureSessionOpenAIEnvProvider(ctx, configDB, sessionID, model, envItems)
+		if err != nil {
+			return LLMResolvedTarget{}, err
+		}
+		if strings.TrimSpace(sessionProviderID) != "" {
+			return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, sessionProviderID, envItems)
+		}
+	}
+	if _, err := ensureOpenAIEnvProvider(ctx, configDB, defaultLLMEnvProviderLookup(ctx, config, configDB), providerID, providerID, llmProviderScopeEnvDefault, model, false); err != nil {
+		return LLMResolvedTarget{}, err
+	}
+	return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, providerID, envItems)
 }
 
 func isOptionalLLMFacadeConfigError(err error) bool {
@@ -183,6 +351,51 @@ persistence = "save-all"
 		return fmt.Errorf("write codex config: %w", err)
 	}
 	return nil
+}
+
+func writeOpenCodeLLMConfig(session *Session, providerID, model, baseURL string) error {
+	if session == nil {
+		return nil
+	}
+	providerID = strings.TrimSpace(providerID)
+	model = strings.TrimSpace(model)
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if providerID == "" || model == "" || baseURL == "" {
+		return nil
+	}
+	path := filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create opencode config dir: %w", err)
+	}
+	payload := map[string]any{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			providerID: map[string]any{
+				"npm":  "@ai-sdk/openai-compatible",
+				"name": "agent-compose " + providerID,
+				"options": map[string]any{
+					"baseURL": baseURL,
+					"apiKey":  "{env:AGENT_COMPOSE_SESSION_TOKEN}",
+				},
+				"models": map[string]any{
+					model: map[string]any{"name": model},
+				},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode opencode config: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write opencode config: %w", err)
+	}
+	return nil
+}
+
+func guestOpenCodeLLMConfigPath(config *appconfig.Config) string {
+	appconfig.ApplyDefaultGuestPaths(config)
+	return filepath.Join(guestSessionHome(config), ".opencode", "agent-compose.json")
 }
 
 func guestRuntimeLLMBaseURL(config *appconfig.Config, session *Session) string {

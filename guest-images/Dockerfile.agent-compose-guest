@@ -111,6 +111,8 @@ RUN mkdir -p /opt/agent-compose/npm && \
 ENV HOME=/root \
     GOPATH=/root/go \
     GOPROXY=${GOPROXY} \
+    OPENCODE_DISABLE_AUTOUPDATE=true \
+    OPENCODE_DISABLE_MODELS_FETCH=1 \
     PATH=/root/.local/bin:/usr/local/go/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN printf '%s\n' \
@@ -120,6 +122,8 @@ RUN printf '%s\n' \
   'export HOME=${HOME:-/root}' \
   'export GOPATH=${GOPATH:-/root/go}' \
   'export GOPROXY=${GOPROXY:-https://goproxy.cn,direct}' \
+  'export OPENCODE_DISABLE_AUTOUPDATE=${OPENCODE_DISABLE_AUTOUPDATE:-true}' \
+  'export OPENCODE_DISABLE_MODELS_FETCH=${OPENCODE_DISABLE_MODELS_FETCH:-1}' \
   'export PATH=/root/.local/bin:/usr/local/go/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
   'exec "$@"' > /usr/local/bin/agent-compose-env && chmod +x /usr/local/bin/agent-compose-env
 

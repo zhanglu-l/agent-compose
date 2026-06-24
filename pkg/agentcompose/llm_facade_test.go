@@ -3,6 +3,7 @@ package agentcompose
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -596,6 +597,249 @@ func TestEnsureSessionLLMFacadeConfigUsesRequestedModel(t *testing.T) {
 	}
 	if !strings.Contains(string(payload), `model = "model-b"`) {
 		t.Fatalf("codex config did not use requested model-b: %s", string(payload))
+	}
+}
+
+func TestEnsureSessionOpenCodeCustomProviderWritesConfig(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	if err := service.configDB.UpsertDefaultLLMConfig(ctx, LLMProvider{
+		ID:             "chaitin",
+		Name:           "chaitin",
+		ProviderType:   llmProviderFamilyOpenAI,
+		DefaultWireAPI: llmAPIProtocolChatCompletions,
+		BaseURL:        "https://aiapi.example.invalid/v1",
+		APIKey:         "provider-key",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "Bearer",
+		HeadersJSON:    "{}",
+		Weight:         1,
+		Enabled:        true,
+		Scope:          llmProviderScopeSystem,
+	}, LLMModel{ID: "kimi-k2.6", Name: "kimi-k2.6", DefaultModel: true, Enabled: true, Scope: llmProviderScopeSystem}); err != nil {
+		t.Fatalf("UpsertDefaultLLMConfig returned error: %v", err)
+	}
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-custom")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "chaitin/kimi-k2.6", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	if env["AGENT_COMPOSE_SESSION_TOKEN"] == "" || env["AGENT_COMPOSE_SESSION_TOKEN"] != env["LLM_API_KEY"] {
+		t.Fatalf("managed facade env missing token aliases: %#v", env)
+	}
+	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+		t.Fatalf("OPENCODE_CONFIG = %q, want guest opencode config path", env["OPENCODE_CONFIG"])
+	}
+	if strings.Contains(strings.Join([]string{env["LLM_API_KEY"], env["OPENAI_API_KEY"]}, " "), "provider-key") {
+		t.Fatalf("provider key leaked into runtime env: %#v", env)
+	}
+	token, err := service.configDB.GetLLMFacadeToken(ctx, env["AGENT_COMPOSE_SESSION_TOKEN"])
+	if err != nil {
+		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
+	}
+	if token.ProviderID != "chaitin" || token.Model != "kimi-k2.6" || token.WireAPI != llmAPIProtocolChatCompletions {
+		t.Fatalf("facade token = %#v, want chaitin/kimi-k2.6 chat facade", token)
+	}
+	configPath := filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")
+	payload, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) returned error: %v", configPath, err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode opencode config: %v\n%s", err, string(payload))
+	}
+	providers := decoded["provider"].(map[string]any)
+	chaitin := providers["chaitin"].(map[string]any)
+	if chaitin["npm"] != "@ai-sdk/openai-compatible" {
+		t.Fatalf("opencode provider npm = %#v", chaitin["npm"])
+	}
+	options := chaitin["options"].(map[string]any)
+	if options["baseURL"] != "http://agent-compose.test/api/runtime/sessions/"+session.Summary.ID+"/llm/openai/v1" {
+		t.Fatalf("opencode baseURL = %#v", options["baseURL"])
+	}
+	if options["apiKey"] != "{env:AGENT_COMPOSE_SESSION_TOKEN}" {
+		t.Fatalf("opencode apiKey = %#v", options["apiKey"])
+	}
+	models := chaitin["models"].(map[string]any)
+	if _, ok := models["kimi-k2.6"]; !ok {
+		t.Fatalf("opencode models = %#v, want kimi-k2.6", models)
+	}
+}
+
+func TestEnsureSessionOpenCodeCustomProviderBootstrapsFromDefaultEnv(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("LLM_API_ENDPOINT", "")
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("LLM_MODEL", "")
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	service.config.LLMAPIEndpoint = "https://aiapi.example.invalid"
+	service.config.LLMAPIProtocol = llmAPIProtocolChatCompletions
+	service.config.LLMAPIKey = "default-env-key"
+	service.config.LLMModel = "kimi-k2.6"
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-custom-default-env")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "chaitin/kimi-k2.6", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	token, err := service.configDB.GetLLMFacadeToken(ctx, env["AGENT_COMPOSE_SESSION_TOKEN"])
+	if err != nil {
+		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
+	}
+	if token.ProviderID != "chaitin" || token.Model != "kimi-k2.6" {
+		t.Fatalf("facade token = %#v, want bootstrapped chaitin/kimi-k2.6", token)
+	}
+	providers, err := service.configDB.ListEnabledLLMProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListEnabledLLMProviders returned error: %v", err)
+	}
+	if len(providers) != 1 || providers[0].ID != "chaitin" || providers[0].APIKey != "default-env-key" {
+		t.Fatalf("providers = %#v, want single chaitin provider from default env", providers)
+	}
+	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+		t.Fatalf("OPENCODE_CONFIG = %q, want custom opencode config path", env["OPENCODE_CONFIG"])
+	}
+}
+
+func TestEnsureSessionOpenCodeNativeProviderUsesOpenCodeConfig(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-native")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "opencode/big-pickle", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	if len(env) != 0 {
+		t.Fatalf("env = %#v, want no managed facade env for opencode native provider", env)
+	}
+	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")); !os.IsNotExist(err) {
+		t.Fatalf("opencode config file should not exist for native provider, stat err=%v", err)
+	}
+}
+
+func TestEnsureSessionOpenCodeOpenAIWritesRequestedModelConfig(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	if err := service.configDB.UpsertDefaultLLMConfig(ctx, LLMProvider{
+		ID:             "default",
+		Name:           "default",
+		ProviderType:   llmProviderFamilyOpenAI,
+		DefaultWireAPI: llmAPIProtocolChatCompletions,
+		BaseURL:        "https://aiapi.example.invalid/v1",
+		APIKey:         "provider-key",
+		AuthHeader:     "Authorization",
+		AuthScheme:     "Bearer",
+		HeadersJSON:    "{}",
+		Weight:         1,
+		Enabled:        true,
+		Scope:          llmProviderScopeSystem,
+	}, LLMModel{ID: "kimi-k2.6", Name: "kimi-k2.6", DefaultModel: true, Enabled: true, Scope: llmProviderScopeSystem}); err != nil {
+		t.Fatalf("UpsertDefaultLLMConfig returned error: %v", err)
+	}
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-openai")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "openai/kimi-k2.6", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+		t.Fatalf("OPENCODE_CONFIG = %q, want guest opencode config path", env["OPENCODE_CONFIG"])
+	}
+	payload, err := os.ReadFile(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode opencode config: %v\n%s", err, string(payload))
+	}
+	models := decoded["provider"].(map[string]any)["openai"].(map[string]any)["models"].(map[string]any)
+	if _, ok := models["kimi-k2.6"]; !ok {
+		t.Fatalf("opencode openai models = %#v, want requested model", models)
+	}
+}
+
+func TestSplitOpenCodeModelPreservesNestedModelID(t *testing.T) {
+	providerID, modelName, err := splitOpenCodeModel("openrouter/meta-llama/llama-3.1-8b")
+	if err != nil {
+		t.Fatalf("splitOpenCodeModel returned error: %v", err)
+	}
+	if providerID != "openrouter" || modelName != "meta-llama/llama-3.1-8b" {
+		t.Fatalf("splitOpenCodeModel = %q, %q; want provider and nested model id preserved", providerID, modelName)
+	}
+}
+
+func TestEnsureSessionOpenCodeAnthropicUsesFacadeEnv(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_MODEL", "")
+	t.Setenv("LLM_API_KEY", "")
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	if err := service.configDB.UpsertDefaultLLMConfig(ctx, LLMProvider{
+		ID:             "anthropic",
+		Name:           "anthropic",
+		ProviderType:   llmProviderFamilyAnthropic,
+		DefaultWireAPI: llmAPIProtocolMessages,
+		BaseURL:        "https://anthropic.example.invalid",
+		APIKey:         "anthropic-provider-key",
+		AuthHeader:     "x-api-key",
+		HeadersJSON:    `{"anthropic-version":"2023-06-01"}`,
+		Weight:         1,
+		Enabled:        true,
+		Scope:          llmProviderScopeSystem,
+	}, LLMModel{ID: "claude-sonnet-4-5", Name: "claude-sonnet-4-5", DefaultModel: true, Enabled: true, Scope: llmProviderScopeSystem}); err != nil {
+		t.Fatalf("UpsertDefaultLLMConfig returned error: %v", err)
+	}
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-anthropic")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "anthropic/claude-sonnet-4-5", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	if env["ANTHROPIC_API_KEY"] != env["AGENT_COMPOSE_SESSION_TOKEN"] {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want facade token", env["ANTHROPIC_API_KEY"])
+	}
+	if env["ANTHROPIC_BASE_URL"] != "http://agent-compose.test/api/runtime/sessions/"+session.Summary.ID+"/llm/anthropic" {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["OPENCODE_CONFIG"] != "" {
+		t.Fatalf("OPENCODE_CONFIG = %q, want no custom config for built-in anthropic provider", env["OPENCODE_CONFIG"])
+	}
+	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")); !os.IsNotExist(err) {
+		t.Fatalf("opencode config file should not exist for built-in anthropic provider, stat err=%v", err)
+	}
+	token, err := service.configDB.GetLLMFacadeToken(ctx, env["AGENT_COMPOSE_SESSION_TOKEN"])
+	if err != nil {
+		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
+	}
+	if token.ProviderID != "anthropic" || token.Model != "claude-sonnet-4-5" || token.WireAPI != llmAPIProtocolMessages {
+		t.Fatalf("facade token = %#v, want anthropic messages facade", token)
+	}
+}
+
+func TestEnsureSessionOpenCodeModelRequiresProviderPrefix(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	session := createRunningLLMFacadeSession(t, ctx, service, "opencode-invalid-model")
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "opencode", "kimi-k2.6", "test", "run-1")
+	if err == nil {
+		t.Fatalf("expected opencode provider/model error, got env=%#v", env)
+	}
+	if !strings.Contains(err.Error(), "provider/model") {
+		t.Fatalf("error = %v, want provider/model guidance", err)
 	}
 }
 

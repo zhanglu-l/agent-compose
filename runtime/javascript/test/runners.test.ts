@@ -331,6 +331,17 @@ describe("OpenCodeRunner", () => {
     });
   });
 
+  it("disables OpenCode model catalog fetch by default", async () => {
+    await withTempSession(async (root) => {
+      const runner = new OpenCodeRunner(runnerOptions(root, "", "opencode"));
+
+      expect(runner.environment().OPENCODE_DISABLE_MODELS_FETCH).toBe("1");
+
+      vi.stubEnv("OPENCODE_DISABLE_MODELS_FETCH", "0");
+      expect(runner.environment().OPENCODE_DISABLE_MODELS_FETCH).toBe("0");
+    });
+  });
+
   it("translates OpenCode JSON events into transcript and final text", async () => {
     await withTempSession(async (root) => {
       const runner = new OpenCodeRunner(runnerOptions(root, "", "opencode"));

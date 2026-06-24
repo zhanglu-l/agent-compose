@@ -35,6 +35,7 @@ export class OpenCodeRunner {
     return {
       ...process.env,
       OPENCODE_DISABLE_AUTOUPDATE: process.env.OPENCODE_DISABLE_AUTOUPDATE || "true",
+      OPENCODE_DISABLE_MODELS_FETCH: process.env.OPENCODE_DISABLE_MODELS_FETCH || "1",
     };
   }
 

@@ -53,6 +53,7 @@ func TestPrepareRuntimeMountManifestForDockerIncludesRequiredMountsOnly(t *testi
 		"/data/logs":                filepath.Join(root, "logs"),
 		"/root/.codex":              filepath.Join(root, "home", ".codex"),
 		"/root/.claude":             filepath.Join(root, "home", ".claude"),
+		"/root/.opencode":           filepath.Join(root, "home", ".opencode"),
 		"/root/.claude.json":        filepath.Join(root, "home", ".claude.json"),
 		"/root/.gitconfig":          filepath.Join(root, "home", ".gitconfig"),
 		"/root/.gemini":             filepath.Join(root, "home", ".gemini"),
@@ -94,6 +95,7 @@ func TestPrepareRuntimeMountManifestIgnoresCustomGuestHomePath(t *testing.T) {
 	for _, guestPath := range []string{
 		"/root/.codex",
 		"/root/.claude",
+		"/root/.opencode",
 		"/root/.claude.json",
 		"/root/.gitconfig",
 		"/root/.gemini",
