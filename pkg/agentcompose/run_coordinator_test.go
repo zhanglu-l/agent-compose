@@ -598,6 +598,54 @@ func TestE2EManagedSchedulerAgentUsesProjectRunPipeline(t *testing.T) {
 	testManagedSchedulerAgentUsesProjectRunPipeline(t)
 }
 
+func TestManagedSchedulerManualRunPreservesProjectSecretEnv(t *testing.T) {
+	spec := newProjectServiceTestSpec("scheduler-secret", "gpt-test")
+	spec.Agents[0].Env = []*agentcomposev2.EnvVarSpec{
+		{Name: "SAFELINE_API_TOKEN", Value: "valid-token", Secret: true},
+	}
+	store, service, projectID := setupRunPreparationProject(t, spec, t.TempDir())
+	manager := newRunServiceLoaderManager(service)
+	ctx := context.Background()
+	schedulers, err := store.ListProjectSchedulers(ctx, projectID)
+	if err != nil {
+		t.Fatalf("ListProjectSchedulers returned error: %v", err)
+	}
+	if len(schedulers) == 0 {
+		t.Fatalf("expected project scheduler")
+	}
+	loader, err := store.GetLoader(ctx, schedulers[0].ManagedLoaderID)
+	if err != nil {
+		t.Fatalf("GetLoader managed scheduler returned error: %v", err)
+	}
+	if len(loader.Triggers) == 0 {
+		t.Fatalf("managed loader has no triggers: %#v", loader)
+	}
+
+	_, err = manager.RunNow(ctx, loader.Summary.ID, loader.Triggers[0].ID, `{}`, 0)
+	if err != nil {
+		t.Fatalf("RunNow manual managed scheduler returned error: %v", err)
+	}
+	runs, err := store.ListProjectRunsByOptions(ctx, ProjectRunListOptions{
+		ProjectID:   projectID,
+		Source:      ProjectRunSourceScheduler,
+		SchedulerID: loader.Summary.ManagedSchedulerID,
+	})
+	if err != nil {
+		t.Fatalf("ListProjectRunsByOptions scheduler returned error: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("scheduler project runs = %#v", runs)
+	}
+	session, err := service.store.GetSession(ctx, runs[0].SessionID)
+	if err != nil {
+		t.Fatalf("GetSession scheduler manual run returned error: %v", err)
+	}
+	env := envItemsByName(session.EnvItems)
+	if got := env["SAFELINE_API_TOKEN"]; got.Value != "valid-token" || !got.Secret {
+		t.Fatalf("SAFELINE_API_TOKEN env = %#v, want preserved secret value", got)
+	}
+}
+
 func testManagedSchedulerAgentUsesProjectRunPipeline(t *testing.T) {
 	store, service, projectID := setupRunCoordinatorProject(t)
 	manager := newRunServiceLoaderManager(service)
