@@ -77,9 +77,10 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	if err != nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	transitionCtx := context.WithoutCancel(ctx)
 	prepared, err := s.prepareProjectRun(ctx, run, msg.GetEnv())
 	if err != nil {
-		run, markErr := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
 			RunID: run.RunID,
 			Error: fmt.Sprintf("workspace preparation failed: %v", err),
 		})
@@ -97,19 +98,19 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 		if sessionResult.Session != nil {
 			transition.SessionID = sessionResult.Session.Summary.ID
 		}
-		run, markErr := coordinator.MarkFailed(ctx, transition)
+		run, markErr := coordinator.MarkFailed(transitionCtx, transition)
 		if markErr != nil {
 			return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, markErr)
 		}
 		return run, err, nil
 	}
-	run, err = coordinator.MarkRunning(ctx, run.RunID, sessionResult.Session.Summary.ID)
+	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
 	if err != nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
 	}
 	agentConfig, err := s.projectRunAgentConfig(ctx, run)
 	if err != nil {
-		run, markErr := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
 			RunID:     run.RunID,
 			SessionID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
@@ -122,7 +123,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	}
 	if s.executor == nil {
 		err = fmt.Errorf("executor is required")
-		run, markErr := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
 			RunID:     run.RunID,
 			SessionID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
@@ -144,18 +145,18 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	})
 	transition := projectRunTransitionFromAgentCell(run, sessionResult.Session, cell, execErr)
 	if execErr != nil || !cell.Success {
-		run, err = coordinator.MarkFailed(ctx, transition)
+		run, err = coordinator.MarkFailed(transitionCtx, transition)
 		if err != nil {
 			return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
 		}
-		run = s.cleanupProjectRunSession(context.WithoutCancel(ctx), coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
+		run = s.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
 		return run, execErr, nil
 	}
-	run, err = coordinator.MarkSucceeded(ctx, transition)
+	run, err = coordinator.MarkSucceeded(transitionCtx, transition)
 	if err != nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
 	}
-	run = s.cleanupProjectRunSession(context.WithoutCancel(ctx), coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
+	run = s.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
 	return run, nil, nil
 }
 

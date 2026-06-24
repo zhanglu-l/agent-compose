@@ -527,6 +527,53 @@ func TestRunAgentStreamSendFailurePersistsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestRunAgentContextCancelPersistsTerminalRun(t *testing.T) {
+	store, service, projectID := setupRunCoordinatorProject(t)
+	runtime := runServiceFakeRuntime(t, service)
+	runtime.agentWaitForContext = true
+	runtime.agentStdout = "partial agent output\n"
+	runtime.agentStderr = "agent stderr before cancel\n"
+	runtime.agentOutput = runtime.agentStdout + runtime.agentStderr
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var outputAttempts int
+	sink := projectRunStreamSink{
+		send: func(resp *agentcomposev2.RunAgentStreamResponse) error {
+			if resp.GetEventType() == agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT {
+				outputAttempts++
+				cancel()
+			}
+			return nil
+		},
+	}
+	run, execErr, err := service.runProjectAgent(ctx, &agentcomposev2.RunAgentRequest{
+		ProjectId:       projectID,
+		AgentName:       "reviewer",
+		Prompt:          "cancel while agent is running",
+		ClientRequestId: "agent-context-cancel-request",
+	}, &sink)
+	if err != nil {
+		t.Fatalf("runProjectAgent returned control-plane error: %v", err)
+	}
+	if !errors.Is(execErr, context.Canceled) {
+		t.Fatalf("runProjectAgent execErr = %v, want context canceled", execErr)
+	}
+	if outputAttempts != 1 {
+		t.Fatalf("output send attempts = %d, want 1", outputAttempts)
+	}
+	if run.Status != ProjectRunStatusFailed || run.SessionID == "" || run.CompletedAt.IsZero() || !strings.Contains(run.Error, "context canceled") {
+		t.Fatalf("canceled run = %#v", run)
+	}
+	stored, err := store.GetProjectRun(context.Background(), run.RunID)
+	if err != nil {
+		t.Fatalf("GetProjectRun canceled run returned error: %v", err)
+	}
+	if stored.Status != ProjectRunStatusFailed || stored.CompletedAt.IsZero() || stored.SessionID != run.SessionID || !strings.Contains(stored.Error, "context canceled") {
+		t.Fatalf("stored canceled run = %#v", stored)
+	}
+}
+
 func TestRunAgentSessionEnvProviderUsesAgentDefinitionModelAfterSessionReload(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("LLM_API_ENDPOINT", "")
