@@ -603,10 +603,24 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	if err != nil {
 		return nil, err
 	}
-	mounts := make(map[string]microsandbox.MountConfig, len(manifest.Mounts))
+	mounts := make(map[string]microsandbox.MountConfig, len(manifest.Mounts)+1)
 	for _, mount := range manifest.Mounts {
 		mounts[mount.GuestPath] = microsandbox.Mount.Bind(mount.HostPath, microsandbox.MountOptions{Readonly: mount.ReadOnly})
 	}
+	// Give docker its own disk-backed ext4 volume. The guest root is virtiofs,
+	// on which the kernel rejects overlayfs (docker's default storage driver)
+	// with "invalid argument"; a disk-backed named volume keeps docker's
+	// overlay storage off the virtiofs root. One volume per session so
+	// concurrent VMs never share the same ext4 image.
+	mounts["/var/lib/docker"] = microsandbox.Mount.NamedWith(
+		"docker-data-"+session.Summary.ID,
+		microsandbox.MountOptions{},
+		microsandbox.NamedVolumeOptions{
+			Mode:    "ensure-exists",
+			Kind:    "disk",
+			SizeMiB: 8 * 1024,
+		},
+	)
 	hostPort := uint16(proxyState.HostPort)
 	guestPort := uint16(r.config.JupyterGuestPort)
 	imageRef := resolveSessionGuestImage(vmState.Image, session.Summary.GuestImage, defaultGuestImageForDriver(r.config, RuntimeDriverMicrosandbox))
@@ -627,15 +641,25 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	env["RUNTIME_ROOT"] = r.config.GuestRuntimeRoot
 	env["JUPYTER_TOKEN"] = proxyState.Token
 	pullPolicy := microsandboxPullPolicyForImageRef(imageRef)
+	// Disable DNS rebind protection so guests can resolve names that point at
+	// private/internal IPs (e.g. an internal container registry).
+	rebindDisabled := false
+	network := microsandbox.NetworkPolicy.AllowAll()
+	network.DNS = &microsandbox.DNSConfig{RebindProtection: &rebindDisabled}
 	sandbox, err := microsandbox.CreateSandbox(ctx, name,
 		microsandbox.WithImage(imageRef),
 		microsandbox.WithWorkdir("/"),
 		microsandbox.WithShell("/bin/bash"),
 		microsandbox.WithEnv(env),
-		microsandbox.WithNetwork(microsandbox.NetworkPolicy.AllowAll()),
+		microsandbox.WithNetwork(network),
 		microsandbox.WithPullPolicy(pullPolicy),
 		microsandbox.WithMounts(mounts),
 		microsandbox.WithPorts(map[uint16]uint16{hostPort: guestPort}),
+		// Fixed microVM size: the SDK defaults (512MiB / 1 CPU) are too small
+		// for docker-in-VM workloads (pulling large images, building from a
+		// container).
+		microsandbox.WithMemory(8192),
+		microsandbox.WithCPUs(4),
 	)
 	return sandbox, err
 }
