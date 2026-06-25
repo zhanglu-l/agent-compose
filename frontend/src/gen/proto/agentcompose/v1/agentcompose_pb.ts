@@ -3128,11 +3128,6 @@ export class CreateAgentSessionRequest extends Message<CreateAgentSessionRequest
    */
   guestImage = "";
 
-  /**
-   * @generated from field: repeated string capset_ids = 7;
-   */
-  capsetIds: string[] = [];
-
   constructor(data?: PartialMessage<CreateAgentSessionRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3147,7 +3142,6 @@ export class CreateAgentSessionRequest extends Message<CreateAgentSessionRequest
     { no: 4, name: "workspace_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "driver", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "guest_image", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 7, name: "capset_ids", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateAgentSessionRequest {

@@ -254,6 +254,42 @@ func TestAgentDefinitionCreateSession(t *testing.T) {
 	testAgentDefinitionCreateSession(t)
 }
 
+func TestAgentDefinitionCreateSessionUsesDefinitionCapsets(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.sessions.cap = newTestCapabilityProvider("", "agent-compose:9100")
+	created, err := service.CreateAgentDefinition(ctx, connect.NewRequest(&agentcomposev1.CreateAgentDefinitionRequest{
+		Name:      "Capability Runner",
+		Enabled:   true,
+		Provider:  "codex",
+		CapsetIds: []string{"dev"},
+	}))
+	if err != nil {
+		t.Fatalf("CreateAgentDefinition returned error: %v", err)
+	}
+	sessionResp, err := service.CreateAgentSession(ctx, connect.NewRequest(&agentcomposev1.CreateAgentSessionRequest{
+		AgentId: created.Msg.GetAgent().GetAgentId(),
+		Title:   "uses definition capsets",
+	}))
+	if err != nil {
+		t.Fatalf("CreateAgentSession returned error: %v", err)
+	}
+	session, err := service.store.GetSession(ctx, sessionResp.Msg.GetSession().GetSummary().GetSessionId())
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if capsets := sessionCapabilityCapsets(session); len(capsets) != 1 || capsets[0] != "dev" {
+		t.Fatalf("session capsets = %+v, want [dev]", capsets)
+	}
+	env := map[string]string{}
+	for _, item := range session.EnvItems {
+		env[item.Name] = item.Value
+	}
+	if env[capProxyTargetEnvName] != "agent-compose:9100" || env[capabilitySessionTokenEnvName] == "" {
+		t.Fatalf("session capability env = %+v", env)
+	}
+}
+
 func TestAgentSessionMessageUsesDefinitionProvider(t *testing.T) {
 	ctx := context.Background()
 	service, runtime, _ := newTestServiceAPIHarness(t)

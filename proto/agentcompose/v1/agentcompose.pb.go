@@ -3988,7 +3988,6 @@ type CreateAgentSessionRequest struct {
 	WorkspaceId   string                 `protobuf:"bytes,4,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
 	Driver        string                 `protobuf:"bytes,5,opt,name=driver,proto3" json:"driver,omitempty"`
 	GuestImage    string                 `protobuf:"bytes,6,opt,name=guest_image,json=guestImage,proto3" json:"guest_image,omitempty"`
-	CapsetIds     []string               `protobuf:"bytes,7,rep,name=capset_ids,json=capsetIds,proto3" json:"capset_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4063,13 +4062,6 @@ func (x *CreateAgentSessionRequest) GetGuestImage() string {
 		return x.GuestImage
 	}
 	return ""
-}
-
-func (x *CreateAgentSessionRequest) GetCapsetIds() []string {
-	if x != nil {
-		return x.CapsetIds
-	}
-	return nil
 }
 
 type UpdateGlobalEnvConfigRequest struct {
@@ -7141,7 +7133,7 @@ const file_proto_agentcompose_v1_agentcompose_proto_rawDesc = "" +
 	"\x13availability_status\x18\x01 \x01(\x0e2(.agentcompose.v1.AgentAvailabilityStatusR\x12availabilityStatus\x12G\n" +
 	"\rhealth_status\x18\x02 \x01(\x0e2\".agentcompose.v1.AgentHealthStatusR\fhealthStatus\x12\x1a\n" +
 	"\bwarnings\x18\x03 \x03(\tR\bwarnings\x12\x16\n" +
-	"\x06errors\x18\x04 \x03(\tR\x06errors\"\x84\x02\n" +
+	"\x06errors\x18\x04 \x03(\tR\x06errors\"\xf7\x01\n" +
 	"\x19CreateAgentSessionRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12;\n" +
@@ -7149,9 +7141,8 @@ const file_proto_agentcompose_v1_agentcompose_proto_rawDesc = "" +
 	"\fworkspace_id\x18\x04 \x01(\tR\vworkspaceId\x12\x16\n" +
 	"\x06driver\x18\x05 \x01(\tR\x06driver\x12\x1f\n" +
 	"\vguest_image\x18\x06 \x01(\tR\n" +
-	"guestImage\x12\x1d\n" +
-	"\n" +
-	"capset_ids\x18\a \x03(\tR\tcapsetIds\"[\n" +
+	"guestImageJ\x04\b\a\x10\bR\n" +
+	"capset_ids\"[\n" +
 	"\x1cUpdateGlobalEnvConfigRequest\x12;\n" +
 	"\tenv_items\x18\x01 \x03(\v2\x1e.agentcompose.v1.SessionEnvVarR\benvItems\"V\n" +
 	"\x17GlobalEnvConfigResponse\x12;\n" +

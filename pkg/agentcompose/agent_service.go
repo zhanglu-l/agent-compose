@@ -282,10 +282,6 @@ func (s *Service) CreateAgentSession(ctx context.Context, req *connect.Request[a
 		title = agent.Name + " 工作会话"
 	}
 	envItems := mergeEnvItems(agent.EnvItems, envItemsFromProto(req.Msg.GetEnvItems()))
-	capsetIDs := agent.CapsetIDs
-	if reqCapsets := req.Msg.GetCapsetIds(); len(reqCapsets) > 0 {
-		capsetIDs = reqCapsets
-	}
 	createReq := &agentcomposev1.CreateSessionRequest{
 		Title:       title,
 		Tags:        agentDefinitionTags(agent),
@@ -293,7 +289,7 @@ func (s *Service) CreateAgentSession(ctx context.Context, req *connect.Request[a
 		WorkspaceId: workspaceID,
 		Driver:      driver,
 		GuestImage:  guestImage,
-		CapsetIds:   capsetIDs,
+		CapsetIds:   agent.CapsetIDs,
 	}
 	return s.sessions.CreateSession(ctx, connect.NewRequest(createReq))
 }
