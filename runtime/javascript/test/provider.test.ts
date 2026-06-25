@@ -17,7 +17,7 @@ describe("provider normalization", () => {
   });
 
   it("rejects unsupported providers", () => {
-    expect(() => normalizeProvider("qwen")).toThrow(/unsupported provider "qwen"; expected one of: codex, claude, gemini/);
+    expect(() => normalizeProvider("qwen")).toThrow(/unsupported provider "qwen"; expected one of: codex, claude, gemini, opencode/);
   });
 
   it.each([
@@ -26,7 +26,7 @@ describe("provider normalization", () => {
     undefined,
     null,
   ])("rejects missing provider %j", (input) => {
-    expect(() => normalizeProvider(input)).toThrow(/provider is required/);
+    expect(() => normalizeProvider(input)).toThrow(/provider is required; expected one of: codex, claude, gemini, opencode/);
   });
 
   it("trims provider names before normalization", () => {

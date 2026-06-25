@@ -1,9 +1,11 @@
 import type { Provider } from "./types.js";
 
+const providerList = "codex, claude, gemini, opencode";
+
 export function normalizeProvider(raw: unknown): Provider {
   const provider = String(raw ?? "").trim().toLowerCase();
   if (!provider) {
-    throw new Error("provider is required; expected one of: codex, claude, gemini");
+    throw new Error(`provider is required; expected one of: ${providerList}`);
   }
   switch (provider) {
     case "codex":
@@ -21,6 +23,6 @@ export function normalizeProvider(raw: unknown): Provider {
     case "open_code":
       return "opencode";
     default:
-      throw new Error(`unsupported provider ${JSON.stringify(raw)}; expected one of: codex, claude, gemini`);
+      throw new Error(`unsupported provider ${JSON.stringify(raw)}; expected one of: ${providerList}`);
   }
 }
