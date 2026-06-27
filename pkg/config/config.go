@@ -93,6 +93,7 @@ type Config struct {
 	JupyterGuestPort           int
 	SessionStartTimeout        time.Duration
 	SessionStopTimeout         time.Duration
+	ImagePullTimeout           time.Duration
 	JupyterProxyBasePath       string
 	CapGRPCListen              string
 	CapGRPCTarget              string
@@ -303,6 +304,17 @@ func NewConfig(di do.Injector) (*Config, error) {
 		}
 	}
 
+	imagePullTimeout := 10 * time.Minute
+	if raw := os.Getenv("IMAGE_PULL_TIMEOUT"); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err != nil {
+			logger.Warn("failed to parse IMAGE_PULL_TIMEOUT", "value", raw, "error", err)
+		} else if parsed <= 0 {
+			logger.Warn("ignored non-positive IMAGE_PULL_TIMEOUT", "value", raw)
+		} else {
+			imagePullTimeout = parsed
+		}
+	}
+
 	basicAuth := ""
 	if raw := os.Getenv("HTTP_BASIC_AUTH"); raw != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(raw); err != nil {
@@ -487,6 +499,7 @@ func NewConfig(di do.Injector) (*Config, error) {
 		JupyterGuestPort:           jupyterGuestPort,
 		SessionStartTimeout:        startTimeout,
 		SessionStopTimeout:         stopTimeout,
+		ImagePullTimeout:           imagePullTimeout,
 		JupyterProxyBasePath:       jupyterProxyBase,
 		CapGRPCListen:              strings.TrimSpace(os.Getenv("CAP_GRPC_LISTEN")),
 		CapGRPCTarget:              strings.TrimSpace(os.Getenv("CAP_GRPC_TARGET")),

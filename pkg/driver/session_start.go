@@ -7,10 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 )
 
 func PrepareSessionStart(ctx context.Context, config *appconfig.Config, driver string, session *Session, vmState VMState) (VMState, error) {
-	return prepareSessionStartWithResolver(ctx, config, driver, session, vmState, dockerFirstRuntimeImageResolver{ensureDocker: ensureDockerImage})
+	return prepareSessionStartWithResolver(ctx, config, driver, session, vmState, dockerFirstRuntimeImageResolver{ensureDocker: ensureDockerImage, pullTimeout: config.ImagePullTimeout})
 }
 
 func prepareSessionStartWithResolver(ctx context.Context, config *appconfig.Config, driver string, session *Session, vmState VMState, resolver runtimeImageResolver) (VMState, error) {
@@ -55,7 +56,8 @@ type runtimeImageResolver interface {
 }
 
 type dockerFirstRuntimeImageResolver struct {
-	ensureDocker func(context.Context, string) (string, error)
+	ensureDocker func(context.Context, string, time.Duration) (string, error)
+	pullTimeout  time.Duration
 }
 
 func (r dockerFirstRuntimeImageResolver) ResolvePrepareImage(ctx context.Context, config *appconfig.Config, driver, imageRef string) (string, error) {
@@ -69,7 +71,11 @@ func (r dockerFirstRuntimeImageResolver) ResolvePrepareImage(ctx context.Context
 		if ensure == nil {
 			ensure = ensureDockerImage
 		}
-		return ensure(ctx, imageRef)
+		pullTimeout := r.pullTimeout
+		if pullTimeout <= 0 {
+			pullTimeout = config.ImagePullTimeout
+		}
+		return ensure(ctx, imageRef, pullTimeout)
 	case RuntimeDriverBoxlite, RuntimeDriverMicrosandbox:
 		return imageRef, nil
 	default:

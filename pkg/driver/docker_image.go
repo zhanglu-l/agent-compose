@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	pathpkg "path"
 	"strings"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	distreference "github.com/distribution/reference"
@@ -15,7 +17,7 @@ import (
 	"github.com/docker/docker/client"
 )
 
-func ensureDockerImage(ctx context.Context, imageRef string) (string, error) {
+func ensureDockerImage(ctx context.Context, imageRef string, pullTimeout time.Duration) (string, error) {
 	imageRef = strings.TrimSpace(imageRef)
 	if imageRef == "" {
 		return "", nil
@@ -27,20 +29,32 @@ func ensureDockerImage(ctx context.Context, imageRef string) (string, error) {
 	}
 	defer func() { _ = dockerClient.Close() }()
 
-	if resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); err == nil && ok {
-		return resolvedRef, nil
-	} else if err != nil {
-		return "", fmt.Errorf("inspect guest image %s: %w", imageRef, err)
+	pullOK := true
+	var pullFailureErr error
+	pullCtx, pullCancel := context.WithTimeout(ctx, pullTimeout)
+	reader, pullErr := dockerClient.ImagePull(pullCtx, imageRef, typesimage.PullOptions{})
+	if pullErr != nil {
+		pullCancel()
+		slog.Warn("agent-compose docker: pull guest image failed, falling back to local cache", "image", imageRef, "error", pullErr)
+		pullOK = false
+		pullFailureErr = pullErr
+	} else {
+		if streamErr := consumeDockerPullStream(reader); streamErr != nil {
+			slog.Warn("agent-compose docker: pull guest image stream failed, falling back to local cache", "image", imageRef, "error", streamErr)
+			pullOK = false
+			pullFailureErr = streamErr
+		}
+		_ = reader.Close()
+		pullCancel()
 	}
 
-	reader, err := dockerClient.ImagePull(ctx, imageRef, typesimage.PullOptions{})
-	if err != nil {
-		return "", fmt.Errorf("pull guest image %s: %w", imageRef, err)
-	}
-	defer func() { _ = reader.Close() }()
-
-	if err := consumeDockerPullStream(reader); err != nil {
-		return "", fmt.Errorf("pull guest image %s: %w", imageRef, err)
+	if !pullOK {
+		if resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); err == nil && ok {
+			return resolvedRef, nil
+		} else if err != nil {
+			return "", fmt.Errorf("inspect local guest image %s after failed pull: %w", imageRef, err)
+		}
+		return "", fmt.Errorf("guest image %s not found locally and pull failed: %w", imageRef, pullFailureErr)
 	}
 
 	if resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); err == nil && ok {
@@ -48,11 +62,14 @@ func ensureDockerImage(ctx context.Context, imageRef string) (string, error) {
 	} else if err != nil {
 		return "", fmt.Errorf("inspect pulled guest image %s: %w", imageRef, err)
 	}
+	slog.Warn("agent-compose docker: pull reported success but guest image not found locally, falling back to original ref", "image", imageRef)
 	return imageRef, nil
 }
 
+const defaultImagePullTimeout = 10 * time.Minute
+
 func EnsureDockerImage(ctx context.Context, imageRef string) (string, error) {
-	return ensureDockerImage(ctx, imageRef)
+	return ensureDockerImage(ctx, imageRef, defaultImagePullTimeout)
 }
 
 func resolveLocalDockerImageRef(ctx context.Context, dockerClient *client.Client, imageRef string) (string, bool, error) {

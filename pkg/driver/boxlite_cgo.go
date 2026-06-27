@@ -551,7 +551,7 @@ func (r *cgoBoxRuntime) materializeLocalImageRootfs(ctx context.Context, imageRe
 	layout, ok, err := resolveBoxliteImageLayout(ctx, imageRef, boxliteImageResolverOps{
 		dockerAvailable: dockerDaemonAvailable,
 		dockerMaterialize: func(ctx context.Context, imageRef string) (boxliteImageLayoutResult, bool, error) {
-			layout, ok, err := materializeLocalDockerImageLayout(ctx, r.config.DataRoot, imageRef)
+			layout, ok, err := materializeLocalDockerImageLayout(ctx, r.config.DataRoot, imageRef, r.config.ImagePullTimeout)
 			if err != nil || !ok {
 				return boxliteImageLayoutResult{}, ok, err
 			}

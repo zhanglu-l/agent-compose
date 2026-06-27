@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,23 +49,36 @@ var (
 	_ = addOCIBlobFromBytes
 )
 
-func materializeLocalDockerImageRootfs(ctx context.Context, dataRoot, imageRef string) (localDockerImageRootfs, bool, error) {
+func materializeLocalDockerImageRootfs(ctx context.Context, dataRoot, imageRef string, pullTimeout time.Duration) (localDockerImageRootfs, bool, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return localDockerImageRootfs{}, false, nil
 	}
 	defer func() { _ = dockerClient.Close() }()
-	return materializeLocalDockerImageRootfsWithClient(ctx, dataRoot, dockerClient, imageRef)
+	return materializeLocalDockerImageRootfsWithClient(ctx, dataRoot, dockerClient, imageRef, pullTimeout)
 }
 
-func materializeLocalDockerImageRootfsWithClient(ctx context.Context, dataRoot string, dockerClient *client.Client, imageRef string) (localDockerImageRootfs, bool, error) {
+func materializeLocalDockerImageRootfsWithClient(ctx context.Context, dataRoot string, dockerClient *client.Client, imageRef string, pullTimeout time.Duration) (localDockerImageRootfs, bool, error) {
 	imageRef = strings.TrimSpace(imageRef)
 	if imageRef == "" {
 		return localDockerImageRootfs{}, false, nil
 	}
 
+	pullCtxRootfs, pullCancelRootfs := context.WithTimeout(ctx, pullTimeout)
+	if pullReader, pullErr := dockerClient.ImagePull(pullCtxRootfs, imageRef, typesimage.PullOptions{}); pullErr != nil {
+		pullCancelRootfs()
+		slog.Warn("agent-compose local-docker: pull guest image failed, falling back to local cache", "image", imageRef, "error", pullErr)
+	} else {
+		if streamErr := consumeDockerPullStream(pullReader); streamErr != nil {
+			slog.Warn("agent-compose local-docker: pull guest image stream failed, falling back to local cache", "image", imageRef, "error", streamErr)
+		}
+		_ = pullReader.Close()
+		pullCancelRootfs()
+	}
+
 	resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef)
 	if err != nil || !ok {
+		slog.Warn("agent-compose local-docker: guest image not available after pull (pull failed and not found locally), skipping this materialization path", "image", imageRef, "error", err)
 		return localDockerImageRootfs{}, false, nil
 	}
 
@@ -94,7 +108,7 @@ func materializeLocalDockerImageRootfsWithClient(ctx context.Context, dataRoot s
 	}
 	_ = os.Remove(readyFlag)
 
-	layout, layoutReady, _ := materializeLocalDockerImageLayoutWithClient(ctx, dataRoot, dockerClient, resolvedRef)
+	layout, layoutReady, _ := materializeLocalDockerImageLayoutWithClient(ctx, dataRoot, dockerClient, resolvedRef, pullTimeout, true)
 	if layoutReady {
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			return localDockerImageRootfs{}, false, fmt.Errorf("create image cache dir: %w", err)
@@ -204,23 +218,38 @@ func materializeLocalDockerImageRootfsWithClient(ctx context.Context, dataRoot s
 	return localDockerImageRootfs{ImageID: imageID, ResolvedRef: resolvedRef, RootfsPath: rootfsDir}, true, nil
 }
 
-func materializeLocalDockerImageLayout(ctx context.Context, dataRoot, imageRef string) (localDockerImageLayout, bool, error) {
+func materializeLocalDockerImageLayout(ctx context.Context, dataRoot, imageRef string, pullTimeout time.Duration) (localDockerImageLayout, bool, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return localDockerImageLayout{}, false, nil
 	}
 	defer func() { _ = dockerClient.Close() }()
-	return materializeLocalDockerImageLayoutWithClient(ctx, dataRoot, dockerClient, imageRef)
+	return materializeLocalDockerImageLayoutWithClient(ctx, dataRoot, dockerClient, imageRef, pullTimeout, false)
 }
 
-func materializeLocalDockerImageLayoutWithClient(ctx context.Context, dataRoot string, dockerClient *client.Client, imageRef string) (localDockerImageLayout, bool, error) {
+func materializeLocalDockerImageLayoutWithClient(ctx context.Context, dataRoot string, dockerClient *client.Client, imageRef string, pullTimeout time.Duration, skipPull bool) (localDockerImageLayout, bool, error) {
 	imageRef = strings.TrimSpace(imageRef)
 	if imageRef == "" {
 		return localDockerImageLayout{}, false, nil
 	}
 
+	if !skipPull {
+		pullCtxLayout, pullCancelLayout := context.WithTimeout(ctx, pullTimeout)
+		if pullReader, pullErr := dockerClient.ImagePull(pullCtxLayout, imageRef, typesimage.PullOptions{}); pullErr != nil {
+			pullCancelLayout()
+			slog.Warn("agent-compose local-docker: pull guest image layout failed, falling back to local cache", "image", imageRef, "error", pullErr)
+		} else {
+			if streamErr := consumeDockerPullStream(pullReader); streamErr != nil {
+				slog.Warn("agent-compose local-docker: pull guest image layout stream failed, falling back to local cache", "image", imageRef, "error", streamErr)
+			}
+			_ = pullReader.Close()
+			pullCancelLayout()
+		}
+	}
+
 	resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef)
 	if err != nil || !ok {
+		slog.Warn("agent-compose local-docker: guest image not available after pull (pull failed and not found locally), skipping this materialization path", "image", imageRef, "error", err)
 		return localDockerImageLayout{}, false, nil
 	}
 

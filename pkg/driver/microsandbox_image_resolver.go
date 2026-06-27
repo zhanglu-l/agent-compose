@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	appconfig "agent-compose/pkg/config"
@@ -46,14 +48,17 @@ func materializeMicrosandboxOCIRootFS(ctx context.Context, config *appconfig.Con
 	if err != nil {
 		return microsandboxRootFSResult{}, false, err
 	}
-	result, err := cache.MaterializeRootFS(ctx, imageRef)
-	if imagecache.IsKind(err, imagecache.ErrorKindNotFound) {
-		if _, pullErr := cache.Pull(ctx, imagecache.PullRequest{Reference: imageRef}); pullErr != nil {
-			return microsandboxRootFSResult{}, false, pullErr
-		}
-		result, err = cache.MaterializeRootFS(ctx, imageRef)
+	pullCtx, pullCancel := context.WithTimeout(ctx, config.ImagePullTimeout)
+	_, pullErr := cache.Pull(pullCtx, imagecache.PullRequest{Reference: imageRef})
+	pullCancel()
+	if pullErr != nil {
+		slog.Warn("agent-compose microsandbox: pull guest image failed, falling back to local cache", "image", imageRef, "error", pullErr)
 	}
+	result, err := cache.MaterializeRootFS(ctx, imageRef)
 	if err != nil {
+		if imagecache.IsKind(err, imagecache.ErrorKindNotFound) && pullErr != nil {
+			return microsandboxRootFSResult{}, false, fmt.Errorf("guest image %s not available: pull failed (%w) and not found in local cache", imageRef, pullErr)
+		}
 		return microsandboxRootFSResult{}, false, err
 	}
 	return microsandboxRootFSResult{

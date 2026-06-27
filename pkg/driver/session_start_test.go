@@ -5,13 +5,14 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	appconfig "agent-compose/pkg/config"
 )
 
 func TestDockerFirstRuntimeImageResolverSkipsDockerForNonDockerPrepare(t *testing.T) {
 	called := false
-	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string) (string, error) {
+	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string, pullTimeout time.Duration) (string, error) {
 		called = true
 		return "", errors.New("docker unavailable")
 	}}
@@ -33,7 +34,7 @@ func TestPrepareSessionStartBoxLiteDoesNotFailWhenDockerUnavailable(t *testing.T
 	root := t.TempDir()
 	config := testPrepareSessionStartConfig(root)
 	session := testRuntimeMountSession(root)
-	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string) (string, error) {
+	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string, pullTimeout time.Duration) (string, error) {
 		return "", errors.New("docker unavailable")
 	}}
 
@@ -54,7 +55,7 @@ func TestPrepareSessionStartDockerStillRequiresDockerEnsure(t *testing.T) {
 	config := testPrepareSessionStartConfig(root)
 	session := testRuntimeMountSession(root)
 	wantErr := errors.New("docker unavailable")
-	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string) (string, error) {
+	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string, pullTimeout time.Duration) (string, error) {
 		if imageRef != config.DockerDefaultImage {
 			t.Fatalf("ensure imageRef = %q, want %q", imageRef, config.DockerDefaultImage)
 		}
@@ -71,7 +72,7 @@ func TestPrepareSessionStartDockerUsesResolvedImage(t *testing.T) {
 	root := t.TempDir()
 	config := testPrepareSessionStartConfig(root)
 	session := testRuntimeMountSession(root)
-	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string) (string, error) {
+	resolver := dockerFirstRuntimeImageResolver{ensureDocker: func(ctx context.Context, imageRef string, pullTimeout time.Duration) (string, error) {
 		return "guest@sha256:resolved", nil
 	}}
 
