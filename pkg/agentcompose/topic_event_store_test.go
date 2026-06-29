@@ -574,6 +574,79 @@ func TestLoaderRunHostPublishEventStoresDerivedEvent(t *testing.T) {
 	}
 }
 
+func TestLoaderRunHostLinkedLoaderEventStoresEventSessionLink(t *testing.T) {
+	ctx := context.Background()
+	store := newTopicEventTestConfigStore(t)
+	manager := &LoaderManager{configDB: store}
+	loader := createTestLoader(t, ctx, store)
+	run := LoaderRunSummary{
+		ID:            "run-link",
+		LoaderID:      loader.Summary.ID,
+		TriggerID:     "trigger-link",
+		TriggerKind:   LoaderTriggerKindEvent,
+		TriggerSource: "event",
+		Status:        LoaderRunStatusRunning,
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := store.CreateLoaderRun(ctx, run); err != nil {
+		t.Fatalf("CreateLoaderRun returned error: %v", err)
+	}
+	host := &loaderRunHost{
+		manager: manager,
+		loader:  loader,
+		run:     &run,
+		triggerEvent: loaderTriggerEventMetadata{
+			EventID: "evt-link",
+		},
+	}
+
+	if err := host.addLinkedLoaderEvent(ctx, "loader.command.completed", "info", "command completed", map[string]any{"sessionId": "session-link"}, "session-link", "cell-link", ""); err != nil {
+		t.Fatalf("addLinkedLoaderEvent returned error: %v", err)
+	}
+	links, err := store.ListEventSessionLinks(ctx, []string{"evt-link"})
+	if err != nil {
+		t.Fatalf("ListEventSessionLinks returned error: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("event session links = %#v, want one link", links)
+	}
+	link := links[0]
+	if link.EventID != "evt-link" || link.SessionID != "session-link" || link.Relation != "loader.command.completed" {
+		t.Fatalf("event session link identity = %#v", link)
+	}
+	if link.LoaderID != loader.Summary.ID || link.RunID != "run-link" || link.TriggerID != "trigger-link" || link.LoaderEventID == "" {
+		t.Fatalf("event session link metadata = %#v", link)
+	}
+
+	noEventRun := LoaderRunSummary{
+		ID:            "run-no-event",
+		LoaderID:      loader.Summary.ID,
+		TriggerID:     "trigger-link",
+		TriggerKind:   LoaderTriggerKindEvent,
+		TriggerSource: "event",
+		Status:        LoaderRunStatusRunning,
+		StartedAt:     time.Now().UTC(),
+	}
+	if err := store.CreateLoaderRun(ctx, noEventRun); err != nil {
+		t.Fatalf("CreateLoaderRun without trigger event returned error: %v", err)
+	}
+	noEventHost := &loaderRunHost{
+		manager: manager,
+		loader:  loader,
+		run:     &noEventRun,
+	}
+	if err := noEventHost.addLinkedLoaderEvent(ctx, "loader.command.completed", "info", "command completed", nil, "session-no-event", "", ""); err != nil {
+		t.Fatalf("addLinkedLoaderEvent without trigger event returned error: %v", err)
+	}
+	links, err = store.ListEventSessionLinks(ctx, []string{"evt-link"})
+	if err != nil {
+		t.Fatalf("ListEventSessionLinks after no-event run returned error: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("event session links after no-event run = %#v, want original link only", links)
+	}
+}
+
 func TestConfigStoreEventSchemaCreated(t *testing.T) {
 	store := newTopicEventTestConfigStore(t)
 	var name string

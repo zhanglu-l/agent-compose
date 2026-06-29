@@ -692,6 +692,15 @@ func (h *loaderRunHost) CallSessionRPC(ctx context.Context, method, requestJSON 
 	return responseJSON, nil
 }
 
+func (h *loaderRunHost) addLinkedLoaderEvent(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error {
+	event, err := h.manager.addLoaderEventRecord(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	if err != nil {
+		return err
+	}
+	h.addEventSessionLink(ctx, event, linkedSessionID, event.Type)
+	return nil
+}
+
 func (h *loaderRunHost) addEventSessionLink(ctx context.Context, event LoaderEvent, sessionID, relation string) {
 	if h == nil || h.manager == nil || h.manager.configDB == nil || strings.TrimSpace(sessionID) == "" || h.triggerEvent.EventID == "" {
 		return
@@ -704,6 +713,7 @@ func (h *loaderRunHost) addEventSessionLink(ctx context.Context, event LoaderEve
 		RunID:         h.run.ID,
 		TriggerID:     h.run.TriggerID,
 		LoaderEventID: event.ID,
+		CreatedAt:     event.CreatedAt,
 	}); err != nil {
 		slog.Warn("failed to add event session link", "event_id", h.triggerEvent.EventID, "session_id", sessionID, "run_id", h.run.ID, "error", err)
 	}
@@ -735,10 +745,10 @@ func (h *loaderRunHost) cleanupCommandSessions(ctx context.Context) {
 	for _, sessionID := range sessionIDs {
 		if err := h.manager.shutdownLoaderSession(ctx, sessionID); err != nil {
 			slog.Warn("failed to stop loader command session after run", "loader_id", h.loader.Summary.ID, "session_id", sessionID, "error", err)
-			_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.session.stop_failed", "error", err.Error(), map[string]any{"sessionId": sessionID}, sessionID, "", "")
+			_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", err.Error(), map[string]any{"sessionId": sessionID}, sessionID, "", "")
 			continue
 		}
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.session.stopped", "info", "loader command session stopped after run", map[string]any{"sessionId": sessionID}, sessionID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader command session stopped after run", map[string]any{"sessionId": sessionID}, sessionID, "", "")
 	}
 }
 
@@ -766,7 +776,7 @@ func (h *loaderRunHost) Agent(ctx context.Context, prompt string, request Loader
 		return LoaderAgentResult{}, err
 	}
 	if eventType != "" {
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, "info", "loader session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 
 	agentConfig := agentExecutionConfig{Provider: normalizeAgentKind(request.Agent)}
@@ -825,7 +835,7 @@ func (h *loaderRunHost) Agent(ctx context.Context, prompt string, request Loader
 		eventName = "loader.agent.failed"
 		result.Text = firstNonEmpty(result.Text, execErr.Error())
 	}
-	_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventName, level, firstNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
+	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
 	h.manager.Publish("agent-compose.agent.completed", map[string]any{
 		"sessionId":      result.SessionID,
 		"cellId":         result.CellID,
@@ -839,9 +849,9 @@ func (h *loaderRunHost) Agent(ctx context.Context, prompt string, request Loader
 	shutdownErr := h.manager.shutdownLoaderSession(ctx, session.Summary.ID)
 	if shutdownErr != nil {
 		slog.Warn("failed to stop loader session after agent run", "loader_id", h.loader.Summary.ID, "session_id", session.Summary.ID, "error", shutdownErr)
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.session.stop_failed", "error", shutdownErr.Error(), map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", shutdownErr.Error(), map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
 	} else {
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.session.stopped", "info", "loader session stopped after agent run", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader session stopped after agent run", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 	if execErr != nil {
 		return result, execErr
@@ -887,7 +897,7 @@ func (h *loaderRunHost) ProjectAgent(ctx context.Context, prompt string, request
 		eventName = "loader.agent.failed"
 		result.Text = firstNonEmpty(result.Text, run.Error, execErrString(execErr))
 	}
-	_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventName, level, firstNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
+	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
 	h.manager.Publish("agent-compose.agent.completed", map[string]any{
 		"sessionId":      result.SessionID,
 		"cellId":         result.CellID,
@@ -973,20 +983,20 @@ func (h *loaderRunHost) Command(ctx context.Context, request LoaderCommandReques
 		return LoaderCommandResult{}, err
 	}
 	if eventType != "" {
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, "info", "loader command session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader command session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 	h.trackCommandSession(session.Summary.ID, cleanupSession)
 
 	result, err := h.manager.executor.ExecuteLoaderCommand(ctx, session, request)
 	if err != nil {
-		_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.command.failed", "error", err.Error(), loaderCommandEventPayload(request, result), result.SessionID, result.CellID, "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.command.failed", "error", err.Error(), loaderCommandEventPayload(request, result), result.SessionID, result.CellID, "")
 		return result, err
 	}
 	level := "info"
 	if !result.Success {
 		level = "error"
 	}
-	_ = h.manager.addLoaderEvent(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, "loader.command.completed", level, firstNonEmpty(result.Output, result.Stdout, result.Stderr, "loader command completed"), loaderCommandEventPayload(request, result), result.SessionID, result.CellID, "")
+	_ = h.addLinkedLoaderEvent(ctx, "loader.command.completed", level, firstNonEmpty(result.Output, result.Stdout, result.Stderr, "loader command completed"), loaderCommandEventPayload(request, result), result.SessionID, result.CellID, "")
 	return result, nil
 }
 
