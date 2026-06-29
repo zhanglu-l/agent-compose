@@ -412,6 +412,9 @@ func guestRuntimeLLMBaseURL(config *appconfig.Config, session *Session) string {
 	if config == nil {
 		return ""
 	}
+	if base := strings.TrimRight(strings.TrimSpace(lookupRuntimeBaseURLEnv(session)), "/"); base != "" {
+		return base
+	}
 	if base := strings.TrimRight(strings.TrimSpace(config.RuntimeBaseURL), "/"); base != "" {
 		return base
 	}
@@ -431,6 +434,18 @@ func guestRuntimeLLMBaseURL(config *appconfig.Config, session *Session) string {
 		return ""
 	}
 	return "http://" + host + ":" + port
+}
+
+func lookupRuntimeBaseURLEnv(session *Session) string {
+	if session == nil {
+		return ""
+	}
+	for _, items := range [][]SessionEnvVar{session.ProviderEnvItems, session.RuntimeEnvItems, session.EnvItems} {
+		if value := lookupEnvItemValue(items, "AGENT_COMPOSE_RUNTIME_BASE_URL"); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func mergeManagedExecEnv(base map[string]string, managed map[string]string) map[string]string {

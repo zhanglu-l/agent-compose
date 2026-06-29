@@ -335,6 +335,81 @@ func TestAgentSessionMessageUsesDefinitionProvider(t *testing.T) {
 	}
 }
 
+func TestAgentSessionMessageUsesDefinitionProviderEnvForFacade(t *testing.T) {
+	ctx := context.Background()
+	service, runtime, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = "http://agent-compose.test"
+	created, err := service.CreateAgentDefinition(ctx, connect.NewRequest(&agentcomposev1.CreateAgentDefinitionRequest{
+		Name:     "Claude Env Runner",
+		Enabled:  true,
+		Provider: "claude",
+		EnvItems: []*agentcomposev1.SessionEnvVar{
+			{Name: "ANTHROPIC_API_KEY", Value: "agent-anthropic-key", Secret: true},
+			{Name: "ANTHROPIC_BASE_URL", Value: "https://anthropic.example.invalid"},
+			{Name: "ANTHROPIC_MODEL", Value: "claude-test"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("CreateAgentDefinition returned error: %v", err)
+	}
+	sessionResp, err := service.CreateAgentSession(ctx, connect.NewRequest(&agentcomposev1.CreateAgentSessionRequest{
+		AgentId: created.Msg.GetAgent().GetAgentId(),
+	}))
+	if err != nil {
+		t.Fatalf("CreateAgentSession returned error: %v", err)
+	}
+	sessionID := sessionResp.Msg.GetSession().GetSummary().GetSessionId()
+	createdSession, err := service.store.GetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if env := sessionEnvMap(createdSession.EnvItems); env["ANTHROPIC_API_KEY"] != "" {
+		t.Fatalf("ANTHROPIC_API_KEY persisted in session env: %#v", createdSession.EnvItems)
+	}
+	if len(createdSession.ProviderEnvItems) != 0 {
+		t.Fatalf("ProviderEnvItems unexpectedly set before execution: %#v", createdSession.ProviderEnvItems)
+	}
+	storedAgent, err := service.configDB.GetAgentDefinition(ctx, created.Msg.GetAgent().GetAgentId())
+	if err != nil {
+		t.Fatalf("GetAgentDefinition returned error: %v", err)
+	}
+	if env := sessionEnvMap(storedAgent.EnvItems); env["ANTHROPIC_API_KEY"] != "agent-anthropic-key" {
+		t.Fatalf("stored agent env missing key: %#v", storedAgent.EnvItems)
+	}
+	agentConfig := service.resolveSessionAgentConfig(ctx, createdSession, "codex")
+	if env := sessionEnvMap(agentConfig.EnvItems); env["ANTHROPIC_API_KEY"] != "agent-anthropic-key" || agentConfig.Provider != "claude" {
+		t.Fatalf("resolved agent config = %#v env=%#v", agentConfig, agentConfig.EnvItems)
+	}
+	_, err = service.SendAgentMessage(ctx, connect.NewRequest(&agentcomposev1.SendAgentMessageRequest{
+		SessionId: sessionID,
+		Agent:     "codex",
+		Message:   "hello",
+	}))
+	if err != nil {
+		t.Fatalf("SendAgentMessage returned error: %v", err)
+	}
+	if len(createdSession.ProviderEnvItems) != 0 {
+		t.Fatalf("SendAgentMessage mutated source session ProviderEnvItems: %#v", createdSession.ProviderEnvItems)
+	}
+	if len(runtime.agentSpecs) != 1 {
+		t.Fatalf("runtime agent specs = %d, want 1", len(runtime.agentSpecs))
+	}
+	env := runtime.agentSpecs[0].Env
+	token := env["AGENT_COMPOSE_SESSION_TOKEN"]
+	if token == "" {
+		t.Fatalf("agent exec env missing facade token: providers=%v env=%#v", runtime.providers, env)
+	}
+	if env["ANTHROPIC_API_KEY"] != token {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want facade token", env["ANTHROPIC_API_KEY"])
+	}
+	if env["ANTHROPIC_BASE_URL"] != "http://agent-compose.test/api/runtime/sessions/"+sessionID+"/llm/anthropic" {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["ANTHROPIC_MODEL"] != "claude-test" {
+		t.Fatalf("ANTHROPIC_MODEL = %q, want claude-test", env["ANTHROPIC_MODEL"])
+	}
+}
+
 func testAgentDefinitionCreateSession(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()

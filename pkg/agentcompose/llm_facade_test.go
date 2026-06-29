@@ -993,6 +993,42 @@ func TestSessionEnvGenericMessagesEndpointBootstrapsOnlyAnthropicProvider(t *tes
 	}
 }
 
+func TestDockerClaudeFacadeUsesSessionRuntimeBaseURL(t *testing.T) {
+	ctx := context.Background()
+	for _, k := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL", "CLAUDE_MODEL", "LLM_API_KEY", "LLM_API_ENDPOINT", "LLM_MODEL", "OPENAI_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	service, _, _ := newTestServiceAPIHarness(t)
+	service.config.RuntimeBaseURL = ""
+	service.config.HttpListen = "0.0.0.0:7410"
+	service.config.LLMAPIEndpoint = ""
+	service.config.LLMAPIKey = ""
+	service.config.LLMModel = ""
+	session, err := service.store.CreateSession(ctx, "docker-session-runtime-base", "", "docker", "guest:latest", "", SessionTypeManual, nil, []SessionEnvVar{
+		{Name: "AGENT_COMPOSE_RUNTIME_BASE_URL", Value: "http://172.17.0.1:7410"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("CreateSession returned error: %v", err)
+	}
+	session.Summary.VMStatus = VMStatusRunning
+	session.ProviderEnvItems = []SessionEnvVar{
+		{Name: "ANTHROPIC_API_KEY", Value: "session-provider-key", Secret: true},
+		{Name: "ANTHROPIC_BASE_URL", Value: "https://anthropic.example.invalid"},
+		{Name: "ANTHROPIC_MODEL", Value: "claude-session"},
+	}
+
+	env, err := ensureSessionLLMFacadeConfig(ctx, service.config, service.configDB, session, "claude", "", "test", "run-1")
+	if err != nil {
+		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
+	}
+	if env["AGENT_COMPOSE_SESSION_TOKEN"] == "" {
+		t.Fatalf("AGENT_COMPOSE_SESSION_TOKEN missing from env: %#v", env)
+	}
+	if env["ANTHROPIC_BASE_URL"] != "http://172.17.0.1:7410/api/runtime/sessions/"+session.Summary.ID+"/llm/anthropic" {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q", env["ANTHROPIC_BASE_URL"])
+	}
+}
+
 func TestSessionEnvProvidersAreScopedPerSession(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("LLM_API_ENDPOINT", "")

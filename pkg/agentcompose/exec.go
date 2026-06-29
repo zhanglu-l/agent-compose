@@ -41,6 +41,7 @@ type ExecuteAgentRequest struct {
 	Agent             string
 	AgentDefinitionID string
 	Model             string
+	ProviderEnvItems  []SessionEnvVar
 	RunID             string
 	Message           string
 	Timeout           time.Duration
@@ -917,7 +918,8 @@ func (e *Executor) executeAgent(ctx context.Context, session *Session, request E
 		}
 	}
 
-	execResult, result, err := e.executeAgentRun(execCtx, session, agent, request.AgentDefinitionID, model, request.RunID, message, request.OutputSchemaJSON, streamWriter)
+	execSession := cloneSessionForAgentExecution(session, request.ProviderEnvItems)
+	execResult, result, err := e.executeAgentRun(execCtx, execSession, agent, request.AgentDefinitionID, model, request.RunID, message, request.OutputSchemaJSON, streamWriter)
 	streamErrMu.Lock()
 	deferredStreamErr := streamErr
 	streamErrMu.Unlock()
@@ -977,6 +979,18 @@ func (e *Executor) executeAgent(ctx context.Context, session *Session, request E
 	}
 	e.streams.PublishEventAdded(session.Summary.ID, assistantEvent)
 	return cellSnapshot, userEvent, assistantEvent, nil
+}
+
+func cloneSessionForAgentExecution(session *Session, providerEnvItems []SessionEnvVar) *Session {
+	if session == nil {
+		return nil
+	}
+	execSession := *session
+	execSession.EnvItems = append([]SessionEnvVar(nil), session.EnvItems...)
+	execSession.RuntimeEnvItems = append([]SessionEnvVar(nil), session.RuntimeEnvItems...)
+	execSession.ProviderEnvItems = append([]SessionEnvVar(nil), session.ProviderEnvItems...)
+	applyAgentProviderEnv(&execSession, providerEnvItems)
+	return &execSession
 }
 
 func shellQuote(value string) string {

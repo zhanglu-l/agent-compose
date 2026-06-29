@@ -738,6 +738,7 @@ func (s *Service) SendAgentMessage(ctx context.Context, req *connect.Request[age
 		Agent:             agentConfig.Provider,
 		AgentDefinitionID: agentConfig.AgentDefinitionID,
 		Model:             agentConfig.Model,
+		ProviderEnvItems:  agentConfig.EnvItems,
 		Message:           message,
 	})
 	_ = cell
@@ -774,6 +775,7 @@ func (s *Service) SendAgentMessageStream(ctx context.Context, req *connect.Reque
 		Agent:             agentConfig.Provider,
 		AgentDefinitionID: agentConfig.AgentDefinitionID,
 		Model:             agentConfig.Model,
+		ProviderEnvItems:  agentConfig.EnvItems,
 		Message:           message,
 		Stream: AgentExecutionStream{
 			OnStart: func(cell NotebookCell) error {
@@ -816,6 +818,7 @@ type agentExecutionConfig struct {
 	Provider          string
 	AgentDefinitionID string
 	Model             string
+	EnvItems          []SessionEnvVar
 }
 
 func (s *Service) resolveSessionAgentConfig(ctx context.Context, session *Session, requested string) agentExecutionConfig {
@@ -844,7 +847,19 @@ func agentExecutionConfigFromDefinition(agent AgentDefinition, fallbackProvider 
 		Provider:          provider,
 		AgentDefinitionID: strings.TrimSpace(agent.ID),
 		Model:             strings.TrimSpace(agent.Model),
+		EnvItems:          append([]SessionEnvVar(nil), agent.EnvItems...),
 	}
+}
+
+func applyAgentProviderEnv(session *Session, agentEnv []SessionEnvVar) {
+	if session == nil || len(agentEnv) == 0 {
+		return
+	}
+	providerEnv := session.ProviderEnvItems
+	if len(providerEnv) == 0 {
+		providerEnv = session.EnvItems
+	}
+	session.ProviderEnvItems = mergeEnvItems(agentEnv, providerEnv)
 }
 
 func sessionTagValue(tags []SessionTag, name string) string {
