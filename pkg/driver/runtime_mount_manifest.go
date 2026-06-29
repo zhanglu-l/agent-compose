@@ -197,6 +197,7 @@ func runtimeMountSpecsForDocker(config *appconfig.Config, session *Session) []ru
 		{hostPath: filepath.Join(home, ".config", "claude"), guestPath: filepath.Join(config.GuestHomePath, ".config", "claude")},
 		{hostPath: filepath.Join(home, ".config", "Claude"), guestPath: filepath.Join(config.GuestHomePath, ".config", "Claude")},
 		{hostPath: filepath.Join(home, ".config", "gemini"), guestPath: filepath.Join(config.GuestHomePath, ".config", "gemini")},
+		{hostPath: filepath.Join(home, ".config", "opencode"), guestPath: filepath.Join(config.GuestHomePath, ".config", "opencode")},
 		{hostPath: filepath.Join(home, ".local", "share", "gemini"), guestPath: filepath.Join(config.GuestHomePath, ".local", "share", "gemini")},
 	}
 }

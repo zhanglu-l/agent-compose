@@ -629,7 +629,7 @@ func TestEnsureSessionOpenCodeCustomProviderWritesConfig(t *testing.T) {
 	if env["AGENT_COMPOSE_SESSION_TOKEN"] == "" || env["AGENT_COMPOSE_SESSION_TOKEN"] != env["LLM_API_KEY"] {
 		t.Fatalf("managed facade env missing token aliases: %#v", env)
 	}
-	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+	if env["OPENCODE_CONFIG"] != "/root/.config/opencode/opencode.json" {
 		t.Fatalf("OPENCODE_CONFIG = %q, want guest opencode config path", env["OPENCODE_CONFIG"])
 	}
 	if strings.Contains(strings.Join([]string{env["LLM_API_KEY"], env["OPENAI_API_KEY"]}, " "), "provider-key") {
@@ -642,7 +642,7 @@ func TestEnsureSessionOpenCodeCustomProviderWritesConfig(t *testing.T) {
 	if token.ProviderID != "chaitin" || token.Model != "kimi-k2.6" || token.WireAPI != llmAPIProtocolChatCompletions {
 		t.Fatalf("facade token = %#v, want chaitin/kimi-k2.6 chat facade", token)
 	}
-	configPath := filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")
+	configPath := filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")
 	payload, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) returned error: %v", configPath, err)
@@ -701,7 +701,7 @@ func TestEnsureSessionOpenCodeCustomProviderBootstrapsFromDefaultEnv(t *testing.
 	if len(providers) != 1 || providers[0].ID != "chaitin" || providers[0].APIKey != "default-env-key" {
 		t.Fatalf("providers = %#v, want single chaitin provider from default env", providers)
 	}
-	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+	if env["OPENCODE_CONFIG"] != "/root/.config/opencode/opencode.json" {
 		t.Fatalf("OPENCODE_CONFIG = %q, want custom opencode config path", env["OPENCODE_CONFIG"])
 	}
 }
@@ -719,7 +719,7 @@ func TestEnsureSessionOpenCodeNativeProviderUsesOpenCodeConfig(t *testing.T) {
 	if len(env) != 0 {
 		t.Fatalf("env = %#v, want no managed facade env for opencode native provider", env)
 	}
-	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")); !os.IsNotExist(err) {
 		t.Fatalf("opencode config file should not exist for native provider, stat err=%v", err)
 	}
 }
@@ -750,10 +750,17 @@ func TestEnsureSessionOpenCodeOpenAIWritesRequestedModelConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
 	}
-	if env["OPENCODE_CONFIG"] != "/root/.opencode/agent-compose.json" {
+	if env["OPENCODE_CONFIG"] != "/root/.config/opencode/opencode.json" {
 		t.Fatalf("OPENCODE_CONFIG = %q, want guest opencode config path", env["OPENCODE_CONFIG"])
 	}
-	payload, err := os.ReadFile(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json"))
+	token, err := service.configDB.GetLLMFacadeToken(ctx, env["AGENT_COMPOSE_SESSION_TOKEN"])
+	if err != nil {
+		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
+	}
+	if token.ProviderID != "default" || token.Model != "kimi-k2.6" || token.WireAPI != llmAPIProtocolResponses {
+		t.Fatalf("facade token = %#v, want default/kimi-k2.6 responses facade", token)
+	}
+	payload, err := os.ReadFile(filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json"))
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
@@ -761,7 +768,11 @@ func TestEnsureSessionOpenCodeOpenAIWritesRequestedModelConfig(t *testing.T) {
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("decode opencode config: %v\n%s", err, string(payload))
 	}
-	models := decoded["provider"].(map[string]any)["openai"].(map[string]any)["models"].(map[string]any)
+	openai := decoded["provider"].(map[string]any)["openai"].(map[string]any)
+	if openai["npm"] != "@ai-sdk/openai" {
+		t.Fatalf("opencode openai npm = %#v, want @ai-sdk/openai", openai["npm"])
+	}
+	models := openai["models"].(map[string]any)
 	if _, ok := models["kimi-k2.6"]; !ok {
 		t.Fatalf("opencode openai models = %#v, want requested model", models)
 	}
@@ -816,7 +827,7 @@ func TestEnsureSessionOpenCodeAnthropicUsesFacadeEnv(t *testing.T) {
 	if env["OPENCODE_CONFIG"] != "" {
 		t.Fatalf("OPENCODE_CONFIG = %q, want no custom config for built-in anthropic provider", env["OPENCODE_CONFIG"])
 	}
-	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")); !os.IsNotExist(err) {
 		t.Fatalf("opencode config file should not exist for built-in anthropic provider, stat err=%v", err)
 	}
 	token, err := service.configDB.GetLLMFacadeToken(ctx, env["AGENT_COMPOSE_SESSION_TOKEN"])
