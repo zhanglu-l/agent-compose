@@ -197,7 +197,7 @@ func ensureSessionOpenCodeOpenAIFacadeEnv(ctx context.Context, config *appconfig
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, nil
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolChatCompletions, source, runID)
+	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolResponses, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func ensureSessionOpenCodeOpenAIFacadeEnv(ctx context.Context, config *appconfig
 		"AGENT_COMPOSE_SESSION_TOKEN": tokenValue,
 		"LLM_API_ENDPOINT":            openAIBaseURL,
 		"LLM_API_KEY":                 tokenValue,
-		"LLM_API_PROTOCOL":            llmAPIProtocolChatCompletions,
+		"LLM_API_PROTOCOL":            llmAPIProtocolResponses,
 		"OPENAI_API_KEY":              tokenValue,
 		"OPENAI_BASE_URL":             openAIBaseURL,
 		"OPENCODE_CONFIG":             guestOpenCodeLLMConfigPath(config),
@@ -369,7 +369,11 @@ func writeOpenCodeLLMConfig(session *Session, providerID, model, baseURL string)
 	if providerID == "" || model == "" || baseURL == "" {
 		return nil
 	}
-	path := filepath.Join(hostSessionHome(session), ".opencode", "agent-compose.json")
+	providerPackage := "@ai-sdk/openai-compatible"
+	if providerID == "openai" {
+		providerPackage = "@ai-sdk/openai"
+	}
+	path := filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create opencode config dir: %w", err)
 	}
@@ -377,7 +381,7 @@ func writeOpenCodeLLMConfig(session *Session, providerID, model, baseURL string)
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
 			providerID: map[string]any{
-				"npm":  "@ai-sdk/openai-compatible",
+				"npm":  providerPackage,
 				"name": "agent-compose " + providerID,
 				"options": map[string]any{
 					"baseURL": baseURL,
@@ -401,7 +405,7 @@ func writeOpenCodeLLMConfig(session *Session, providerID, model, baseURL string)
 
 func guestOpenCodeLLMConfigPath(config *appconfig.Config) string {
 	appconfig.ApplyDefaultGuestPaths(config)
-	return filepath.Join(guestSessionHome(config), ".opencode", "agent-compose.json")
+	return filepath.Join(guestSessionHome(config), ".config", "opencode", "opencode.json")
 }
 
 func guestRuntimeLLMBaseURL(config *appconfig.Config, session *Session) string {

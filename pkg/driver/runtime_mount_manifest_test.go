@@ -60,6 +60,7 @@ func TestPrepareRuntimeMountManifestForDockerIncludesRequiredMountsOnly(t *testi
 		"/root/.config/claude":      filepath.Join(root, "home", ".config", "claude"),
 		"/root/.config/Claude":      filepath.Join(root, "home", ".config", "Claude"),
 		"/root/.config/gemini":      filepath.Join(root, "home", ".config", "gemini"),
+		"/root/.config/opencode":    filepath.Join(root, "home", ".config", "opencode"),
 		"/root/.local/share/gemini": filepath.Join(root, "home", ".local", "share", "gemini"),
 	}
 	if len(got) != len(want) {
@@ -102,6 +103,7 @@ func TestPrepareRuntimeMountManifestIgnoresCustomGuestHomePath(t *testing.T) {
 		"/root/.config/claude",
 		"/root/.config/Claude",
 		"/root/.config/gemini",
+		"/root/.config/opencode",
 		"/root/.local/share/gemini",
 	} {
 		if got[guestPath] == "" {
