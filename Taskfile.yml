@@ -59,7 +59,11 @@ tasks:
           echo "Installing nilaway..."
           {{.GO_TOOLCHAIN_ENV}} go install go.uber.org/nilaway/cmd/nilaway@latest || true
         fi
-      - npm install
+      - |
+        for dir in proto-client runtime/agent-compose-runtime-sdk runtime/javascript; do
+          echo "Installing npm dependencies in ${dir}..."
+          (cd "${dir}" && npm ci --no-audit --no-fund)
+        done
       - echo "Deps ready"
 
   clean:
