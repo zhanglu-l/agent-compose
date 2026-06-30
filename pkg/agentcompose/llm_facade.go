@@ -260,7 +260,6 @@ func normalizeRuntimeLLMRawResponsesInput(payload map[string]json.RawMessage, ge
 		return false
 	}
 	var changed bool
-	systemRole, _ := json.Marshal(string(protocolbridge.RoleSystem))
 	defaultTextType := "input_text"
 	if genericTextParts {
 		defaultTextType = "text"
@@ -268,11 +267,6 @@ func normalizeRuntimeLLMRawResponsesInput(payload map[string]json.RawMessage, ge
 	defaultTextTypeJSON, _ := json.Marshal(defaultTextType)
 	genericTextTypeJSON, _ := json.Marshal("text")
 	for _, item := range items {
-		var role string
-		if err := json.Unmarshal(item["role"], &role); err == nil && role == string(protocolbridge.RoleDeveloper) {
-			item["role"] = systemRole
-			changed = true
-		}
 		if normalizeRuntimeLLMRawResponsesContent(item, defaultTextTypeJSON, genericTextTypeJSON, genericTextParts) {
 			changed = true
 		}

@@ -1714,14 +1714,11 @@ func testRuntimeLLMFacadeRoundTrips(t *testing.T) {
 				t.Errorf("upstream metadata = %#v, want preserved request fields", got["metadata"])
 			}
 			input, _ := got["input"].([]any)
-			var sawSystem bool
+			var sawDeveloper bool
 			for _, item := range input {
 				message, _ := item.(map[string]any)
 				if message["role"] == "developer" {
-					t.Errorf("upstream body kept developer role: %s", gotBody)
-				}
-				if message["role"] == "system" {
-					sawSystem = true
+					sawDeveloper = true
 				}
 				content, _ := message["content"].([]any)
 				for _, part := range content {
@@ -1731,8 +1728,8 @@ func testRuntimeLLMFacadeRoundTrips(t *testing.T) {
 					}
 				}
 			}
-			if !sawSystem {
-				t.Errorf("upstream body did not map developer role to system: %s", gotBody)
+			if !sawDeveloper {
+				t.Errorf("upstream body did not preserve developer role: %s", gotBody)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"resp-e2e","model":"m-resp","status":"completed","output_text":"ok"}`))
