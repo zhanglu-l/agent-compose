@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/domain"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
@@ -410,27 +411,7 @@ func (s *Service) listAllSessions(ctx context.Context) ([]*Session, error) {
 }
 
 func agentRunSummaries(agentID string, sessions []*Session) (AgentCurrentRunSummary, *AgentLatestRunSummary) {
-	current := AgentCurrentRunSummary{}
-	var latest *AgentLatestRunSummary
-	for _, session := range sessions {
-		if !sessionHasAgentTag(session, agentID) {
-			continue
-		}
-		switch session.Summary.VMStatus {
-		case VMStatusPending, VMStatusRunning:
-			current.RunningSessionCount++
-		}
-		if latest == nil || session.Summary.UpdatedAt.After(latest.At) {
-			latest = &AgentLatestRunSummary{
-				RunType: "work_session",
-				Status:  session.Summary.VMStatus,
-				RunID:   session.Summary.ID,
-				Title:   session.Summary.Title,
-				At:      session.Summary.UpdatedAt,
-			}
-		}
-	}
-	return current, latest
+	return domain.AgentRunSummaries(agentID, sessions)
 }
 
 func envItemsFromProto(items []*agentcomposev1.SessionEnvVar) []SessionEnvVar {
