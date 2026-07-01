@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"agent-compose/pkg/agentcompose/domain"
+	driverpkg "agent-compose/pkg/driver"
 )
 
 func LoaderCommandFacadeAgentModel(env map[string]string) (string, string) {
@@ -33,4 +34,52 @@ func LoaderCommandFacadeAgentModel(env map[string]string) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+func ProviderKeyName(name string) bool {
+	return driverpkg.LLMProviderKeyName(name)
+}
+
+func FilterPersistedRuntimeEnv(items []domain.SessionEnvVar) []domain.SessionEnvVar {
+	result := make([]domain.SessionEnvVar, 0, len(items))
+	for _, item := range domain.NormalizeEnvItems(items) {
+		if ProviderKeyName(item.Name) {
+			continue
+		}
+		result = append(result, item)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func RuntimeEnvMap(items []domain.SessionEnvVar) map[string]string {
+	env := make(map[string]string, len(items))
+	for _, item := range domain.NormalizeEnvItems(items) {
+		name := strings.TrimSpace(item.Name)
+		if name == "" || ProviderKeyName(name) {
+			continue
+		}
+		env[name] = item.Value
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
+}
+
+func ManagedRuntimeEnvMap(items []domain.SessionEnvVar) map[string]string {
+	env := make(map[string]string, len(items))
+	for _, item := range domain.NormalizeEnvItems(items) {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		env[name] = item.Value
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }

@@ -3,7 +3,6 @@ package agentcompose
 import (
 	"agent-compose/pkg/agentcompose/llms"
 	appconfig "agent-compose/pkg/config"
-	driverpkg "agent-compose/pkg/driver"
 	"context"
 	"database/sql"
 	"errors"
@@ -807,49 +806,17 @@ func hashLLMFacadeToken(value string) (string, string) {
 }
 
 func llmProviderKeyName(name string) bool {
-	return driverpkg.LLMProviderKeyName(name)
+	return llms.ProviderKeyName(name)
 }
 
 func filterPersistedRuntimeEnv(items []SessionEnvVar) []SessionEnvVar {
-	result := make([]SessionEnvVar, 0, len(items))
-	for _, item := range normalizeEnvItems(items) {
-		if llmProviderKeyName(item.Name) {
-			continue
-		}
-		result = append(result, item)
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	return llms.FilterPersistedRuntimeEnv(items)
 }
 
 func runtimeEnvMap(items []SessionEnvVar) map[string]string {
-	env := make(map[string]string, len(items))
-	for _, item := range normalizeEnvItems(items) {
-		name := strings.TrimSpace(item.Name)
-		if name == "" || llmProviderKeyName(name) {
-			continue
-		}
-		env[name] = item.Value
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
+	return llms.RuntimeEnvMap(items)
 }
 
 func managedRuntimeEnvMap(items []SessionEnvVar) map[string]string {
-	env := make(map[string]string, len(items))
-	for _, item := range normalizeEnvItems(items) {
-		name := strings.TrimSpace(item.Name)
-		if name == "" {
-			continue
-		}
-		env[name] = item.Value
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
+	return llms.ManagedRuntimeEnvMap(items)
 }
