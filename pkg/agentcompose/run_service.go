@@ -25,7 +25,7 @@ func (s *Service) RunAgent(ctx context.Context, req *connect.Request[agentcompos
 		return nil, err
 	}
 	return connect.NewResponse(&agentcomposev2.RunAgentResponse{
-		Run: runDetailResponse(run),
+		Run: api.ProjectRunDetailToProto(run),
 	}), nil
 }
 
@@ -48,7 +48,7 @@ func (s *Service) RunAgentStream(ctx context.Context, req *connect.Request[agent
 	}
 	if sendErr := sink.send(&agentcomposev2.RunAgentStreamResponse{
 		EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
-		Run:       runSummaryResponse(run),
+		Run:       api.ProjectRunSummaryToProto(run),
 		RunId:     run.RunID,
 		CreatedAt: formatProjectTime(time.Now().UTC()),
 	}); sendErr != nil {
@@ -69,7 +69,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	run, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
 		ProjectID:       msg.GetProjectId(),
 		AgentName:       msg.GetAgentName(),
-		Source:          projectRunSourceFromProto(msg.GetSource()),
+		Source:          api.ProjectRunSourceFromProto(msg.GetSource()),
 		SchedulerID:     msg.GetSchedulerId(),
 		TriggerID:       msg.GetTriggerId(),
 		Prompt:          msg.GetPrompt(),
@@ -181,7 +181,7 @@ func projectRunAgentExecutionStream(run ProjectRunRecord, sink *projectRunStream
 		OnStart: func(NotebookCell) error {
 			return sink.send(&agentcomposev2.RunAgentStreamResponse{
 				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_STARTED,
-				Run:       runSummaryResponse(run),
+				Run:       api.ProjectRunSummaryToProto(run),
 				RunId:     run.RunID,
 				CreatedAt: formatProjectTime(time.Now().UTC()),
 			})
@@ -308,7 +308,7 @@ func (s *Service) GetRun(ctx context.Context, req *connect.Request[agentcomposev
 	if projectID := strings.TrimSpace(req.Msg.GetProjectId()); projectID != "" && run.ProjectID != projectID {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("project run %s not found in project %s", runID, projectID))
 	}
-	return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: runDetailResponse(run)}), nil
+	return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: api.ProjectRunDetailToProto(run)}), nil
 }
 
 func (s *Service) ListRuns(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
@@ -320,8 +320,8 @@ func (s *Service) ListRuns(ctx context.Context, req *connect.Request[agentcompos
 		AgentName:   req.Msg.GetAgentName(),
 		SessionID:   req.Msg.GetSessionId(),
 		SchedulerID: req.Msg.GetSchedulerId(),
-		Status:      projectRunStatusFromProto(req.Msg.GetStatus()),
-		Source:      projectRunSourceFilterFromProto(req.Msg.GetSource()),
+		Status:      api.ProjectRunStatusFromProto(req.Msg.GetStatus()),
+		Source:      api.ProjectRunSourceFilterFromProto(req.Msg.GetSource()),
 		Offset:      int(req.Msg.GetOffset()),
 		Limit:       int(req.Msg.GetLimit()),
 	})
@@ -330,7 +330,7 @@ func (s *Service) ListRuns(ctx context.Context, req *connect.Request[agentcompos
 	}
 	items := make([]*agentcomposev2.RunSummary, 0, len(runs))
 	for _, run := range runs {
-		items = append(items, runSummaryResponse(run))
+		items = append(items, api.ProjectRunSummaryToProto(run))
 	}
 	return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: items}), nil
 }
@@ -353,7 +353,7 @@ func (s *Service) StopRun(ctx context.Context, req *connect.Request[agentcompose
 	}
 	if projectRunStatusIsTerminal(current.Status) {
 		return connect.NewResponse(&agentcomposev2.StopRunResponse{
-			Run:           runDetailResponse(current),
+			Run:           api.ProjectRunDetailToProto(current),
 			StopRequested: false,
 		}), nil
 	}
@@ -369,27 +369,7 @@ func (s *Service) StopRun(ctx context.Context, req *connect.Request[agentcompose
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&agentcomposev2.StopRunResponse{
-		Run:           runDetailResponse(run),
+		Run:           api.ProjectRunDetailToProto(run),
 		StopRequested: true,
 	}), nil
-}
-
-func runDetailResponse(run ProjectRunRecord) *agentcomposev2.RunDetail {
-	return api.ProjectRunDetailToProto(run)
-}
-
-func runSummaryResponse(run ProjectRunRecord) *agentcomposev2.RunSummary {
-	return api.ProjectRunSummaryToProto(run)
-}
-
-func projectRunStatusFromProto(status agentcomposev2.RunStatus) string {
-	return api.ProjectRunStatusFromProto(status)
-}
-
-func projectRunSourceFromProto(source agentcomposev2.RunSource) string {
-	return api.ProjectRunSourceFromProto(source)
-}
-
-func projectRunSourceFilterFromProto(source agentcomposev2.RunSource) string {
-	return api.ProjectRunSourceFilterFromProto(source)
 }
