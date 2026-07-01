@@ -872,73 +872,11 @@ func getProjectSchedulerIfExists(ctx context.Context, store *ConfigStore, projec
 }
 
 func projectApplyChanges(project ProjectRecord, existing ProjectRecord, found bool, revision ProjectRevisionRecord, revisionCreated bool) []*agentcomposev2.ProjectChange {
-	projectAction := agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
-	if found {
-		projectAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
-		if !projectRecordUnchanged(existing, project) {
-			projectAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
-		}
-	}
-	revisionAction := agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
-	if revisionCreated {
-		revisionAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
-	}
-	return []*agentcomposev2.ProjectChange{
-		{
-			Action:       projectAction,
-			ResourceType: "project",
-			ResourceId:   project.ID,
-			Name:         project.Name,
-		},
-		{
-			Action:       revisionAction,
-			ResourceType: "project_revision",
-			ResourceId:   fmt.Sprintf("%s/%d", revision.ProjectID, revision.Revision),
-			Name:         revision.SpecHash,
-		},
-	}
+	return api.ProjectApplyChanges(project, existing, found, revision, revisionCreated)
 }
 
 func dryRunProjectChanges(project ProjectRecord, agents []ProjectAgentRecord, agentDefinitions []AgentDefinition, schedulers []ProjectSchedulerRecord, loaders []Loader) []*agentcomposev2.ProjectChange {
-	changes := []*agentcomposev2.ProjectChange{{
-		Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
-		ResourceType: "project",
-		ResourceId:   project.ID,
-		Name:         project.Name,
-	}}
-	for _, agent := range agents {
-		changes = append(changes, &agentcomposev2.ProjectChange{
-			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
-			ResourceType: "project_agent",
-			ResourceId:   agent.ManagedAgentID,
-			Name:         agent.AgentName,
-		})
-	}
-	for _, agent := range agentDefinitions {
-		changes = append(changes, &agentcomposev2.ProjectChange{
-			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
-			ResourceType: "agent_definition",
-			ResourceId:   agent.ID,
-			Name:         agent.Name,
-		})
-	}
-	for _, scheduler := range schedulers {
-		changes = append(changes, &agentcomposev2.ProjectChange{
-			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
-			ResourceType: "project_scheduler",
-			ResourceId:   scheduler.SchedulerID,
-			Name:         scheduler.AgentName,
-		})
-	}
-	for _, loader := range loaders {
-		changes = append(changes, &agentcomposev2.ProjectChange{
-			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
-			ResourceType: "loader",
-			ResourceId:   loader.Summary.ID,
-			Name:         loader.Summary.Name,
-		})
-	}
-	return changes
+	return api.DryRunProjectChanges(project, agents, agentDefinitions, schedulers, loaders)
 }
 
 func projectRecordUnchanged(existing ProjectRecord, current ProjectRecord) bool {

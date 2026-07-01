@@ -9,6 +9,7 @@ import (
 
 	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/projects"
 	"agent-compose/pkg/compose"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
@@ -77,6 +78,76 @@ func ProjectSchedulersToProto(schedulers []domain.ProjectSchedulerRecord) []*age
 		})
 	}
 	return items
+}
+
+func ProjectApplyChanges(project domain.ProjectRecord, existing domain.ProjectRecord, found bool, revision domain.ProjectRevisionRecord, revisionCreated bool) []*agentcomposev2.ProjectChange {
+	projectAction := agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
+	if found {
+		projectAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
+		if !projects.ProjectRecordUnchanged(existing, project) {
+			projectAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
+		}
+	}
+	revisionAction := agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
+	if revisionCreated {
+		revisionAction = agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
+	}
+	return []*agentcomposev2.ProjectChange{
+		{
+			Action:       projectAction,
+			ResourceType: "project",
+			ResourceId:   project.ID,
+			Name:         project.Name,
+		},
+		{
+			Action:       revisionAction,
+			ResourceType: "project_revision",
+			ResourceId:   fmt.Sprintf("%s/%d", revision.ProjectID, revision.Revision),
+			Name:         revision.SpecHash,
+		},
+	}
+}
+
+func DryRunProjectChanges(project domain.ProjectRecord, agents []domain.ProjectAgentRecord, agentDefinitions []domain.AgentDefinition, schedulers []domain.ProjectSchedulerRecord, loaders []domain.Loader) []*agentcomposev2.ProjectChange {
+	changes := []*agentcomposev2.ProjectChange{{
+		Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+		ResourceType: "project",
+		ResourceId:   project.ID,
+		Name:         project.Name,
+	}}
+	for _, agent := range agents {
+		changes = append(changes, &agentcomposev2.ProjectChange{
+			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+			ResourceType: "project_agent",
+			ResourceId:   agent.ManagedAgentID,
+			Name:         agent.AgentName,
+		})
+	}
+	for _, agent := range agentDefinitions {
+		changes = append(changes, &agentcomposev2.ProjectChange{
+			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+			ResourceType: "agent_definition",
+			ResourceId:   agent.ID,
+			Name:         agent.Name,
+		})
+	}
+	for _, scheduler := range schedulers {
+		changes = append(changes, &agentcomposev2.ProjectChange{
+			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+			ResourceType: "project_scheduler",
+			ResourceId:   scheduler.SchedulerID,
+			Name:         scheduler.AgentName,
+		})
+	}
+	for _, loader := range loaders {
+		changes = append(changes, &agentcomposev2.ProjectChange{
+			Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+			ResourceType: "loader",
+			ResourceId:   loader.Summary.ID,
+			Name:         loader.Summary.Name,
+		})
+	}
+	return changes
 }
 
 func ProjectSpecToProto(spec *compose.NormalizedProjectSpec) *agentcomposev2.ProjectSpec {
