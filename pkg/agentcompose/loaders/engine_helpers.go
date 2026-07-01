@@ -145,14 +145,7 @@ func loaderJSONResult(text, outputSchemaJSON, sourceName string) (any, error) {
 }
 
 func marshalJSONCompact(value any) (string, error) {
-	if value == nil {
-		return "", nil
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", fmt.Errorf("encode json payload: %w", err)
-	}
-	return string(data), nil
+	return domain.MarshalJSONCompact(value)
 }
 
 func firstNonEmpty(values ...string) string {

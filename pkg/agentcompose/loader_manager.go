@@ -1,9 +1,9 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1105,26 +1105,11 @@ func (m *LoaderManager) snapshotLoaders() []Loader {
 }
 
 func normalizeJSONDocument(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil
-	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, []byte(raw)); err != nil {
-		return "", fmt.Errorf("normalize json document: %w", err)
-	}
-	return compact.String(), nil
+	return domain.NormalizeJSONDocument(raw)
 }
 
 func marshalJSONCompact(value any) (string, error) {
-	if value == nil {
-		return "", nil
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", fmt.Errorf("encode json payload: %w", err)
-	}
-	return string(data), nil
+	return domain.MarshalJSONCompact(value)
 }
 
 func parseLoaderTriggerEventMetadata(payloadJSON string) loaderTriggerEventMetadata {
