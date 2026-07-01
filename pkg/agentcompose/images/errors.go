@@ -1,8 +1,24 @@
 package images
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+
+	cerrdefs "github.com/containerd/errdefs"
+
+	"agent-compose/pkg/imagecache"
+)
+
+type ErrorKind int
+
+const (
+	ErrorKindUnknown ErrorKind = iota
+	ErrorKindNotFound
+	ErrorKindInvalidReference
+	ErrorKindConflict
+	ErrorKindInternal
+	ErrorKindUnavailable
 )
 
 type OpError struct {
@@ -28,4 +44,28 @@ func (e OpError) Error() string {
 
 func (e OpError) Unwrap() error {
 	return e.Err
+}
+
+func ClassifyBackendError(err error) (OpError, ErrorKind, bool) {
+	var backendErr OpError
+	if !errors.As(err, &backendErr) {
+		return OpError{}, ErrorKindUnknown, false
+	}
+	kind := ErrorKindUnavailable
+	if cerrdefs.IsNotFound(backendErr.Err) {
+		kind = ErrorKindNotFound
+	}
+	switch imagecache.Kind(backendErr.Err) {
+	case imagecache.ErrorKindNotFound:
+		kind = ErrorKindNotFound
+	case imagecache.ErrorKindInvalidReference:
+		kind = ErrorKindInvalidReference
+	case imagecache.ErrorKindConflict:
+		kind = ErrorKindConflict
+	case imagecache.ErrorKindInternal:
+		kind = ErrorKindInternal
+	case imagecache.ErrorKindUnavailable:
+		kind = ErrorKindUnavailable
+	}
+	return backendErr, kind, true
 }

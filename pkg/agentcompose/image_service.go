@@ -2,7 +2,6 @@ package agentcompose
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -10,13 +9,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/filters"
 	typesimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 
 	"agent-compose/pkg/agentcompose/images"
-	"agent-compose/pkg/imagecache"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -313,8 +310,7 @@ func connectErrorForImageBackend(op, imageRef string, err error) error {
 	if err == nil {
 		return nil
 	}
-	var backendErr imageBackendOpError
-	if errors.As(err, &backendErr) {
+	if backendErr, kind, ok := images.ClassifyBackendError(err); ok {
 		if imageRef != "" && backendErr.ImageRef == "" {
 			backendErr.ImageRef = imageRef
 		}
@@ -322,19 +318,16 @@ func connectErrorForImageBackend(op, imageRef string, err error) error {
 			backendErr.Op = op
 		}
 		code := connect.CodeUnavailable
-		if cerrdefs.IsNotFound(backendErr.Err) {
+		switch kind {
+		case images.ErrorKindNotFound:
 			code = connect.CodeNotFound
-		}
-		switch imagecache.Kind(backendErr.Err) {
-		case imagecache.ErrorKindNotFound:
-			code = connect.CodeNotFound
-		case imagecache.ErrorKindInvalidReference:
+		case images.ErrorKindInvalidReference:
 			code = connect.CodeInvalidArgument
-		case imagecache.ErrorKindConflict:
+		case images.ErrorKindConflict:
 			code = connect.CodeFailedPrecondition
-		case imagecache.ErrorKindInternal:
+		case images.ErrorKindInternal:
 			code = connect.CodeInternal
-		case imagecache.ErrorKindUnavailable:
+		case images.ErrorKindUnavailable:
 			code = connect.CodeUnavailable
 		}
 		return connect.NewError(code, backendErr)
