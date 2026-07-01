@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/api"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	"context"
@@ -245,17 +246,7 @@ func (m *LoaderManager) loadOrResumeLoaderSession(ctx context.Context, sessionID
 }
 
 func sessionTagsFromProto(items []*agentcomposev1.SessionTag) []SessionTag {
-	if len(items) == 0 {
-		return nil
-	}
-	result := make([]SessionTag, 0, len(items))
-	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		result = append(result, SessionTag{Name: item.GetName(), Value: item.GetValue()})
-	}
-	return result
+	return api.SessionTagsFromProto(items)
 }
 
 func slogWarnReuseLoaderStickySession(loaderID, sessionID string, err error) {

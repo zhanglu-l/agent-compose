@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"agent-compose/pkg/agentcompose/api"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
@@ -433,9 +434,5 @@ func agentRunSummaries(agentID string, sessions []*Session) (AgentCurrentRunSumm
 }
 
 func envItemsFromProto(items []*agentcomposev1.SessionEnvVar) []SessionEnvVar {
-	result := make([]SessionEnvVar, 0, len(items))
-	for _, item := range items {
-		result = append(result, SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
-	}
-	return result
+	return api.EnvItemsFromProto(items)
 }

@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 	"gopkg.in/yaml.v3"
 
+	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/compose"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -1699,8 +1700,5 @@ func triggerResponse(trigger compose.NormalizedTriggerSpec) *agentcomposev2.Trig
 }
 
 func formatProjectTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
+	return api.FormatProjectTime(value)
 }

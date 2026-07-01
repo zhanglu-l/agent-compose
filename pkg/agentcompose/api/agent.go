@@ -53,6 +53,28 @@ func EnvItemsToProto(items []domain.SessionEnvVar) []*agentcomposev1.SessionEnvV
 	return resp
 }
 
+func EnvItemsFromProto(items []*agentcomposev1.SessionEnvVar) []domain.SessionEnvVar {
+	result := make([]domain.SessionEnvVar, 0, len(items))
+	for _, item := range items {
+		result = append(result, domain.SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
+	}
+	return result
+}
+
+func SessionTagsFromProto(items []*agentcomposev1.SessionTag) []domain.SessionTag {
+	if len(items) == 0 {
+		return nil
+	}
+	result := make([]domain.SessionTag, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		result = append(result, domain.SessionTag{Name: item.GetName(), Value: item.GetValue()})
+	}
+	return result
+}
+
 func AgentWorkFilesToProto(workspaceID string, workspace *domain.WorkspaceConfig) *agentcomposev1.AgentWorkFiles {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" || workspace == nil {
