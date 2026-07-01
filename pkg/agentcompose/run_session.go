@@ -158,23 +158,5 @@ func projectRunSessionTags(run ProjectRunRecord) []SessionTag {
 }
 
 func mergeSessionTags(existing, additions []SessionTag) []SessionTag {
-	result := append([]SessionTag(nil), existing...)
-	for _, addition := range additions {
-		addition.Name = strings.TrimSpace(addition.Name)
-		addition.Value = strings.TrimSpace(addition.Value)
-		if addition.Name == "" {
-			continue
-		}
-		found := false
-		for _, current := range result {
-			if strings.TrimSpace(current.Name) == addition.Name && strings.TrimSpace(current.Value) == addition.Value {
-				found = true
-				break
-			}
-		}
-		if !found {
-			result = append(result, addition)
-		}
-	}
-	return result
+	return runs.MergeSessionTags(existing, additions)
 }
