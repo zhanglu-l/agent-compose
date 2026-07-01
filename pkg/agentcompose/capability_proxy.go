@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/do/v2"
 
+	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/capproxy"
 	appconfig "agent-compose/pkg/config"
 )
@@ -60,34 +61,11 @@ func (s *Store) ResolveCapabilitySession(ctx context.Context, token string) (cap
 }
 
 func sessionCapabilityToken(session *Session) string {
-	return sessionEnvValue(session, capabilitySessionTokenEnvName)
+	return capabilities.SessionToken(session)
 }
 
 // sessionCapabilityCapsets reads the allowed capset set from the session's
 // capset tags (server-side binding; the guest never sees this list).
 func sessionCapabilityCapsets(session *Session) []string {
-	if session == nil {
-		return nil
-	}
-	var ids []string
-	for _, tag := range session.Summary.Tags {
-		if tag.Name == capabilityCapsetTagName {
-			if v := strings.TrimSpace(tag.Value); v != "" {
-				ids = append(ids, v)
-			}
-		}
-	}
-	return normalizeCapsetIDs(ids)
-}
-
-func sessionEnvValue(session *Session, name string) string {
-	if session == nil {
-		return ""
-	}
-	for _, item := range session.EnvItems {
-		if item.Name == name {
-			return strings.TrimSpace(item.Value)
-		}
-	}
-	return ""
+	return capabilities.SessionCapsets(session)
 }
