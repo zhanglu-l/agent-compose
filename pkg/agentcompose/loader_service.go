@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/loaders"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
@@ -211,7 +212,7 @@ func protoEnvItemsToModel(items []*agentcomposev1.SessionEnvVar) []SessionEnvVar
 	for _, item := range items {
 		result = append(result, SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
 	}
-	return normalizeEnvItems(result)
+	return domain.NormalizeEnvItems(result)
 }
 
 func toProtoLoaderSummary(item LoaderSummary) *agentcomposev1.LoaderSummary {

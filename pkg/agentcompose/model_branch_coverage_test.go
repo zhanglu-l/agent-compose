@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/configstore"
+	"agent-compose/pkg/agentcompose/domain"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
 	"strings"
@@ -159,15 +160,15 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 	if sessionEnvMap(nil) != nil {
 		t.Fatalf("sessionEnvMap nil did not return nil")
 	}
-	normalizedEnv := normalizeEnvItems([]SessionEnvVar{{Name: " B ", Value: "2"}, {Name: "A", Value: "1"}, {Name: "B", Value: "3"}, {Name: " ", Value: "skip"}})
+	normalizedEnv := domain.NormalizeEnvItems([]SessionEnvVar{{Name: " B ", Value: "2"}, {Name: "A", Value: "1"}, {Name: "B", Value: "3"}, {Name: " ", Value: "skip"}})
 	if len(normalizedEnv) != 2 || normalizedEnv[0].Name != "A" || normalizedEnv[1].Value != "3" {
 		t.Fatalf("normalizeEnvItems = %#v", normalizedEnv)
 	}
-	mergedEnv := mergeEnvItems([]SessionEnvVar{{Name: "A", Value: "global"}}, []SessionEnvVar{{Name: "A", Value: "session"}, {Name: "B", Value: "session"}})
+	mergedEnv := domain.MergeEnvItems([]SessionEnvVar{{Name: "A", Value: "global"}}, []SessionEnvVar{{Name: "A", Value: "session"}, {Name: "B", Value: "session"}})
 	if len(mergedEnv) != 2 || mergedEnv[0].Value != "session" || mergedEnv[1].Name != "B" {
 		t.Fatalf("mergeEnvItems = %#v", mergedEnv)
 	}
-	if mergeEnvItems(nil, nil) != nil {
+	if domain.MergeEnvItems(nil, nil) != nil {
 		t.Fatalf("mergeEnvItems nil did not return nil")
 	}
 	workspace, err := configstore.NormalizeWorkspaceConfig(WorkspaceConfig{Name: " Workspace ", Type: "FILE", ConfigJSON: "", Comment: " note "}, true)

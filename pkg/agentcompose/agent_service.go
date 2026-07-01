@@ -283,7 +283,7 @@ func (s *Service) CreateAgentSession(ctx context.Context, req *connect.Request[a
 	if title == "" {
 		title = agent.Name + " 工作会话"
 	}
-	envItems := mergeEnvItems(agent.EnvItems, envItemsFromProto(req.Msg.GetEnvItems()))
+	envItems := domain.MergeEnvItems(agent.EnvItems, envItemsFromProto(req.Msg.GetEnvItems()))
 	createReq := &agentcomposev1.CreateSessionRequest{
 		Title:       title,
 		Tags:        agentDefinitionTags(agent),

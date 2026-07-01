@@ -674,11 +674,3 @@ func (s *ConfigStore) ensureWorkspaceNotReferencedByAgent(ctx context.Context, w
 	}
 	return nil
 }
-
-func normalizeEnvItems(items []SessionEnvVar) []SessionEnvVar {
-	return domain.NormalizeEnvItems(items)
-}
-
-func mergeEnvItems(globalItems, sessionItems []SessionEnvVar) []SessionEnvVar {
-	return domain.MergeEnvItems(globalItems, sessionItems)
-}

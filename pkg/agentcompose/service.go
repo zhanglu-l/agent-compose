@@ -260,7 +260,7 @@ func (s *Service) UpdateGlobalEnvConfig(ctx context.Context, req *connect.Reques
 	for _, item := range req.Msg.GetEnvItems() {
 		items = append(items, SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
 	}
-	items = normalizeEnvItems(items)
+	items = domain.NormalizeEnvItems(items)
 	items, err := s.preserveUnchangedGlobalEnvSecrets(ctx, items)
 	if err != nil {
 		return nil, err
@@ -868,7 +868,7 @@ func applyAgentProviderEnv(session *Session, agentEnv []SessionEnvVar) {
 	if len(providerEnv) == 0 {
 		providerEnv = session.EnvItems
 	}
-	session.ProviderEnvItems = mergeEnvItems(agentEnv, providerEnv)
+	session.ProviderEnvItems = domain.MergeEnvItems(agentEnv, providerEnv)
 }
 
 func sessionTagValue(tags []SessionTag, name string) string {

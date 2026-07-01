@@ -3,6 +3,7 @@ package agentcompose
 import (
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	"context"
@@ -84,14 +85,14 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader Loader, request
 		return nil, "", err
 	}
 	if agentDefinition != nil {
-		envItems = mergeEnvItems(envItems, agentDefinition.EnvItems)
+		envItems = domain.MergeEnvItems(envItems, agentDefinition.EnvItems)
 	}
-	envItems = mergeEnvItems(envItems, loader.EnvItems)
-	envItems = mergeEnvItems(envItems, request.SessionEnv)
+	envItems = domain.MergeEnvItems(envItems, loader.EnvItems)
+	envItems = domain.MergeEnvItems(envItems, request.SessionEnv)
 	providerEnvItems := envItems
 	envItems = filterPersistedRuntimeEnv(envItems)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(m.cap), loader.Summary.CapsetIDs)
-	envItems = mergeEnvItems(envItems, capabilityVars)
+	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	tags := []SessionTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: loader.Summary.ID}, {Name: "loader_name", Value: loader.Summary.Name}}
 	tags = append(tags, capabilityTags...)
 

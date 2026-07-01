@@ -1049,7 +1049,7 @@ func loaderAgentRequestOverridesSession(request LoaderAgentRequest, includeTitle
 		strings.TrimSpace(request.Driver) != "" ||
 		strings.TrimSpace(request.GuestImage) != "" ||
 		strings.TrimSpace(request.WorkspaceID) != "" ||
-		len(normalizeEnvItems(request.SessionEnv)) > 0
+		len(domain.NormalizeEnvItems(request.SessionEnv)) > 0
 }
 
 func loaderCommandRequestRequiresCleanup(loader Loader, request LoaderCommandRequest) bool {

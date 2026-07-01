@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/runs"
 	driverpkg "agent-compose/pkg/driver"
 
@@ -42,7 +43,7 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 				return ProjectRunSessionResult{Session: session}, err
 			}
 		}
-		session.EnvItems = mergeEnvItems(session.EnvItems, capabilityVars)
+		session.EnvItems = domain.MergeEnvItems(session.EnvItems, capabilityVars)
 		session.Summary.Tags = runs.MergeSessionTags(session.Summary.Tags, tags)
 		if err := s.startProjectRunSession(ctx, session, "session.resumed", "session resumed for project run"); err != nil {
 			return ProjectRunSessionResult{Session: session}, err
@@ -75,7 +76,7 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 		workspaceID,
 		SessionTypeManual,
 		prepared.Workspace,
-		mergeEnvItems(prepared.EnvItems, capabilityVars),
+		domain.MergeEnvItems(prepared.EnvItems, capabilityVars),
 		tags,
 	)
 	if err != nil {

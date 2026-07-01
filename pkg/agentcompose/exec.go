@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/llms"
 	appconfig "agent-compose/pkg/config"
@@ -300,8 +301,8 @@ func (e *Executor) prepareLoaderCommandLLMFacadeEnv(ctx context.Context, session
 		if err != nil {
 			return nil, "", err
 		}
-		providerEnv := mergeEnvItems(globalEnv, session.EnvItems)
-		providerEnv = mergeEnvItems(providerEnv, request.SessionEnv)
+		providerEnv := domain.MergeEnvItems(globalEnv, session.EnvItems)
+		providerEnv = domain.MergeEnvItems(providerEnv, request.SessionEnv)
 		execSession.ProviderEnvItems = providerEnv
 	}
 
@@ -310,7 +311,7 @@ func (e *Executor) prepareLoaderCommandLLMFacadeEnv(ctx context.Context, session
 		return nil, "", err
 	}
 	if len(managedEnv) > 0 {
-		execSession.RuntimeEnvItems = mergeEnvItems(execSession.RuntimeEnvItems, envItemsFromMap(managedEnv, false))
+		execSession.RuntimeEnvItems = domain.MergeEnvItems(execSession.RuntimeEnvItems, envItemsFromMap(managedEnv, false))
 	}
 	return &execSession, managedEnv["AGENT_COMPOSE_SESSION_TOKEN"], nil
 }

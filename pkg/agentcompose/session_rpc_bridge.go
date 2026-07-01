@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -179,11 +180,11 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	envItems = mergeEnvItems(globalEnvItems, envItems)
+	envItems = domain.MergeEnvItems(globalEnvItems, envItems)
 	providerEnvItems := envItems
 	envItems = filterPersistedRuntimeEnv(envItems)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(b.cap), req.Msg.GetCapsetIds())
-	envItems = mergeEnvItems(envItems, capabilityVars)
+	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	tags = append(tags, capabilityTags...)
 
 	var workspaceSnapshot *SessionWorkspace
