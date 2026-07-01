@@ -21,6 +21,10 @@ type loaderCronSpec struct {
 var loaderCronParser = cronlib.NewParser(cronlib.SecondOptional | cronlib.Minute | cronlib.Hour | cronlib.Dom | cronlib.Month | cronlib.Dow | cronlib.Descriptor)
 
 func loaderCronSpecJSON(expr, timezone string) (string, error) {
+	return LoaderCronSpecJSON(expr, timezone)
+}
+
+func LoaderCronSpecJSON(expr, timezone string) (string, error) {
 	spec, err := normalizeLoaderCronSpec(loaderCronSpec{
 		Kind:     domain.LoaderTriggerKindCron,
 		Expr:     expr,
@@ -30,6 +34,72 @@ func loaderCronSpecJSON(expr, timezone string) (string, error) {
 		return "", err
 	}
 	return marshalJSONCompact(spec)
+}
+
+func NormalizeLoaderCronSpecJSON(raw string) (string, error) {
+	spec, err := parseLoaderCronSpecJSON(raw)
+	if err != nil {
+		return "", err
+	}
+	return marshalJSONCompact(spec)
+}
+
+func LoaderTriggerNextFireAt(now time.Time, trigger domain.LoaderTrigger, fired bool) (time.Time, error) {
+	now = now.UTC()
+	switch strings.ToLower(strings.TrimSpace(trigger.Kind)) {
+	case domain.LoaderTriggerKindInterval:
+		return domain.LoaderTriggerScheduledAt(now, trigger.IntervalMs), nil
+	case domain.LoaderTriggerKindTimeout:
+		if fired {
+			return time.Time{}, nil
+		}
+		return domain.LoaderTriggerScheduledAt(now, trigger.IntervalMs), nil
+	case domain.LoaderTriggerKindCron:
+		spec, err := parseLoaderCronSpecJSON(trigger.SpecJSON)
+		if err != nil {
+			return time.Time{}, err
+		}
+		location, err := time.LoadLocation(spec.Timezone)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("load cron timezone %q: %w", spec.Timezone, err)
+		}
+		schedule, err := loaderCronParser.Parse(spec.Expr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("parse cron expression %q: %w", spec.Expr, err)
+		}
+		return schedule.Next(now.In(location)).UTC(), nil
+	default:
+		return time.Time{}, nil
+	}
+}
+
+func LoaderTriggerSource(trigger domain.LoaderTrigger) string {
+	switch strings.ToLower(strings.TrimSpace(trigger.Kind)) {
+	case domain.LoaderTriggerKindInterval:
+		return fmt.Sprintf("interval:%d", trigger.IntervalMs)
+	case domain.LoaderTriggerKindTimeout:
+		return fmt.Sprintf("timeout:%d", trigger.IntervalMs)
+	case domain.LoaderTriggerKindCron:
+		spec, err := parseLoaderCronSpecJSON(trigger.SpecJSON)
+		if err != nil {
+			return "cron"
+		}
+		return fmt.Sprintf("cron:%s@%s", spec.Expr, spec.Timezone)
+	default:
+		return ""
+	}
+}
+
+func parseLoaderCronSpecJSON(raw string) (loaderCronSpec, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return loaderCronSpec{}, fmt.Errorf("cron spec is required")
+	}
+	var spec loaderCronSpec
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		return loaderCronSpec{}, fmt.Errorf("decode cron spec: %w", err)
+	}
+	return normalizeLoaderCronSpec(spec)
 }
 
 func normalizeLoaderCronSpec(spec loaderCronSpec) (loaderCronSpec, error) {
