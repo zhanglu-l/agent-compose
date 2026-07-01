@@ -578,9 +578,7 @@ func scanProjectRun(scan func(dest ...any) error) (ProjectRunRecord, error) {
 }
 
 func selectProjectRunSQL() string {
-	return `SELECT run_id, project_id, project_name, project_revision, agent_name, managed_agent_id, source, scheduler_id, trigger_id, status,
-		session_id, exit_code, error, prompt, output, result_json, logs_path, artifacts_dir, cleanup_error, driver, image_ref,
-		started_at, completed_at, duration_ms, created_at, updated_at FROM project_run`
+	return projects.SelectProjectRunSQL()
 }
 
 func projectMatchesQuery(item ProjectRecord, query string) bool {
