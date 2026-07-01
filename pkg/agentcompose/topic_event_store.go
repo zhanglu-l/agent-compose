@@ -225,7 +225,7 @@ func (s *ConfigStore) CreateEvent(ctx context.Context, item TopicEventRecord) (T
 				return TopicEventRecord{}, lookupErr
 			} else if ok {
 				if existing.PayloadHash != normalized.PayloadHash {
-					return TopicEventRecord{}, fmt.Errorf("event idempotency conflict for topic %q", normalized.Topic)
+					return TopicEventRecord{}, resourceError(ErrConflict, "event", normalized.Topic, fmt.Sprintf("event idempotency conflict for topic %q", normalized.Topic), nil)
 				}
 				return existing, nil
 			}
@@ -249,7 +249,7 @@ func (s *ConfigStore) GetEvent(ctx context.Context, eventID string) (TopicEventR
 	item, err := scanTopicEvent(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return TopicEventRecord{}, fmt.Errorf("event %s not found: %w", eventID, err)
+			return TopicEventRecord{}, resourceError(ErrNotFound, "event", eventID, fmt.Sprintf("event %s not found", eventID), err)
 		}
 		return TopicEventRecord{}, err
 	}
@@ -925,7 +925,7 @@ func (s *ConfigStore) DeleteWebhookSource(ctx context.Context, sourceID string) 
 		return fmt.Errorf("delete webhook source: %w", err)
 	}
 	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
-		return fmt.Errorf("webhook source not found")
+		return resourceError(ErrNotFound, "webhook source", sourceID, "webhook source not found", nil)
 	}
 	return nil
 }

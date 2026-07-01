@@ -340,7 +340,8 @@ func (s *ConfigStore) GetWorkspaceConfig(ctx context.Context, id string) (Worksp
 	item, err := scanWorkspaceConfig(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return WorkspaceConfig{}, fmt.Errorf("workspace config %s not found: %w", strings.TrimSpace(id), err)
+			message := fmt.Sprintf("workspace config %s not found", strings.TrimSpace(id))
+			return WorkspaceConfig{}, resourceError(ErrNotFound, "workspace config", strings.TrimSpace(id), message, err)
 		}
 		return WorkspaceConfig{}, err
 	}
@@ -377,7 +378,7 @@ func (s *ConfigStore) UpdateWorkspaceConfig(ctx context.Context, item WorkspaceC
 		return WorkspaceConfig{}, fmt.Errorf("update workspace config %s: %w", normalized.ID, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return WorkspaceConfig{}, fmt.Errorf("workspace config %s not found", normalized.ID)
+		return WorkspaceConfig{}, resourceError(ErrNotFound, "workspace config", normalized.ID, fmt.Sprintf("workspace config %s not found", normalized.ID), nil)
 	}
 	return normalized, nil
 }
@@ -395,7 +396,7 @@ func (s *ConfigStore) DeleteWorkspaceConfig(ctx context.Context, id string) erro
 		return fmt.Errorf("delete workspace config %s: %w", trimmedID, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return fmt.Errorf("workspace config %s not found", trimmedID)
+		return resourceError(ErrNotFound, "workspace config", trimmedID, fmt.Sprintf("workspace config %s not found", trimmedID), nil)
 	}
 	return nil
 }
@@ -691,7 +692,7 @@ func (s *ConfigStore) ensureWorkspaceNotReferencedByAgent(ctx context.Context, w
 		return fmt.Errorf("query workspace agent references %s: %w", trimmedID, err)
 	}
 	if count > 0 {
-		return fmt.Errorf("workspace config %s is referenced by %d agent definition(s)", trimmedID, count)
+		return resourceError(ErrReferenced, "workspace config", trimmedID, fmt.Sprintf("workspace config %s is referenced by %d agent definition(s)", trimmedID, count), nil)
 	}
 	return nil
 }

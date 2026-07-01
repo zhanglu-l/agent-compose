@@ -4,6 +4,7 @@ import (
 	appconfig "agent-compose/pkg/config"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -60,7 +61,7 @@ func registerWorkspaceRoutes(app *echo.Echo, service *Service) {
 		defer func() { _ = content.Root.Close() }()
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
-			if strings.Contains(err.Error(), "http: request body too large") {
+			if isHTTPRequestBodyTooLarge(err) {
 				return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "workspace upload exceeds configured limit")
 			}
 			return echo.NewHTTPError(http.StatusBadRequest, "missing form file \"file\"")
@@ -124,10 +125,27 @@ func toWorkspaceUploadHTTPError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "http: request body too large") {
+	if isHTTPRequestBodyTooLarge(err) {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "workspace upload exceeds configured limit")
 	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+}
+
+func isHTTPRequestBodyTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return true
+	}
+	var httpErr *echo.HTTPError
+	if errors.As(err, &httpErr) &&
+		httpErr.Code == http.StatusBadRequest &&
+		httpErr.Message == "http: request body too large" {
+		return true
+	}
+	return err.Error() == "http: request body too large"
 }
 
 func (s *Service) loadFileWorkspaceConfig(ctx context.Context, workspaceID string) (WorkspaceConfig, fileWorkspaceContent, error) {
@@ -136,7 +154,7 @@ func (s *Service) loadFileWorkspaceConfig(ctx context.Context, workspaceID strin
 		return WorkspaceConfig{}, fileWorkspaceContent{}, err
 	}
 	if strings.ToLower(strings.TrimSpace(workspace.Type)) != "file" {
-		return WorkspaceConfig{}, fileWorkspaceContent{}, fmt.Errorf("workspace config %s is not a file workspace", workspace.ID)
+		return WorkspaceConfig{}, fileWorkspaceContent{}, classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config %s is not a file workspace", workspace.ID), nil)
 	}
 	content, err := openFileWorkspaceContent(s.config, workspace)
 	if err != nil {
@@ -151,12 +169,27 @@ func toWorkspaceHTTPError(err error) error {
 	}
 	message := err.Error()
 	switch {
-	case strings.Contains(message, "not found"):
+	case errors.Is(err, ErrNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, message)
-	case strings.Contains(message, "not a file workspace"), strings.Contains(message, "invalid"), strings.Contains(message, "missing"):
+	case errors.Is(err, ErrInvalidArgument), errors.Is(err, ErrRequired):
 		return echo.NewHTTPError(http.StatusBadRequest, message)
+	case legacyWorkspaceHTTPStatus(message) != 0:
+		return echo.NewHTTPError(legacyWorkspaceHTTPStatus(message), message)
 	default:
 		return echo.NewHTTPError(http.StatusInternalServerError, message)
+	}
+}
+
+func legacyWorkspaceHTTPStatus(message string) int {
+	switch {
+	case strings.Index(message, "not found") >= 0:
+		return http.StatusNotFound
+	case strings.Index(message, "not a file workspace") >= 0,
+		strings.Index(message, "invalid") >= 0,
+		strings.Index(message, "missing") >= 0:
+		return http.StatusBadRequest
+	default:
+		return 0
 	}
 }
 

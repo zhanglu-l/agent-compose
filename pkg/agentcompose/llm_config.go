@@ -585,14 +585,14 @@ func resolveRuntimeLLMTargetWithEnv(ctx context.Context, config *appconfig.Confi
 		return LLMResolvedTarget{}, err
 	}
 	if len(models) == 0 {
-		return LLMResolvedTarget{}, fmt.Errorf("llm model is required")
+		return LLMResolvedTarget{}, classifyError(ErrRequired, "llm model is required", nil)
 	}
 	providers, err := store.ListEnabledLLMProviders(ctx)
 	if err != nil {
 		return LLMResolvedTarget{}, err
 	}
 	if len(providers) == 0 {
-		return LLMResolvedTarget{}, fmt.Errorf("llm provider is not configured")
+		return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, "llm provider is not configured", nil)
 	}
 	model, provider, wireAPI, ok, err := selectLLMModelAndProvider(ctx, store, models, providers, requestedModel, preferredProviderFamily, providerID)
 	if err != nil {
@@ -600,15 +600,15 @@ func resolveRuntimeLLMTargetWithEnv(ctx context.Context, config *appconfig.Confi
 	}
 	if !ok {
 		if requestedModel != "" && providerID != "" {
-			return LLMResolvedTarget{}, fmt.Errorf("llm model %q is not configured for provider %q", requestedModel, providerID)
+			return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, fmt.Sprintf("llm model %q is not configured for provider %q", requestedModel, providerID), nil)
 		}
 		if requestedModel != "" {
-			return LLMResolvedTarget{}, fmt.Errorf("llm model %q is not configured", requestedModel)
+			return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, fmt.Sprintf("llm model %q is not configured", requestedModel), nil)
 		}
 		if providerID != "" {
-			return LLMResolvedTarget{}, fmt.Errorf("llm provider %q is not configured", providerID)
+			return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, fmt.Sprintf("llm provider %q is not configured", providerID), nil)
 		}
-		return LLMResolvedTarget{}, fmt.Errorf("llm provider is not configured")
+		return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, "llm provider is not configured", nil)
 	}
 	endpoint := llmEndpointForProvider(provider, wireAPI)
 	headers, err := providerForwardHeaders(provider)
@@ -818,14 +818,14 @@ func resolveLLMTargetForProviderFamily(ctx context.Context, config *appconfig.Co
 		return LLMResolvedTarget{}, err
 	}
 	if len(models) == 0 {
-		return LLMResolvedTarget{}, fmt.Errorf("llm model is required")
+		return LLMResolvedTarget{}, classifyError(ErrRequired, "llm model is required", nil)
 	}
 	providers, err := store.ListEnabledLLMProviders(ctx)
 	if err != nil {
 		return LLMResolvedTarget{}, err
 	}
 	if len(providers) == 0 {
-		return LLMResolvedTarget{}, fmt.Errorf("llm provider is not configured")
+		return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, "llm provider is not configured", nil)
 	}
 	model, provider, wireAPI, ok, err := selectLLMModelAndProvider(ctx, store, models, providers, requestedModel, providerFamily, "")
 	if err != nil {
@@ -833,9 +833,9 @@ func resolveLLMTargetForProviderFamily(ctx context.Context, config *appconfig.Co
 	}
 	if !ok {
 		if strings.TrimSpace(requestedModel) != "" {
-			return LLMResolvedTarget{}, fmt.Errorf("llm model %q is not configured for provider family %q", strings.TrimSpace(requestedModel), providerFamily)
+			return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, fmt.Sprintf("llm model %q is not configured for provider family %q", strings.TrimSpace(requestedModel), providerFamily), nil)
 		}
-		return LLMResolvedTarget{}, fmt.Errorf("llm provider is not configured for provider family %q", providerFamily)
+		return LLMResolvedTarget{}, classifyError(ErrFailedPrecondition, fmt.Sprintf("llm provider is not configured for provider family %q", providerFamily), nil)
 	}
 	endpoint := llmEndpointForProvider(provider, wireAPI)
 	headers, err := providerForwardHeaders(provider)

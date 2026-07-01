@@ -202,7 +202,7 @@ func (s *Service) handleWebhook(c echo.Context) error {
 		PublisherType:  TopicEventSourceWebhook,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "idempotency conflict") {
+		if errors.Is(err, ErrConflict) {
 			return c.JSON(http.StatusConflict, map[string]string{"error": "idempotency key conflicts with existing payload"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store webhook event"})
@@ -239,7 +239,7 @@ func (s *Service) handleGetEvent(c echo.Context) error {
 	eventID := strings.TrimSpace(c.Param("event_id"))
 	item, err := s.configDB.GetEvent(c.Request().Context(), eventID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "event not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load event"})
@@ -289,7 +289,7 @@ func (s *Service) handleGetEventSessions(c echo.Context) error {
 	eventID := strings.TrimSpace(c.Param("event_id"))
 	item, err := s.configDB.GetEvent(c.Request().Context(), eventID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "event not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load event"})
@@ -326,7 +326,7 @@ func (s *Service) handleGetEventRuns(c echo.Context) error {
 	eventID := strings.TrimSpace(c.Param("event_id"))
 	item, err := s.configDB.GetEvent(c.Request().Context(), eventID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "event not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load event"})
@@ -428,7 +428,7 @@ func (s *Service) handleDeleteWebhookSource(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "source_id is required"})
 	}
 	if err := s.configDB.DeleteWebhookSource(c.Request().Context(), sourceID); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "webhook source not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete webhook source"})

@@ -4,6 +4,7 @@ import (
 	appconfig "agent-compose/pkg/config"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func ensureSessionAgentRuntimeLLMConfig(ctx context.Context, config *appconfig.C
 func ensureSessionCodexLLMFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
 	target, err := resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, session.Summary.ID, llmProviderFamilyOpenAI, model, "", sessionLLMProviderEnvItems(session))
 	if err != nil {
-		if strings.Contains(err.Error(), "llm model is required") || strings.Contains(err.Error(), "llm provider is not configured") {
+		if isOptionalLLMFacadeConfigError(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -282,10 +283,7 @@ func isOptionalLLMFacadeConfigError(err error) bool {
 	if err == nil {
 		return false
 	}
-	message := err.Error()
-	return strings.Contains(message, "llm model is required") ||
-		strings.Contains(message, "llm provider is not configured") ||
-		strings.Contains(message, "is not configured for provider family")
+	return errors.Is(err, ErrRequired) || errors.Is(err, ErrFailedPrecondition)
 }
 
 // hasAnthropicProviderKey reports whether a daemon-level Anthropic credential

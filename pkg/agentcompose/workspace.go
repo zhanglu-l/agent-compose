@@ -77,7 +77,7 @@ func prepareWorkspaceConfig(ctx context.Context, config *appconfig.Config, sessi
 func prepareFileWorkspace(config *appconfig.Config, session *Session, workspace WorkspaceConfig) error {
 	workspaceRoot := strings.TrimSpace(session.Summary.WorkspacePath)
 	if workspaceRoot == "" {
-		return fmt.Errorf("session %s missing workspace path", session.Summary.ID)
+		return classifyError(ErrRequired, fmt.Sprintf("session %s missing workspace path", session.Summary.ID), nil)
 	}
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		return fmt.Errorf("prepare workspace %s failed: create workspace root: %w", workspace.Name, err)
@@ -96,7 +96,7 @@ func prepareFileWorkspace(config *appconfig.Config, session *Session, workspace 
 func fileWorkspaceContentRoot(config *appconfig.Config, workspace WorkspaceConfig) (string, error) {
 	workspaceID := strings.TrimSpace(workspace.ID)
 	if workspaceID == "" {
-		return "", fmt.Errorf("workspace config id is required for file workspace")
+		return "", classifyError(ErrRequired, "workspace config id is required for file workspace", nil)
 	}
 	var cfg fileWorkspaceConfig
 	trimmedConfig := strings.TrimSpace(workspace.ConfigJSON)
@@ -110,11 +110,11 @@ func fileWorkspaceContentRoot(config *appconfig.Config, workspace WorkspaceConfi
 		return defaultFileWorkspaceContentRoot(config, workspaceID)
 	}
 	if !filepath.IsAbs(root) {
-		return "", fmt.Errorf("workspace config %s has invalid file workspace root %q", workspace.ID, root)
+		return "", classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config %s has invalid file workspace root %q", workspace.ID, root), nil)
 	}
 	cleanRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("workspace config %s has invalid file workspace root %q", workspace.ID, root)
+		return "", classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config %s has invalid file workspace root %q", workspace.ID, root), err)
 	}
 	expectedRoot, err := defaultFileWorkspaceContentRoot(config, workspaceID)
 	if err != nil {
@@ -164,10 +164,10 @@ func openFileWorkspaceContent(config *appconfig.Config, workspace WorkspaceConfi
 func fileWorkspaceContentRelRoot(workspaceID string) (string, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
-		return "", fmt.Errorf("workspace config id is required for file workspace")
+		return "", classifyError(ErrRequired, "workspace config id is required for file workspace", nil)
 	}
 	if filepath.IsAbs(workspaceID) || workspaceID == "." || workspaceID == ".." || workspaceID != filepath.Base(workspaceID) {
-		return "", fmt.Errorf("workspace config id %q is not a valid path segment", workspaceID)
+		return "", classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config id %q is not a valid path segment", workspaceID), nil)
 	}
 	return filepath.ToSlash(filepath.Join("workspaces", workspaceID, fileWorkspaceContentDirName)), nil
 }

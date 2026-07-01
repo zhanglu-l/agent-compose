@@ -5,6 +5,7 @@ import (
 	driverpkg "agent-compose/pkg/driver"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -407,7 +408,7 @@ func (s *Service) DeleteWorkspaceConfig(ctx context.Context, req *connect.Reques
 		}
 	}
 	if err := s.configDB.DeleteWorkspaceConfig(ctx, req.Msg.GetWorkspaceId()); err != nil {
-		if strings.Contains(err.Error(), "referenced by") {
+		if errors.Is(err, ErrReferenced) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

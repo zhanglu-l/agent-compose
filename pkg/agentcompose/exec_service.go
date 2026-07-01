@@ -160,7 +160,7 @@ func (s *Service) resolveExecTargetSession(ctx context.Context, req *agentcompos
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", connect.NewError(connect.CodeNotFound, err)
 		}
-		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "ambiguous") {
+		if errors.Is(err, ErrRequired) || errors.Is(err, ErrAmbiguous) {
 			return nil, "", connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, "", connect.NewError(connect.CodeInternal, err)

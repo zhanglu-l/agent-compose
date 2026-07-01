@@ -234,7 +234,7 @@ func (s *Service) GetProject(ctx context.Context, req *connect.Request[agentcomp
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "ambiguous") {
+		if errors.Is(err, ErrRequired) || errors.Is(err, ErrAmbiguous) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -299,7 +299,7 @@ func (s *Service) RemoveProject(ctx context.Context, req *connect.Request[agentc
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
-		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "ambiguous") {
+		if errors.Is(err, ErrRequired) || errors.Is(err, ErrAmbiguous) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -324,7 +324,7 @@ func (s *Service) RemoveProject(ctx context.Context, req *connect.Request[agentc
 
 func (s *Service) resolveProjectRef(ctx context.Context, ref *agentcomposev2.ProjectRef) (ProjectRecord, error) {
 	if ref == nil {
-		return ProjectRecord{}, fmt.Errorf("project ref is required")
+		return ProjectRecord{}, classifyError(ErrRequired, "project ref is required", nil)
 	}
 	if projectID := strings.TrimSpace(ref.GetProjectId()); projectID != "" {
 		return s.configDB.GetProject(ctx, projectID)
@@ -339,7 +339,7 @@ func (s *Service) resolveProjectRef(ctx context.Context, ref *agentcomposev2.Pro
 		return s.configDB.GetProject(ctx, projectID)
 	}
 	if name == "" {
-		return ProjectRecord{}, fmt.Errorf("project id or name is required")
+		return ProjectRecord{}, classifyError(ErrRequired, "project id or name is required", nil)
 	}
 	result, err := s.configDB.ListProjects(ctx, ProjectListOptions{Query: name, Limit: 200})
 	if err != nil {
@@ -355,7 +355,7 @@ func (s *Service) resolveProjectRef(ctx context.Context, ref *agentcomposev2.Pro
 		return ProjectRecord{}, fmt.Errorf("project %s not found: %w", name, sql.ErrNoRows)
 	}
 	if len(matches) > 1 {
-		return ProjectRecord{}, fmt.Errorf("project name %s is ambiguous; use project_id or source_path", name)
+		return ProjectRecord{}, classifyError(ErrAmbiguous, fmt.Sprintf("project name %s is ambiguous; use project_id or source_path", name), nil)
 	}
 	return matches[0], nil
 }
