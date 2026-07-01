@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/sessions"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
@@ -119,7 +120,7 @@ func (d *SessionDriver) StopSessionVM(ctx context.Context, session *Session) err
 }
 
 func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, session *Session, vmState *VMState) error {
-	prepared, err := driverpkg.PrepareSessionStart(ctx, d.config, driver, toDriverSession(session), toDriverVMState(*vmState))
+	prepared, err := driverpkg.PrepareSessionStart(ctx, d.config, driver, execution.ToDriverSession(session), execution.ToDriverVMState(*vmState))
 	if err != nil {
 		return err
 	}
@@ -130,6 +131,6 @@ func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, 
 	if len(managedEnv) > 0 {
 		session.RuntimeEnvItems = envItemsFromMap(managedEnv, false)
 	}
-	*vmState = fromDriverVMState(prepared)
+	*vmState = execution.FromDriverVMState(prepared)
 	return nil
 }

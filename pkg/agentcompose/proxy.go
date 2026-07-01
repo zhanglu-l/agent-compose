@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/execution"
 	driverpkg "agent-compose/pkg/driver"
 	"net/http"
 	"net/http/httputil"
@@ -41,7 +42,7 @@ func registerProxyRoutes(app *echo.Echo, service *Service) {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
-		target, err := url.Parse("http://" + driverpkg.JupyterConnectAddress(toDriverProxyState(proxyState)))
+		target, err := url.Parse("http://" + driverpkg.JupyterConnectAddress(execution.ToDriverProxyState(proxyState)))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}

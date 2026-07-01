@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/execution"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
 	"net"
@@ -19,11 +20,11 @@ func TestJupyterConnectTargetUsesGuestHostWhenRoutable(t *testing.T) {
 		Token:     "secret token",
 	}
 
-	host, port := driverpkg.JupyterConnectTarget(toDriverProxyState(proxyState))
+	host, port := driverpkg.JupyterConnectTarget(execution.ToDriverProxyState(proxyState))
 	if host != "agent-compose-session-1" || port != 8888 {
 		t.Fatalf("jupyterConnectTarget = %s:%d, want agent-compose-session-1:8888", host, port)
 	}
-	if got := driverpkg.JupyterKernelspecsURL(toDriverProxyState(proxyState)); got != "http://agent-compose-session-1:8888/agent-compose/session/session-1/api/kernelspecs?token=secret+token" {
+	if got := driverpkg.JupyterKernelspecsURL(execution.ToDriverProxyState(proxyState)); got != "http://agent-compose-session-1:8888/agent-compose/session/session-1/api/kernelspecs?token=secret+token" {
 		t.Fatalf("jupyterKernelspecsURL = %q", got)
 	}
 }
@@ -37,7 +38,7 @@ func TestJupyterConnectTargetFallsBackToHostPortForLoopbackGuestHost(t *testing.
 		Token:     "secret",
 	}
 
-	host, port := driverpkg.JupyterConnectTarget(toDriverProxyState(proxyState))
+	host, port := driverpkg.JupyterConnectTarget(execution.ToDriverProxyState(proxyState))
 	if host != "127.0.0.1" || port != 39000 {
 		t.Fatalf("jupyterConnectTarget = %s:%d, want 127.0.0.1:39000", host, port)
 	}
@@ -57,7 +58,7 @@ func TestWaitForJupyterProxyUsesGuestHostTarget(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err := driverpkg.WaitForJupyterProxy(ctx, toDriverProxyState(ProxyState{
+	err := driverpkg.WaitForJupyterProxy(ctx, execution.ToDriverProxyState(ProxyState{
 		ProxyPath: "/agent-compose/session/session-1/lab",
 		GuestHost: "localhost",
 		HostPort:  1,

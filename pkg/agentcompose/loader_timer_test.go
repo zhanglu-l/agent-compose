@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/execution"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -1309,11 +1310,11 @@ func TestLoaderRunHostCommandPersistsDockerProxyTarget(t *testing.T) {
 	if proxyState.GuestHost != session.Summary.RuntimeRef || proxyState.GuestPort != manager.config.JupyterGuestPort {
 		t.Fatalf("proxy target = %s:%d, want %s:%d", proxyState.GuestHost, proxyState.GuestPort, session.Summary.RuntimeRef, manager.config.JupyterGuestPort)
 	}
-	hostPortHost, hostPort := driverpkg.JupyterConnectTarget(toDriverProxyState(ProxyState{GuestHost: "127.0.0.1", HostPort: proxyState.HostPort, GuestPort: proxyState.GuestPort}))
+	hostPortHost, hostPort := driverpkg.JupyterConnectTarget(execution.ToDriverProxyState(ProxyState{GuestHost: "127.0.0.1", HostPort: proxyState.HostPort, GuestPort: proxyState.GuestPort}))
 	if hostPortHost != "127.0.0.1" || hostPort != proxyState.HostPort {
 		t.Fatalf("host-port fallback target = %s:%d, want 127.0.0.1:%d", hostPortHost, hostPort, proxyState.HostPort)
 	}
-	guestHost, guestPort := driverpkg.JupyterConnectTarget(toDriverProxyState(proxyState))
+	guestHost, guestPort := driverpkg.JupyterConnectTarget(execution.ToDriverProxyState(proxyState))
 	if guestHost != session.Summary.RuntimeRef || guestPort != manager.config.JupyterGuestPort {
 		t.Fatalf("jupyterConnectTarget = %s:%d, want %s:%d", guestHost, guestPort, session.Summary.RuntimeRef, manager.config.JupyterGuestPort)
 	}

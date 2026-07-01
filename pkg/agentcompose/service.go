@@ -586,11 +586,11 @@ func (s *Service) ListSessions(ctx context.Context, req *connect.Request[agentco
 }
 
 func jupyterTargetReachable(proxyState ProxyState, timeout time.Duration) bool {
-	_, port := driverpkg.JupyterConnectTarget(toDriverProxyState(proxyState))
+	_, port := driverpkg.JupyterConnectTarget(execution.ToDriverProxyState(proxyState))
 	if port <= 0 {
 		return false
 	}
-	conn, err := net.DialTimeout("tcp", driverpkg.JupyterConnectAddress(toDriverProxyState(proxyState)), timeout)
+	conn, err := net.DialTimeout("tcp", driverpkg.JupyterConnectAddress(execution.ToDriverProxyState(proxyState)), timeout)
 	if err != nil {
 		return false
 	}
