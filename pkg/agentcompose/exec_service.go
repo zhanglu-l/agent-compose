@@ -109,15 +109,15 @@ func (s *Service) executeProjectCommand(ctx context.Context, req *agentcomposev2
 		return nil, connect.NewError(connect.CodeUnknown, sendErr)
 	}
 	if execErr != nil {
-		result = mergeExecResults(result, accumulator.result(firstNonZeroInt(result.ExitCode, 1), false))
-		result.ExitCode = firstNonZeroInt(result.ExitCode, 1)
+		result = execution.MergeExecResults(result, accumulator.result(execution.FirstNonZeroInt(result.ExitCode, 1), false))
+		result.ExitCode = execution.FirstNonZeroInt(result.ExitCode, 1)
 		result.Success = false
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
 		}
 		return execResultResponse(execID, session.Summary.ID, runID, req, cwd, result, execErr), nil
 	}
-	result = mergeExecResults(result, accumulator.result(result.ExitCode, result.Success))
+	result = execution.MergeExecResults(result, accumulator.result(result.ExitCode, result.Success))
 	return execResultResponse(execID, session.Summary.ID, runID, req, cwd, result, nil), nil
 }
 

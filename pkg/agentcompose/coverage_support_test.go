@@ -3,6 +3,7 @@ package agentcompose
 import (
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/images"
 	"agent-compose/pkg/agentcompose/workspaces"
 	appconfig "agent-compose/pkg/config"
@@ -333,7 +334,7 @@ func testSupportAgentAndLoaderHelpers(t *testing.T) {
 	if loaderSessionIDFromJSON(`{bad`) != "" || loaderSessionIDFromJSON(`{"session":{"summary":{}}}`) != "" {
 		t.Fatalf("loaderSessionIDFromJSON returned value for invalid payload")
 	}
-	if firstNonZeroInt(0, 0, 7, 9) != 7 || firstNonZeroInt(0, 0) != 0 {
+	if execution.FirstNonZeroInt(0, 0, 7, 9) != 7 || execution.FirstNonZeroInt(0, 0) != 0 {
 		t.Fatalf("firstNonZeroInt returned unexpected values")
 	}
 	if domain.SessionTypeFromTriggerSource("script:loader-1") != SessionTypeScript || domain.SessionTypeFromTriggerSource("") != SessionTypeManual {
@@ -461,14 +462,14 @@ func testSupportSessionRPCAndAgentResumeHelpers(t *testing.T, manager *LoaderMan
 
 	root := t.TempDir()
 	session := &Session{Summary: SessionSummary{ID: "session-agent", WorkspacePath: filepath.Join(root, "workspace")}}
-	codexState := filepath.Join(hostSessionDir(session), "state", "agents", "providers")
+	codexState := filepath.Join(execution.HostSessionDir(session), "state", "agents", "providers")
 	if err := os.MkdirAll(codexState, 0o755); err != nil {
 		t.Fatalf("mkdir codex state: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(codexState, "codex.json"), []byte(`{"sessionId":"codex-session"}`), 0o644); err != nil {
 		t.Fatalf("write codex state: %v", err)
 	}
-	sessionDir := filepath.Join(hostSessionHome(session), ".codex", "sessions")
+	sessionDir := filepath.Join(execution.HostSessionHome(session), ".codex", "sessions")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("mkdir codex sessions: %v", err)
 	}
@@ -478,11 +479,11 @@ func testSupportSessionRPCAndAgentResumeHelpers(t *testing.T, manager *LoaderMan
 	if err := os.WriteFile(filepath.Join(sessionDir, "other.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatalf("write other jsonl: %v", err)
 	}
-	info := collectAgentResumeInfo(session, "codex", "", "manifest.json")
+	info := execution.CollectAgentResumeInfo(session, "codex", "", "manifest.json")
 	if info == nil || info.SessionID != "codex-session" || len(info.SessionJSONLPaths) != 1 {
 		t.Fatalf("agent resume info = %#v", info)
 	}
-	if shouldIncludeAgentJSONL("notes.txt", "codex", "codex-session") || !shouldIncludeAgentJSONL(filepath.Join(sessionDir, "codex-session.jsonl"), "codex", "codex-session") {
+	if execution.ShouldIncludeAgentJSONL("notes.txt", "codex", "codex-session") || !execution.ShouldIncludeAgentJSONL(filepath.Join(sessionDir, "codex-session.jsonl"), "codex", "codex-session") {
 		t.Fatalf("shouldIncludeAgentJSONL returned unexpected values")
 	}
 }

@@ -2061,20 +2061,20 @@ func (r *fakeLoaderAgentRuntime) ExecStream(ctx context.Context, session *Sessio
 			},
 		}
 		if (r.commandTruncated || r.commandNoPayload) && session != nil {
-			hostCellDir := filepath.Join(hostSessionDir(session), "state", "cells", cellID)
+			hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
 			_ = os.MkdirAll(hostCellDir, 0o755)
 			_ = os.WriteFile(filepath.Join(hostCellDir, "stdout.txt"), []byte(stdout+"full"), 0o644)
 			_ = os.WriteFile(filepath.Join(hostCellDir, "stderr.txt"), []byte(stderr+"full"), 0o644)
 			_ = os.WriteFile(filepath.Join(hostCellDir, "output.txt"), []byte(output+"full"), 0o644)
 		}
 		if session != nil {
-			hostCellDir := filepath.Join(hostSessionDir(session), "state", "cells", cellID)
+			hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
 			if err := os.MkdirAll(hostCellDir, 0o755); err != nil {
 				return ExecResult{}, err
 			}
 			guestResult := commandResult
 			guestResult.Stdout = commandResult.Stdout + fakeGuestCommandResultSentinel
-			if err := writeJSONArtifact(filepath.Join(hostCellDir, "command-result.json"), guestResult); err != nil {
+			if err := execution.WriteJSONArtifact(filepath.Join(hostCellDir, "command-result.json"), guestResult); err != nil {
 				return ExecResult{}, err
 			}
 		}
@@ -2169,7 +2169,7 @@ func (r *fakeLoaderAgentRuntime) ExecStream(ctx context.Context, session *Sessio
 			Stdout:   stdout,
 			Stderr:   stderr,
 			Output:   output,
-			ExitCode: firstNonZeroInt(exitCode, 1),
+			ExitCode: execution.FirstNonZeroInt(exitCode, 1),
 			Success:  false,
 		}, ctx.Err()
 	}

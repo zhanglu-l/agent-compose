@@ -960,7 +960,7 @@ func hostAgentSystemPromptPath(session *Session) string {
 	if session == nil || strings.TrimSpace(session.Summary.WorkspacePath) == "" {
 		return ""
 	}
-	return filepath.Join(hostSessionDir(session), "state", "agents", "system-prompts", agentSystemPromptFileName)
+	return filepath.Join(execution.HostSessionDir(session), "state", "agents", "system-prompts", agentSystemPromptFileName)
 }
 
 func writeAgentPromptFile(config *appconfig.Config, session *Session, agent, message string) (string, error) {
@@ -1140,13 +1140,13 @@ func buildLoaderCommandExecSpec(config *appconfig.Config, session *Session, gues
 
 	command := strings.Join([]string{
 		"set -e",
-		"cd " + shellQuote(config.GuestWorkspacePath),
-		"mkdir -p " + shellQuote(commandHome),
+		"cd " + execution.ShellQuote(config.GuestWorkspacePath),
+		"mkdir -p " + execution.ShellQuote(commandHome),
 		"agent-compose-runtime exec" +
-			" --request-file " + shellQuote(guestRequestPath) +
-			" --state-root " + shellQuote(config.GuestStateRoot) +
-			" --workspace " + shellQuote(config.GuestWorkspacePath) +
-			" --home " + shellQuote(commandHome),
+			" --request-file " + execution.ShellQuote(guestRequestPath) +
+			" --state-root " + execution.ShellQuote(config.GuestStateRoot) +
+			" --workspace " + execution.ShellQuote(config.GuestWorkspacePath) +
+			" --home " + execution.ShellQuote(commandHome),
 	}, " && ")
 
 	return ExecSpec{
@@ -1302,21 +1302,21 @@ func buildAgentExecSpec(config *appconfig.Config, session *Session, agent, model
 	env := buildSessionExecEnv(config, session, agentHome)
 
 	promptCommand := "agent-compose-runtime prompt" +
-		" --provider " + shellQuote(agent) +
-		" --message-file " + shellQuote(promptPath) +
-		" --state-root " + shellQuote(config.GuestStateRoot) +
-		" --workspace " + shellQuote(config.GuestWorkspacePath) +
-		" --home " + shellQuote(agentHome)
+		" --provider " + execution.ShellQuote(agent) +
+		" --message-file " + execution.ShellQuote(promptPath) +
+		" --state-root " + execution.ShellQuote(config.GuestStateRoot) +
+		" --workspace " + execution.ShellQuote(config.GuestWorkspacePath) +
+		" --home " + execution.ShellQuote(agentHome)
 	if strings.TrimSpace(model) != "" {
-		promptCommand += " --model " + shellQuote(strings.TrimSpace(model))
+		promptCommand += " --model " + execution.ShellQuote(strings.TrimSpace(model))
 	}
 	if strings.TrimSpace(schemaPath) != "" {
-		promptCommand += " --output-schema-file " + shellQuote(schemaPath)
+		promptCommand += " --output-schema-file " + execution.ShellQuote(schemaPath)
 	}
 	command := strings.Join([]string{
 		"set -e",
-		"cd " + shellQuote(config.GuestWorkspacePath),
-		"mkdir -p " + shellQuote(agentHome),
+		"cd " + execution.ShellQuote(config.GuestWorkspacePath),
+		"mkdir -p " + execution.ShellQuote(agentHome),
 		promptCommand,
 	}, " && ")
 

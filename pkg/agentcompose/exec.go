@@ -89,7 +89,7 @@ func (e *Executor) ExecuteLoaderCommand(ctx context.Context, session *Session, r
 	defer execCancel()
 
 	cellID := uuid.NewString()
-	hostCellDir := filepath.Join(hostSessionDir(session), "state", "cells", cellID)
+	hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
 	if err := os.MkdirAll(hostCellDir, 0o755); err != nil {
 		return LoaderCommandResult{}, fmt.Errorf("create loader command cell state dir: %w", err)
 	}
@@ -152,14 +152,14 @@ func (e *Executor) ExecuteLoaderCommand(ctx context.Context, session *Session, r
 		streamErrMu.Unlock()
 	}
 	persistFailedCell := func(execResult ExecResult, finalErr error) (LoaderCommandResult, error) {
-		recovered := mergeExecResults(execResult, streamed.result(firstNonZeroInt(execResult.ExitCode, 1), false))
-		recovered = recoverExecResultFromCellArtifacts(hostCellDir, recovered)
-		recovered.ExitCode = firstNonZeroInt(recovered.ExitCode, execResult.ExitCode, 1)
+		recovered := execution.MergeExecResults(execResult, streamed.result(execution.FirstNonZeroInt(execResult.ExitCode, 1), false))
+		recovered = execution.RecoverExecResultFromCellArtifacts(hostCellDir, recovered)
+		recovered.ExitCode = execution.FirstNonZeroInt(recovered.ExitCode, execResult.ExitCode, 1)
 		recovered.Success = false
 		if strings.TrimSpace(recovered.Output) == "" {
 			recovered.Output = firstNonEmpty(recovered.Stderr, recovered.Stdout, finalErr.Error())
 		}
-		if err := writeCellArtifacts(hostCellDir, source, recovered); err != nil {
+		if err := execution.WriteCellArtifacts(hostCellDir, source, recovered); err != nil {
 			return buildLoaderCommandResult(recovered), err
 		}
 		cellMu.Lock()
@@ -189,7 +189,7 @@ func (e *Executor) ExecuteLoaderCommand(ctx context.Context, session *Session, r
 
 	runtimeRequest := runtimeCommandRequestPayload(e.config, request, guestCellDir)
 	hostRequestPath := filepath.Join(hostCellDir, "command-request.json")
-	if err := writeJSONArtifact(hostRequestPath, runtimeRequest); err != nil {
+	if err := execution.WriteJSONArtifact(hostRequestPath, runtimeRequest); err != nil {
 		return LoaderCommandResult{}, fmt.Errorf("write loader command request artifact: %w", err)
 	}
 
@@ -327,7 +327,7 @@ func (e *Executor) executeCell(ctx context.Context, session *Session, cellType, 
 		return NotebookCell{}, fmt.Errorf("source is required")
 	}
 
-	cellType, err := normalizeCellType(cellType)
+	cellType, err := execution.NormalizeCellType(cellType)
 	if err != nil {
 		return NotebookCell{}, err
 	}
@@ -353,7 +353,7 @@ func (e *Executor) executeCell(ctx context.Context, session *Session, cellType, 
 	}
 
 	guestCellDir := guestCellStateDir(e.config, cellID)
-	scriptName, command, args := cellExecSpec(cellType, guestCellDir)
+	scriptName, command, args := execution.CellExecSpec(cellType, guestCellDir)
 	hostScriptPath := filepath.Join(hostCellDir, scriptName)
 	if err := os.WriteFile(hostScriptPath, []byte(source), 0o644); err != nil {
 		return NotebookCell{}, fmt.Errorf("write cell script: %w", err)
@@ -404,7 +404,7 @@ func (e *Executor) executeCell(ctx context.Context, session *Session, cellType, 
 		return NotebookCell{}, err
 	}
 
-	if err := writeCellArtifacts(hostCellDir, source, result); err != nil {
+	if err := execution.WriteCellArtifacts(hostCellDir, source, result); err != nil {
 		return NotebookCell{}, err
 	}
 
@@ -444,26 +444,6 @@ func (e *Executor) executeCell(ctx context.Context, session *Session, cellType, 
 	return cell, nil
 }
 
-func normalizeCellType(cellType string) (string, error) {
-	return execution.NormalizeCellType(cellType)
-}
-
-func cellExecSpec(cellType, guestCellDir string) (scriptName, command string, args []string) {
-	return execution.CellExecSpec(cellType, guestCellDir)
-}
-
-func writeCellArtifacts(cellDir, source string, result ExecResult) error {
-	return execution.WriteCellArtifacts(cellDir, source, result)
-}
-
-func writeJSONArtifact(path string, value any) error {
-	return execution.WriteJSONArtifact(path, value)
-}
-
-func recoverExecResultFromCellArtifacts(cellDir string, fallback ExecResult) ExecResult {
-	return execution.RecoverExecResultFromCellArtifacts(cellDir, fallback)
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -485,40 +465,12 @@ func (a *execStreamAccumulator) result(exitCode int, success bool) ExecResult {
 	return a.Result(exitCode, success)
 }
 
-func hostSessionDir(session *Session) string {
-	return execution.HostSessionDir(session)
-}
-
-func hostSessionHome(session *Session) string {
-	return execution.HostSessionHome(session)
-}
-
 func guestCellStateDir(config *appconfig.Config, cellID string) string {
 	return filepath.Join(config.GuestStateRoot, "cells", cellID)
 }
 
 func guestSessionHome(config *appconfig.Config) string {
 	return config.GuestHomePath
-}
-
-func firstNonZeroInt(values ...int) int {
-	return execution.FirstNonZeroInt(values...)
-}
-
-func mergeExecResults(primary, fallback ExecResult) ExecResult {
-	return execution.MergeExecResults(primary, fallback)
-}
-
-func writeAgentSessionArtifact(path string, info *AgentResumeInfo) error {
-	return execution.WriteAgentSessionArtifact(path, info)
-}
-
-func collectAgentResumeInfo(session *Session, agent, agentSessionID, manifestPath string) *AgentResumeInfo {
-	return execution.CollectAgentResumeInfo(session, agent, agentSessionID, manifestPath)
-}
-
-func shouldIncludeAgentJSONL(path, provider, sessionID string) bool {
-	return execution.ShouldIncludeAgentJSONL(path, provider, sessionID)
 }
 
 func (e *Executor) executeAgent(ctx context.Context, session *Session, request ExecuteAgentRequest) (NotebookCell, SessionEvent, SessionEvent, error) {
@@ -548,7 +500,7 @@ func (e *Executor) executeAgent(ctx context.Context, session *Session, request E
 	defer execCancel()
 
 	cellID := uuid.NewString()
-	hostCellDir := filepath.Join(hostSessionDir(session), "state", "cells", cellID)
+	hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
 	if err := os.MkdirAll(hostCellDir, 0o755); err != nil {
 		return NotebookCell{}, SessionEvent{}, SessionEvent{}, fmt.Errorf("create agent cell state dir: %w", err)
 	}
@@ -595,17 +547,17 @@ func (e *Executor) executeAgent(ctx context.Context, session *Session, request E
 			CreatedAt: time.Now().UTC(),
 			Message:   fmt.Sprintf("%s run failed: %v", domain.NormalizeAgentKind(agent), finalErr),
 		}
-		execResult = mergeExecResults(execResult, streamed.result(firstNonZeroInt(execResult.ExitCode, 1), false))
-		execResult.ExitCode = firstNonZeroInt(execResult.ExitCode, 1)
+		execResult = execution.MergeExecResults(execResult, streamed.result(execution.FirstNonZeroInt(execResult.ExitCode, 1), false))
+		execResult.ExitCode = execution.FirstNonZeroInt(execResult.ExitCode, 1)
 		execResult.Success = false
 		if strings.TrimSpace(execResult.Output) == "" {
 			execResult.Output = assistantEvent.Message
 		}
-		if err := writeCellArtifacts(hostCellDir, message, execResult); err != nil {
+		if err := execution.WriteCellArtifacts(hostCellDir, message, execResult); err != nil {
 			return NotebookCell{}, userEvent, SessionEvent{}, err
 		}
-		resumeInfo := collectAgentResumeInfo(session, firstNonEmpty(result.Agent, cell.Agent, agent), result.SessionID, filepath.Join(hostCellDir, "agent-session.json"))
-		if err := writeAgentSessionArtifact(filepath.Join(hostCellDir, "agent-session.json"), resumeInfo); err != nil {
+		resumeInfo := execution.CollectAgentResumeInfo(session, firstNonEmpty(result.Agent, cell.Agent, agent), result.SessionID, filepath.Join(hostCellDir, "agent-session.json"))
+		if err := execution.WriteAgentSessionArtifact(filepath.Join(hostCellDir, "agent-session.json"), resumeInfo); err != nil {
 			return NotebookCell{}, userEvent, SessionEvent{}, err
 		}
 		agentSessionID := strings.TrimSpace(result.SessionID)
@@ -678,15 +630,15 @@ func (e *Executor) executeAgent(ctx context.Context, session *Session, request E
 		return persistFailedCell(err, execResult, result)
 	}
 
-	execResult = mergeExecResults(execResult, streamed.result(execResult.ExitCode, result.Success))
+	execResult = execution.MergeExecResults(execResult, streamed.result(execResult.ExitCode, result.Success))
 	if strings.TrimSpace(execResult.Output) == "" {
 		execResult.Output = firstNonEmpty(result.DisplayOutput, result.Transcript, result.FinalText)
 	}
-	if err := writeCellArtifacts(hostCellDir, message, execResult); err != nil {
+	if err := execution.WriteCellArtifacts(hostCellDir, message, execResult); err != nil {
 		return NotebookCell{}, userEvent, SessionEvent{}, err
 	}
-	resumeInfo := collectAgentResumeInfo(session, firstNonEmpty(result.Agent, cell.Agent), result.SessionID, filepath.Join(hostCellDir, "agent-session.json"))
-	if err := writeAgentSessionArtifact(filepath.Join(hostCellDir, "agent-session.json"), resumeInfo); err != nil {
+	resumeInfo := execution.CollectAgentResumeInfo(session, firstNonEmpty(result.Agent, cell.Agent), result.SessionID, filepath.Join(hostCellDir, "agent-session.json"))
+	if err := execution.WriteAgentSessionArtifact(filepath.Join(hostCellDir, "agent-session.json"), resumeInfo); err != nil {
 		return NotebookCell{}, userEvent, SessionEvent{}, err
 	}
 	agentSessionID := strings.TrimSpace(result.SessionID)
@@ -739,8 +691,4 @@ func cloneSessionForAgentExecution(session *Session, providerEnvItems []SessionE
 	execSession.ProviderEnvItems = append([]SessionEnvVar(nil), session.ProviderEnvItems...)
 	applyAgentProviderEnv(&execSession, providerEnvItems)
 	return &execSession
-}
-
-func shellQuote(value string) string {
-	return execution.ShellQuote(value)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/llms"
 )
 
@@ -322,7 +323,7 @@ func writeCodexLLMConfig(session *Session, model, baseURL, wireAPI string) error
 	if model == "" || baseURL == "" {
 		return nil
 	}
-	path := filepath.Join(hostSessionHome(session), ".codex", "config.toml")
+	path := filepath.Join(execution.HostSessionHome(session), ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create codex config dir: %w", err)
 	}
@@ -370,7 +371,7 @@ func writeOpenCodeLLMConfig(session *Session, providerID, model, baseURL string)
 	if providerID == "openai" {
 		providerPackage = "@ai-sdk/openai"
 	}
-	path := filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")
+	path := filepath.Join(execution.HostSessionHome(session), ".config", "opencode", "opencode.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create opencode config dir: %w", err)
 	}
@@ -409,7 +410,7 @@ func writeOpenCodeAnthropicLLMConfig(session *Session, model, baseURL string) er
 	if model == "" || baseURL == "" {
 		return nil
 	}
-	path := filepath.Join(hostSessionHome(session), ".config", "opencode", "opencode.json")
+	path := filepath.Join(execution.HostSessionHome(session), ".config", "opencode", "opencode.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create opencode config dir: %w", err)
 	}

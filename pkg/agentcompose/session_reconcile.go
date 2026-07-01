@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"agent-compose/pkg/agentcompose/execution"
 )
 
 const stalePendingSessionLastError = "session startup interrupted before runtime reached running state"
@@ -109,7 +111,7 @@ func (s *Service) reconcilePersistedProjectRunsWithStatus(ctx context.Context, c
 	for _, run := range staleRuns {
 		if _, err := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
 			RunID:    run.RunID,
-			ExitCode: firstNonZeroInt(run.ExitCode, 1),
+			ExitCode: execution.FirstNonZeroInt(run.ExitCode, 1),
 			Error:    staleProjectRunError,
 		}); err != nil {
 			slog.Warn("failed to mark stale project run failed", "run_id", run.RunID, "error", err)

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/execution"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -206,7 +207,7 @@ func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, c
 		Output:    cell.Output,
 	}
 	if cell.ID != "" {
-		artifactsDir := filepath.Join(hostSessionDir(session), "state", "cells", cell.ID)
+		artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cell.ID)
 		req.ArtifactsDir = artifactsDir
 		req.LogsPath = filepath.Join(artifactsDir, "output.txt")
 	}
@@ -222,12 +223,12 @@ func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, c
 		req.ResultJSON = string(resultJSON)
 	}
 	if execErr != nil {
-		req.ExitCode = firstNonZeroInt(req.ExitCode, 1)
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
 		req.Error = fmt.Sprintf("agent execution failed: %v", execErr)
 		return req
 	}
 	if !cell.Success {
-		req.ExitCode = firstNonZeroInt(req.ExitCode, 1)
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
 		req.Error = "agent execution failed"
 		if detail := firstNonEmpty(cell.Stderr, cell.Output); strings.TrimSpace(detail) != "" {
 			req.Error += ": " + strings.TrimSpace(detail)
