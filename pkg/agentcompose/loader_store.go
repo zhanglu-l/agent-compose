@@ -3,7 +3,7 @@ package agentcompose
 import (
 	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/configstore"
-	driverpkg "agent-compose/pkg/driver"
+	"agent-compose/pkg/agentcompose/loaders"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -12,8 +12,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func (s *ConfigStore) ensureLoaderSchema(ctx context.Context) error {
@@ -184,121 +182,11 @@ func (s *ConfigStore) migrateLoaderTimestampPrecision(ctx context.Context) error
 }
 
 func normalizeLoader(item Loader, assignID bool) (Loader, error) {
-	now := time.Now().UTC()
-	item.Summary.ID = strings.TrimSpace(item.Summary.ID)
-	if assignID && item.Summary.ID == "" {
-		item.Summary.ID = uuid.NewString()
-	}
-	if item.Summary.ID == "" {
-		return Loader{}, fmt.Errorf("loader id is required")
-	}
-	item.Summary.Name = strings.TrimSpace(item.Summary.Name)
-	if item.Summary.Name == "" {
-		item.Summary.Name = defaultLoaderName(now)
-	}
-	item.Summary.Description = strings.TrimSpace(item.Summary.Description)
-	runtime, err := normalizeLoaderRuntime(item.Summary.Runtime)
-	if err != nil {
-		return Loader{}, err
-	}
-	item.Summary.Runtime = runtime
-	item.Script = strings.ReplaceAll(item.Script, "\r\n", "\n")
-	if strings.TrimSpace(item.Script) == "" {
-		return Loader{}, fmt.Errorf("loader script is required")
-	}
-	item.Summary.WorkspaceID = strings.TrimSpace(item.Summary.WorkspaceID)
-	item.Summary.AgentID = strings.TrimSpace(item.Summary.AgentID)
-	item.Summary.Driver = strings.TrimSpace(item.Summary.Driver)
-	if item.Summary.Driver != "" {
-		driver, err := driverpkg.ResolveSessionRuntimeDriver(item.Summary.Driver, item.Summary.Driver)
-		if err != nil {
-			return Loader{}, err
-		}
-		item.Summary.Driver = driver
-	}
-	item.Summary.GuestImage = strings.TrimSpace(item.Summary.GuestImage)
-	item.Summary.DefaultAgent = normalizeAgentKind(item.Summary.DefaultAgent)
-	if item.Summary.DefaultAgent == "" {
-		item.Summary.DefaultAgent = "codex"
-	}
-	item.Summary.SessionPolicy = normalizeLoaderSessionPolicy(item.Summary.SessionPolicy)
-	item.Summary.ConcurrencyPolicy = normalizeLoaderConcurrencyPolicy(item.Summary.ConcurrencyPolicy)
-	item.Summary.CapsetIDs = normalizeCapsetIDs(item.Summary.CapsetIDs)
-	item.Summary.ManagedProjectID = strings.TrimSpace(item.Summary.ManagedProjectID)
-	item.Summary.ManagedAgentName = strings.TrimSpace(item.Summary.ManagedAgentName)
-	item.Summary.ManagedSchedulerID = strings.TrimSpace(item.Summary.ManagedSchedulerID)
-	if item.Summary.ManagedProjectID == "" {
-		item.Summary.ManagedRevision = 0
-		item.Summary.ManagedAgentName = ""
-		item.Summary.ManagedSchedulerID = ""
-	} else {
-		if item.Summary.ManagedAgentName == "" || item.Summary.ManagedSchedulerID == "" {
-			return Loader{}, fmt.Errorf("managed loader agent name and scheduler id are required")
-		}
-		if item.Summary.ManagedRevision < 0 {
-			return Loader{}, fmt.Errorf("managed loader project revision cannot be negative")
-		}
-	}
-	item.EnvItems = normalizeEnvItems(item.EnvItems)
-	item.Triggers = append([]LoaderTrigger(nil), item.Triggers...)
-	return item, nil
+	return loaders.NormalizeLoader(item, assignID)
 }
 
 func normalizeLoaderTrigger(loaderID string, trigger LoaderTrigger) (LoaderTrigger, error) {
-	trigger.LoaderID = strings.TrimSpace(loaderID)
-	trigger.ID = strings.TrimSpace(trigger.ID)
-	if trigger.LoaderID == "" {
-		return LoaderTrigger{}, fmt.Errorf("loader id is required")
-	}
-	if trigger.ID == "" {
-		return LoaderTrigger{}, fmt.Errorf("loader trigger id is required")
-	}
-	kind, err := normalizeLoaderTriggerKind(trigger.Kind)
-	if err != nil {
-		return LoaderTrigger{}, err
-	}
-	trigger.Kind = kind
-	trigger.Topic = strings.TrimSpace(trigger.Topic)
-	switch trigger.Kind {
-	case LoaderTriggerKindInterval:
-		if trigger.IntervalMs <= 0 {
-			return LoaderTrigger{}, fmt.Errorf("loader interval trigger %s requires a positive interval", trigger.ID)
-		}
-		trigger.Topic = ""
-	case LoaderTriggerKindEvent:
-		if trigger.Topic == "" {
-			return LoaderTrigger{}, fmt.Errorf("loader event trigger %s requires a topic", trigger.ID)
-		}
-		trigger.IntervalMs = 0
-	case LoaderTriggerKindTimeout:
-		if trigger.IntervalMs <= 0 {
-			return LoaderTrigger{}, fmt.Errorf("loader timeout trigger %s requires a positive delay", trigger.ID)
-		}
-		trigger.Topic = ""
-	case LoaderTriggerKindCron:
-		trigger.Topic = ""
-		trigger.IntervalMs = 0
-		normalizedSpecJSON, err := normalizeLoaderCronSpecJSON(trigger.SpecJSON)
-		if err != nil {
-			return LoaderTrigger{}, fmt.Errorf("loader cron trigger %s: %w", trigger.ID, err)
-		}
-		trigger.SpecJSON = normalizedSpecJSON
-	}
-	trigger.SpecJSON = strings.TrimSpace(trigger.SpecJSON)
-	if trigger.SpecJSON == "" {
-		trigger.SpecJSON = "{}"
-	}
-	if !timeIsSet(trigger.NextFireAt) {
-		trigger.NextFireAt = time.Time{}
-	} else {
-		trigger.NextFireAt = trigger.NextFireAt.UTC()
-	}
-	if !timeIsSet(trigger.LastFiredAt) {
-		trigger.LastFiredAt = time.Time{}
-	} else {
-		trigger.LastFiredAt = trigger.LastFiredAt.UTC()
-	}
-	return trigger, nil
+	return loaders.NormalizeLoaderTrigger(loaderID, trigger)
 }
 
 func encodeLoaderEnvItems(items []SessionEnvVar) (string, error) {
