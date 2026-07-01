@@ -35,61 +35,7 @@ type AgentValidationResult struct {
 }
 
 func normalizeAgentDefinition(item AgentDefinition, assignDefaults bool) (AgentDefinition, error) {
-	item.ID = strings.TrimSpace(item.ID)
-	item.Name = strings.TrimSpace(item.Name)
-	item.Description = strings.TrimSpace(item.Description)
-	item.Provider = normalizeAgentKind(item.Provider)
-	if item.Provider == "" && assignDefaults {
-		item.Provider = defaultAgentProvider
-	}
-	item.Model = strings.TrimSpace(item.Model)
-	item.SystemPrompt = strings.TrimSpace(item.SystemPrompt)
-	item.Driver = strings.TrimSpace(item.Driver)
-	item.GuestImage = strings.TrimSpace(item.GuestImage)
-	item.WorkspaceID = strings.TrimSpace(item.WorkspaceID)
-	item.CapsetIDs = normalizeCapsetIDs(item.CapsetIDs)
-	item.ManagedProjectID = strings.TrimSpace(item.ManagedProjectID)
-	item.ManagedAgentName = strings.TrimSpace(item.ManagedAgentName)
-	item.ConfigJSON = strings.TrimSpace(item.ConfigJSON)
-	if item.ConfigJSON == "" {
-		item.ConfigJSON = "{}"
-	}
-	if item.ID == "" {
-		return AgentDefinition{}, fmt.Errorf("agent definition id is required")
-	}
-	if item.Name == "" {
-		return AgentDefinition{}, fmt.Errorf("agent definition name is required")
-	}
-	if item.Provider == "" {
-		return AgentDefinition{}, fmt.Errorf("agent definition provider is required")
-	}
-	if item.Provider != "codex" && item.Provider != "claude" && item.Provider != "gemini" && item.Provider != "opencode" {
-		return AgentDefinition{}, fmt.Errorf("agent definition provider %q is not supported", item.Provider)
-	}
-	if !isJSONObject(item.ConfigJSON) {
-		return AgentDefinition{}, fmt.Errorf("agent definition config_json must be a JSON object")
-	}
-	if item.ManagedProjectID == "" {
-		item.ManagedProjectRevision = 0
-		item.ManagedAgentName = ""
-	} else {
-		if item.ManagedAgentName == "" {
-			return AgentDefinition{}, fmt.Errorf("managed agent name is required")
-		}
-		if item.ManagedProjectRevision < 0 {
-			return AgentDefinition{}, fmt.Errorf("managed project revision cannot be negative")
-		}
-	}
-	item.EnvItems = normalizeEnvItems(item.EnvItems)
-	return item, nil
-}
-
-func isJSONObject(raw string) bool {
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &decoded); err != nil {
-		return false
-	}
-	return decoded != nil
+	return domain.NormalizeAgentDefinition(item, assignDefaults)
 }
 
 func agentDefinitionTags(agent AgentDefinition) []*agentcomposev1.SessionTag {

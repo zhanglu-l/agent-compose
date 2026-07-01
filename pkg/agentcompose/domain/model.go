@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"sort"
 	"strings"
 	"time"
 )
@@ -46,6 +47,34 @@ func SessionEnvMap(groups ...[]SessionEnvVar) map[string]string {
 		return nil
 	}
 	return env
+}
+
+func NormalizeEnvItems(items []SessionEnvVar) []SessionEnvVar {
+	if len(items) == 0 {
+		return nil
+	}
+	merged := make(map[string]SessionEnvVar, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		item.Name = name
+		merged[name] = item
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(merged))
+	for key := range merged {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]SessionEnvVar, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, merged[key])
+	}
+	return result
 }
 
 type SessionSummary struct {
