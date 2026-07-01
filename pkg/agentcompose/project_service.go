@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/projects"
 	"agent-compose/pkg/compose"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -682,17 +683,7 @@ func projectManagedAgentDefinitionFromSpec(project ProjectRecord, revision int64
 }
 
 func sessionEnvItemsFromCompose(values map[string]compose.EnvVarSpec) []SessionEnvVar {
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	items := make([]SessionEnvVar, 0, len(values))
-	for _, name := range names {
-		value := values[name]
-		items = append(items, SessionEnvVar{Name: name, Value: value.Value, Secret: value.Secret})
-	}
-	return items
+	return projects.SessionEnvItemsFromCompose(values)
 }
 
 func (s *Service) projectManagedSchedulersFromSpec(ctx context.Context, project ProjectRecord, revision int64, spec *compose.NormalizedProjectSpec) ([]ProjectSchedulerRecord, []Loader, error) {
