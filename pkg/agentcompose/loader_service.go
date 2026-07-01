@@ -247,7 +247,3 @@ func toProtoLoaderRunDetail(item LoaderRunSummary) *agentcomposev1.LoaderRunDeta
 func toProtoLoaderEvent(item LoaderEvent) *agentcomposev1.LoaderEvent {
 	return api.LoaderEventToProto(item)
 }
-
-func toProtoLoaderTriggerKind(kind string) agentcomposev1.LoaderTriggerKind {
-	return api.LoaderTriggerKindToProto(kind)
-}

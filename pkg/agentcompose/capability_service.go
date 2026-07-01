@@ -181,7 +181,3 @@ func capabilityConnectError(err error) error {
 func toProtoCapabilityCatalog(item capability.Catalog) *agentcomposev1.GetCapabilityCatalogResponse {
 	return api.CapabilityCatalogToProto(item)
 }
-
-func toProtoCapabilityMethod(item capability.Method) *agentcomposev1.CapabilityMethod {
-	return api.CapabilityMethodToProto(item)
-}

@@ -382,16 +382,8 @@ func runSummaryResponse(run ProjectRunRecord) *agentcomposev2.RunSummary {
 	return api.ProjectRunSummaryToProto(run)
 }
 
-func projectRunStatusResponse(status string) agentcomposev2.RunStatus {
-	return api.ProjectRunStatusToProto(status)
-}
-
 func projectRunStatusFromProto(status agentcomposev2.RunStatus) string {
 	return api.ProjectRunStatusFromProto(status)
-}
-
-func projectRunSourceResponse(source string) agentcomposev2.RunSource {
-	return api.ProjectRunSourceToProto(source)
 }
 
 func projectRunSourceFromProto(source agentcomposev2.RunSource) string {

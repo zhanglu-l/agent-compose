@@ -14,8 +14,6 @@ var (
 	ErrBodyTooLarge       = domain.ErrBodyTooLarge
 )
 
-type classifiedError = domain.ClassifiedError
-
 func classifyError(kind error, reason string, cause error) error {
 	return domain.ClassifyError(kind, reason, cause)
 }

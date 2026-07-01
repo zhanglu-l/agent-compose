@@ -192,10 +192,6 @@ func encodeLoaderEnvItems(items []SessionEnvVar) (string, error) {
 	return loaders.EncodeEnvItems(items)
 }
 
-func decodeLoaderEnvItems(raw string) ([]SessionEnvVar, error) {
-	return loaders.DecodeEnvItems(raw)
-}
-
 // encodeCapsetIDs marshals the capset id set to the JSON stored in the
 // capset_ids column ("[]" when empty).
 func encodeCapsetIDs(ids []string) (string, error) {

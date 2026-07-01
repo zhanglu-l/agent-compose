@@ -117,12 +117,6 @@ func capabilityGuidePreamble(target string) string {
 	return capabilities.GuidePreamble(target)
 }
 
-// sessionRuntimeDir is the local session runtime directory (sibling of the
-// workspace dir under the session root). Returns "" when unknown.
-func sessionRuntimeDir(session *Session) string {
-	return capabilities.SessionRuntimeDir(session)
-}
-
 // sessionCapabilityGuidePath is the session MPI catalog file the capability
 // guide is written to (guest /data/runtime/mpi/catalog.md). Returns "" when the
 // session runtime dir is unknown.

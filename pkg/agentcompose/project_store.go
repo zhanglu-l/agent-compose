@@ -586,31 +586,3 @@ func selectProjectRunSQL() string {
 func projectMatchesQuery(item ProjectRecord, query string) bool {
 	return projects.RecordMatchesQuery(item, query)
 }
-
-func normalizeProjectSourcePath(sourcePath string) string {
-	return domain.NormalizeProjectSourcePath(sourcePath)
-}
-
-func encodeProjectSourceJSON(sourcePath string) (string, error) {
-	return projects.EncodeSourceJSON(sourcePath)
-}
-
-func marshalCanonicalProjectJSON(value any) ([]byte, error) {
-	return projects.MarshalCanonicalJSON(value)
-}
-
-func stableReadableID(prefix, readable, seed string) string {
-	return domain.StableReadableID(prefix, readable, seed)
-}
-
-func isProjectStableIdentifier(value string) bool {
-	return domain.IsProjectStableIdentifier(value)
-}
-
-func asInt64Time(value any) int64 {
-	return projects.AsInt64Time(value)
-}
-
-func parseInt64String(value string) (int64, bool) {
-	return projects.ParseInt64String(value)
-}

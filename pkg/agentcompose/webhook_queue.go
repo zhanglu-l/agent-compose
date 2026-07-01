@@ -6,8 +6,6 @@ import (
 	"agent-compose/pkg/agentcompose/webhooks"
 )
 
-const defaultWebhookQueueName = webhooks.DefaultQueueName
-
 type (
 	WebhookRunQueue         = webhooks.RunQueue
 	webhookQueueReservation = webhooks.Reservation

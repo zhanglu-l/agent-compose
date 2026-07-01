@@ -7,18 +7,8 @@ import (
 )
 
 type (
-	sessionWatchEventType = sessions.WatchEventType
-	sessionWatchEvent     = sessions.WatchEvent
-	SessionStreamBroker   = sessions.StreamBroker
-)
-
-const (
-	sessionWatchEventTypeUnspecified    = sessions.WatchEventTypeUnspecified
-	sessionWatchEventTypeSessionUpdated = sessions.WatchEventTypeSessionUpdated
-	sessionWatchEventTypeCellStarted    = sessions.WatchEventTypeCellStarted
-	sessionWatchEventTypeCellOutput     = sessions.WatchEventTypeCellOutput
-	sessionWatchEventTypeCellCompleted  = sessions.WatchEventTypeCellCompleted
-	sessionWatchEventTypeEventAdded     = sessions.WatchEventTypeEventAdded
+	sessionWatchEvent   = sessions.WatchEvent
+	SessionStreamBroker = sessions.StreamBroker
 )
 
 func NewSessionStreamBroker(di do.Injector) (*SessionStreamBroker, error) {

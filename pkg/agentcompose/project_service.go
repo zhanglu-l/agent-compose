@@ -1516,45 +1516,9 @@ func projectRevisionResponse(revision ProjectRevisionRecord, spec *agentcomposev
 	return api.ProjectRevisionToProto(revision, spec)
 }
 
-func projectAgentResponses(agents []ProjectAgentRecord) []*agentcomposev2.ProjectAgent {
-	return api.ProjectAgentsToProto(agents)
-}
-
-func projectSchedulerResponses(schedulers []ProjectSchedulerRecord) []*agentcomposev2.ProjectScheduler {
-	return api.ProjectSchedulersToProto(schedulers)
-}
-
 // ProjectSpecResponse converts a normalized compose spec into the v2 ProjectSpec API shape.
 func ProjectSpecResponse(spec *compose.NormalizedProjectSpec) *agentcomposev2.ProjectSpec {
 	return api.ProjectSpecToProto(spec)
-}
-
-func agentSpecResponses(agents []compose.NormalizedAgentSpec) []*agentcomposev2.AgentSpec {
-	return api.AgentSpecsToProto(agents)
-}
-
-func envVarResponses(values map[string]compose.EnvVarSpec) []*agentcomposev2.EnvVarSpec {
-	return api.EnvVarSpecsToProto(values)
-}
-
-func workspaceResponse(workspace *compose.WorkspaceSpec) *agentcomposev2.WorkspaceSpec {
-	return api.WorkspaceSpecToProto(workspace)
-}
-
-func networkResponse(network *compose.NetworkSpec) *agentcomposev2.NetworkSpec {
-	return api.NetworkSpecToProto(network)
-}
-
-func driverResponse(driver *compose.NormalizedDriverSpec) *agentcomposev2.DriverSpec {
-	return api.DriverSpecToProto(driver)
-}
-
-func schedulerResponse(scheduler *compose.NormalizedSchedulerSpec) *agentcomposev2.SchedulerSpec {
-	return api.SchedulerSpecToProto(scheduler)
-}
-
-func triggerResponse(trigger compose.NormalizedTriggerSpec) *agentcomposev2.TriggerSpec {
-	return api.TriggerSpecToProto(trigger)
 }
 
 func formatProjectTime(value time.Time) string {

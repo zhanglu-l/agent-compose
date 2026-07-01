@@ -1,8 +1,6 @@
 package agentcompose
 
 import (
-	"time"
-
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/domain"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
@@ -54,20 +52,4 @@ func toProtoAgentDefinition(item AgentDefinition, workspace *WorkspaceConfig, va
 
 func toProtoEnvItems(items []SessionEnvVar) []*agentcomposev1.SessionEnvVar {
 	return api.EnvItemsToProto(items)
-}
-
-func toProtoAgentWorkFiles(workspaceID string, workspace *WorkspaceConfig) *agentcomposev1.AgentWorkFiles {
-	return api.AgentWorkFilesToProto(workspaceID, workspace)
-}
-
-func agentWorkspaceSummary(workspace WorkspaceConfig) string {
-	return api.AgentWorkspaceSummary(workspace)
-}
-
-func toProtoAgentCurrentRunSummary(item AgentCurrentRunSummary) *agentcomposev1.AgentCurrentRunSummary {
-	return api.AgentCurrentRunSummaryToProto(item)
-}
-
-func formatProtoTime(value time.Time) string {
-	return api.FormatProtoTime(value)
 }

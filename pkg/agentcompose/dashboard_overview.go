@@ -12,8 +12,6 @@ import (
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
 
-const dashboardOverviewPageSize = dashboard.OverviewPageSize
-
 type (
 	DashboardOverviewAggregator = dashboard.Aggregator
 	DashboardOverviewHub        = dashboard.Hub
@@ -72,16 +70,4 @@ func (s *Service) WatchDashboardOverview(ctx context.Context, req *connect.Reque
 			}
 		}
 	}
-}
-
-func isDashboardRunningStatus(status string) bool {
-	return dashboard.IsRunningStatus(status)
-}
-
-func isDashboardAttentionStatus(status string) bool {
-	return dashboard.IsAttentionStatus(status)
-}
-
-func cloneDashboardOverview(item *agentcomposev1.DashboardOverview) *agentcomposev1.DashboardOverview {
-	return dashboard.CloneOverview(item)
 }

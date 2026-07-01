@@ -351,24 +351,8 @@ func paginateImages(items []*agentcomposev2.Image, offset, limit uint32) ([]*age
 	return images.PaginateProtoImages(items, offset, limit)
 }
 
-func cleanDockerRefs(refs []string) []string {
-	return images.CleanDockerRefs(refs)
-}
-
-func dockerImageDangling(tags, digests []string) bool {
-	return images.DockerImageDangling(tags, digests)
-}
-
-func firstString(values []string) string {
-	return images.FirstString(values)
-}
-
 func nonNegativeUint64(value int64) uint64 {
 	return images.NonNegativeUint64(value)
-}
-
-func unixSecondsString(value int64) string {
-	return images.UnixSecondsString(value)
 }
 
 func dockerPlatformString(platform *agentcomposev2.ImagePlatform) string {
@@ -377,8 +361,4 @@ func dockerPlatformString(platform *agentcomposev2.ImagePlatform) string {
 
 func dockerEndpointFromEnv() string {
 	return images.DockerEndpointFromEnv()
-}
-
-func cloneStringMap(values map[string]string) map[string]string {
-	return images.CloneStringMap(values)
 }
