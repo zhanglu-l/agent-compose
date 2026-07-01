@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"agent-compose/pkg/agentcompose/events"
 )
 
 func (s *ConfigStore) ensureEventSchema(ctx context.Context) error {
@@ -389,62 +391,11 @@ func (s *ConfigStore) UpdateEventPayload(ctx context.Context, eventID, payloadJS
 }
 
 func scanTopicEvents(rows *sql.Rows) ([]TopicEventRecord, error) {
-	items := make([]TopicEventRecord, 0)
-	for rows.Next() {
-		item, err := scanTopicEvent(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate events: %w", err)
-	}
-	return items, nil
+	return events.ScanTopicEvents(rows)
 }
 
 func scanTopicEvent(scan func(dest ...any) error) (TopicEventRecord, error) {
-	var item TopicEventRecord
-	var claimUntilRaw int64
-	var nextAttemptAtRaw int64
-	var deadLetterAtRaw int64
-	var createdAtRaw int64
-	var dispatchedAtRaw int64
-	if err := scan(
-		&item.Sequence,
-		&item.ID,
-		&item.Topic,
-		&item.Source,
-		&item.Provider,
-		&item.Intent,
-		&item.CorrelationID,
-		&item.IdempotencyKey,
-		&item.DeliveryID,
-		&item.PayloadHash,
-		&item.PayloadJSON,
-		&item.DispatchStatus,
-		&item.ParentEventID,
-		&item.PublisherType,
-		&item.PublisherID,
-		&item.PublisherRunID,
-		&item.ReplayOfEventID,
-		&item.ClaimID,
-		&claimUntilRaw,
-		&item.AttemptCount,
-		&nextAttemptAtRaw,
-		&item.LastError,
-		&deadLetterAtRaw,
-		&createdAtRaw,
-		&dispatchedAtRaw,
-	); err != nil {
-		return TopicEventRecord{}, fmt.Errorf("scan event: %w", err)
-	}
-	item.ClaimUntil = parseStoredUnixTimeAuto(claimUntilRaw)
-	item.NextAttemptAt = parseStoredUnixTimeAuto(nextAttemptAtRaw)
-	item.DeadLetterAt = parseStoredUnixTimeAuto(deadLetterAtRaw)
-	item.CreatedAt = parseStoredUnixTimeAuto(createdAtRaw)
-	item.DispatchedAt = parseStoredUnixTimeAuto(dispatchedAtRaw)
-	return item, nil
+	return events.ScanTopicEvent(scan)
 }
 
 func (s *ConfigStore) ListDispatchableEvents(ctx context.Context, now time.Time, limit int) ([]TopicEventRecord, error) {
