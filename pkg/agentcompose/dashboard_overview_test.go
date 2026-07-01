@@ -84,7 +84,7 @@ func testDashboardOverviewHubWatchInitialAndNotify(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	service, _, _ := newTestServiceAPIHarness(t)
-	service.dashboard.debounce = time.Millisecond
+	service.dashboard.SetDebounce(time.Millisecond)
 
 	events, unsubscribe := service.dashboard.Watch(ctx)
 	defer unsubscribe()
