@@ -1,6 +1,7 @@
 package projects
 
 import (
+	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/compose"
 	"encoding/json"
@@ -58,6 +59,45 @@ func NewAgentRecordFromSpec(projectID string, revision int64, agent compose.Norm
 		Driver:           strings.TrimSpace(driver),
 		SchedulerEnabled: agent.Scheduler != nil && agent.Scheduler.Enabled,
 		SpecJSON:         string(specJSON),
+	}, nil
+}
+
+func NewAgentDefinitionsFromSpec(project domain.ProjectRecord, revision int64, spec *compose.NormalizedProjectSpec) ([]domain.AgentDefinition, error) {
+	agents := make([]domain.AgentDefinition, 0, len(spec.Agents))
+	for _, agent := range spec.Agents {
+		record, err := NewAgentDefinitionFromSpec(project, revision, agent)
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, record)
+	}
+	return agents, nil
+}
+
+func NewAgentDefinitionFromSpec(project domain.ProjectRecord, revision int64, agent compose.NormalizedAgentSpec) (domain.AgentDefinition, error) {
+	managedAgentID, err := domain.StableManagedAgentID(project.ID, agent.Name)
+	if err != nil {
+		return domain.AgentDefinition{}, err
+	}
+	driver := ""
+	if agent.Driver != nil {
+		driver = agent.Driver.Name
+	}
+	return domain.AgentDefinition{
+		ID:                     managedAgentID,
+		Name:                   agent.Name,
+		Enabled:                true,
+		Provider:               agent.Provider,
+		Model:                  agent.Model,
+		SystemPrompt:           agent.SystemPrompt,
+		Driver:                 driver,
+		GuestImage:             agent.Image,
+		EnvItems:               SessionEnvItemsFromCompose(agent.Env),
+		ConfigJSON:             "{}",
+		CapsetIDs:              capabilities.NormalizeCapsetIDs(agent.CapsetIDs),
+		ManagedProjectID:       project.ID,
+		ManagedProjectRevision: revision,
+		ManagedAgentName:       agent.Name,
 	}, nil
 }
 

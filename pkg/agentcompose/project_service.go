@@ -642,42 +642,7 @@ func projectAgentRecordsFromSpec(projectID string, revision int64, spec *compose
 }
 
 func projectManagedAgentDefinitionsFromSpec(project ProjectRecord, revision int64, spec *compose.NormalizedProjectSpec) ([]AgentDefinition, error) {
-	agents := make([]AgentDefinition, 0, len(spec.Agents))
-	for _, agent := range spec.Agents {
-		record, err := projectManagedAgentDefinitionFromSpec(project, revision, agent)
-		if err != nil {
-			return nil, err
-		}
-		agents = append(agents, record)
-	}
-	return agents, nil
-}
-
-func projectManagedAgentDefinitionFromSpec(project ProjectRecord, revision int64, agent compose.NormalizedAgentSpec) (AgentDefinition, error) {
-	managedAgentID, err := StableManagedAgentID(project.ID, agent.Name)
-	if err != nil {
-		return AgentDefinition{}, err
-	}
-	driver := ""
-	if agent.Driver != nil {
-		driver = agent.Driver.Name
-	}
-	return AgentDefinition{
-		ID:                     managedAgentID,
-		Name:                   agent.Name,
-		Enabled:                true,
-		Provider:               agent.Provider,
-		Model:                  agent.Model,
-		SystemPrompt:           agent.SystemPrompt,
-		Driver:                 driver,
-		GuestImage:             agent.Image,
-		EnvItems:               sessionEnvItemsFromCompose(agent.Env),
-		ConfigJSON:             "{}",
-		CapsetIDs:              normalizeCapsetIDs(agent.CapsetIDs),
-		ManagedProjectID:       project.ID,
-		ManagedProjectRevision: revision,
-		ManagedAgentName:       agent.Name,
-	}, nil
+	return projects.NewAgentDefinitionsFromSpec(project, revision, spec)
 }
 
 func sessionEnvItemsFromCompose(values map[string]compose.EnvVarSpec) []SessionEnvVar {
