@@ -9,6 +9,7 @@ import (
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/capability"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
@@ -163,10 +164,7 @@ func (s *Service) UpdateCapabilityGatewayConfig(ctx context.Context, req *connec
 }
 
 func toProtoCapabilityGatewayConfig(settings CapabilityGatewaySettings) *agentcomposev1.CapabilityGatewayConfig {
-	return &agentcomposev1.CapabilityGatewayConfig{
-		Addr:     settings.Addr,
-		TokenSet: strings.TrimSpace(settings.Token) != "",
-	}
+	return api.CapabilityGatewayConfigToProto(settings)
 }
 
 func capabilityConnectError(err error) error {
@@ -181,38 +179,9 @@ func capabilityConnectError(err error) error {
 }
 
 func toProtoCapabilityCatalog(item capability.Catalog) *agentcomposev1.GetCapabilityCatalogResponse {
-	resp := &agentcomposev1.GetCapabilityCatalogResponse{
-		CapsetId:    item.CapsetID,
-		Name:        item.Name,
-		Description: item.Description,
-	}
-	for _, method := range item.Methods {
-		resp.Methods = append(resp.Methods, toProtoCapabilityMethod(method))
-	}
-	return resp
+	return api.CapabilityCatalogToProto(item)
 }
 
 func toProtoCapabilityMethod(item capability.Method) *agentcomposev1.CapabilityMethod {
-	resp := &agentcomposev1.CapabilityMethod{
-		ServiceId:               item.ServiceID,
-		InstanceId:              item.InstanceID,
-		RuntimeMode:             item.RuntimeMode,
-		MethodFullName:          item.MethodFullName,
-		RequestMessageFullName:  item.RequestMessageFullName,
-		ResponseMessageFullName: item.ResponseMessageFullName,
-		BackendInstanceStatus:   item.BackendInstanceStatus,
-	}
-	for _, endpoint := range item.Endpoints {
-		resp.Endpoints = append(resp.Endpoints, &agentcomposev1.CapabilityEndpoint{
-			Protocol:     endpoint.Protocol,
-			Endpoint:     endpoint.Endpoint,
-			MethodPath:   endpoint.MethodPath,
-			Metadata:     endpoint.Metadata,
-			ToolName:     endpoint.ToolName,
-			Procedure:    endpoint.Procedure,
-			HttpMethod:   endpoint.HTTPMethod,
-			ContentTypes: endpoint.ContentTypes,
-		})
-	}
-	return resp
+	return api.CapabilityMethodToProto(item)
 }
