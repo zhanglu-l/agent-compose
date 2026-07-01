@@ -167,7 +167,7 @@ func (m *LoaderManager) CreateLoader(ctx context.Context, loader Loader) (Loader
 		loader.Summary.Runtime = LoaderRuntimeScheduler
 	}
 	if strings.TrimSpace(loader.Script) == "" {
-		loader.Script = defaultLoaderScript()
+		loader.Script = domain.DefaultLoaderScript()
 	}
 	validation, err := m.engine.Validate(ctx, loader.Summary.Runtime, loader.Script)
 	if err != nil {
@@ -329,7 +329,7 @@ func (m *LoaderManager) nextScheduledFireAt() (time.Time, bool) {
 			continue
 		}
 		for _, trigger := range loader.Triggers {
-			if !trigger.Enabled || !loaderTriggerUsesSchedule(trigger.Kind) || trigger.NextFireAt.IsZero() {
+			if !trigger.Enabled || !domain.LoaderTriggerUsesSchedule(trigger.Kind) || trigger.NextFireAt.IsZero() {
 				continue
 			}
 			if nextFireAt.IsZero() || trigger.NextFireAt.Before(nextFireAt) {
@@ -418,7 +418,7 @@ func (m *LoaderManager) collectDueScheduledRuns(now time.Time) []scheduledLoader
 		updated := false
 		for index := range loader.Triggers {
 			trigger := &loader.Triggers[index]
-			if !trigger.Enabled || !loaderTriggerUsesSchedule(trigger.Kind) || trigger.NextFireAt.IsZero() || trigger.NextFireAt.After(now) {
+			if !trigger.Enabled || !domain.LoaderTriggerUsesSchedule(trigger.Kind) || trigger.NextFireAt.IsZero() || trigger.NextFireAt.After(now) {
 				continue
 			}
 			nextFireAt, err := loaderTriggerNextFireAt(now, *trigger, true)
@@ -525,7 +525,7 @@ func (m *LoaderManager) loaderRunTimeout(override time.Duration) time.Duration {
 
 func (m *LoaderManager) enterRun(loader Loader) bool {
 	loaderID := strings.TrimSpace(loader.Summary.ID)
-	policy := normalizeLoaderConcurrencyPolicy(loader.Summary.ConcurrencyPolicy)
+	policy := domain.NormalizeLoaderConcurrencyPolicy(loader.Summary.ConcurrencyPolicy)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if policy != LoaderConcurrencyPolicyParallel && m.running[loaderID] > 0 {

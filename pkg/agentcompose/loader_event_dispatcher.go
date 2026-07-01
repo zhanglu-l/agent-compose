@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	"context"
 	"errors"
 	"log/slog"
@@ -181,7 +182,7 @@ func (d *LoaderEventDispatcher) collectTargets(topic string) []eventLoaderTarget
 			continue
 		}
 		for _, trigger := range loader.Triggers {
-			if !trigger.Enabled || trigger.Kind != LoaderTriggerKindEvent || !loaderTriggerTopicMatches(trigger.Topic, topic) {
+			if !trigger.Enabled || trigger.Kind != LoaderTriggerKindEvent || !domain.LoaderTriggerTopicMatches(trigger.Topic, topic) {
 				continue
 			}
 			targets = append(targets, eventLoaderTarget{
@@ -202,7 +203,7 @@ func (d *LoaderEventDispatcher) shouldRetryForBusy(event LoaderTopicEvent, targe
 	defer m.mu.RUnlock()
 	for _, target := range targets {
 		loaderID := strings.TrimSpace(target.loader.Summary.ID)
-		if normalizeLoaderConcurrencyPolicy(target.loader.Summary.ConcurrencyPolicy) != LoaderConcurrencyPolicyParallel && m.running[loaderID] > 0 {
+		if domain.NormalizeLoaderConcurrencyPolicy(target.loader.Summary.ConcurrencyPolicy) != LoaderConcurrencyPolicyParallel && m.running[loaderID] > 0 {
 			return true
 		}
 	}

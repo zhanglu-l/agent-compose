@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"agent-compose/pkg/agentcompose/api"
+	loaderpkg "agent-compose/pkg/agentcompose/loaders"
 	"agent-compose/pkg/agentcompose/projects"
 	"agent-compose/pkg/agentcompose/runs"
 	"agent-compose/pkg/compose"
@@ -522,11 +523,11 @@ func (s *Service) validateProjectManagedSchedulers(ctx context.Context, normaliz
 	}
 	loaders := projectManagedSchedulerLoaders(builds)
 	for _, loader := range loaders {
-		if _, err := normalizeLoader(loader, false); err != nil {
+		if _, err := loaderpkg.NormalizeLoader(loader, false); err != nil {
 			return []*agentcomposev2.ProjectValidationIssue{projectValidationIssue("schedulers."+loader.Summary.ManagedAgentName, err.Error())}
 		}
 		for _, trigger := range loader.Triggers {
-			if _, err := normalizeLoaderTrigger(loader.Summary.ID, trigger); err != nil {
+			if _, err := loaderpkg.NormalizeLoaderTrigger(loader.Summary.ID, trigger); err != nil {
 				return []*agentcomposev2.ProjectValidationIssue{projectValidationIssue("schedulers."+loader.Summary.ManagedAgentName+".triggers", err.Error())}
 			}
 		}

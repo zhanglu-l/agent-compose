@@ -13,6 +13,7 @@ import (
 
 	"github.com/samber/do/v2"
 
+	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/configstore"
 	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
@@ -391,7 +392,7 @@ func (s *ConfigStore) CreateAgentDefinition(ctx context.Context, item AgentDefin
 	if err != nil {
 		return AgentDefinition{}, err
 	}
-	capsetIDsJSON, err := encodeCapsetIDs(normalized.CapsetIDs)
+	capsetIDsJSON, err := capabilities.EncodeCapsetIDs(normalized.CapsetIDs)
 	if err != nil {
 		return AgentDefinition{}, err
 	}
@@ -428,7 +429,7 @@ func (s *ConfigStore) UpdateAgentDefinition(ctx context.Context, item AgentDefin
 	if err != nil {
 		return AgentDefinition{}, err
 	}
-	capsetIDsJSON, err := encodeCapsetIDs(normalized.CapsetIDs)
+	capsetIDsJSON, err := capabilities.EncodeCapsetIDs(normalized.CapsetIDs)
 	if err != nil {
 		return AgentDefinition{}, err
 	}
@@ -460,7 +461,7 @@ func (s *ConfigStore) UpsertManagedAgentDefinition(ctx context.Context, item Age
 	if err != nil {
 		return AgentDefinition{}, err
 	}
-	capsetIDsJSON, err := encodeCapsetIDs(normalized.CapsetIDs)
+	capsetIDsJSON, err := capabilities.EncodeCapsetIDs(normalized.CapsetIDs)
 	if err != nil {
 		return AgentDefinition{}, err
 	}

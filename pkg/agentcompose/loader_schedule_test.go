@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	"strings"
 	"testing"
 	"time"
@@ -70,42 +71,42 @@ func testLoaderScheduleModelWorkflows(t *testing.T) {
 		t.Fatalf("invalid cron trigger returned nil error")
 	}
 
-	stableID := loaderTriggerStableID(LoaderTriggerKindEvent, "runtime.*", 0, "function cb() {}", 1)
-	if stableID != loaderTriggerStableID(LoaderTriggerKindEvent, "runtime.*", 0, "function cb() {}", 1) {
+	stableID := domain.LoaderTriggerStableID(LoaderTriggerKindEvent, "runtime.*", 0, "function cb() {}", 1)
+	if stableID != domain.LoaderTriggerStableID(LoaderTriggerKindEvent, "runtime.*", 0, "function cb() {}", 1) {
 		t.Fatalf("stable trigger id was not stable")
 	}
-	if loaderSourceSHA("script") == loaderSourceSHA("other") {
+	if domain.LoaderSourceSHA("script") == domain.LoaderSourceSHA("other") {
 		t.Fatalf("loaderSourceSHA returned identical values for different scripts")
 	}
-	if !loaderTriggerTopicMatches("runtime.*", "runtime.test") || !loaderTriggerTopicMatches("runtime.test", "runtime.test") {
+	if !domain.LoaderTriggerTopicMatches("runtime.*", "runtime.test") || !domain.LoaderTriggerTopicMatches("runtime.test", "runtime.test") {
 		t.Fatalf("expected topic patterns to match")
 	}
-	if loaderTriggerTopicMatches("", "runtime.test") || loaderTriggerTopicMatches("runtime.*", "") || loaderTriggerTopicMatches("runtime.test", "runtime.other") {
+	if domain.LoaderTriggerTopicMatches("", "runtime.test") || domain.LoaderTriggerTopicMatches("runtime.*", "") || domain.LoaderTriggerTopicMatches("runtime.test", "runtime.other") {
 		t.Fatalf("unexpected topic match")
 	}
 
-	if normalizeLoaderSessionPolicy("new") != LoaderSessionPolicyNew || normalizeLoaderSessionPolicy("bad") != LoaderSessionPolicySticky {
+	if domain.NormalizeLoaderSessionPolicy("new") != LoaderSessionPolicyNew || domain.NormalizeLoaderSessionPolicy("bad") != LoaderSessionPolicySticky {
 		t.Fatalf("session policy normalization failed")
 	}
-	if normalizeLoaderConcurrencyPolicy("allow") != LoaderConcurrencyPolicyParallel || normalizeLoaderConcurrencyPolicy("bad") != LoaderConcurrencyPolicySkip {
+	if domain.NormalizeLoaderConcurrencyPolicy("allow") != LoaderConcurrencyPolicyParallel || domain.NormalizeLoaderConcurrencyPolicy("bad") != LoaderConcurrencyPolicySkip {
 		t.Fatalf("concurrency policy normalization failed")
 	}
-	if normalizeLoaderRunStatus("failed") != LoaderRunStatusFailed || normalizeLoaderRunStatus("bad") != LoaderRunStatusRunning {
+	if domain.NormalizeLoaderRunStatus("failed") != LoaderRunStatusFailed || domain.NormalizeLoaderRunStatus("bad") != LoaderRunStatusRunning {
 		t.Fatalf("run status normalization failed")
 	}
-	if !timeIsSet(now) || nonZeroTimeUnixMilli(time.Time{}) != 0 || nonZeroTimeUnixMilli(now) != now.UnixMilli() {
+	if !domain.TimeIsSet(now) || domain.NonZeroTimeUnixMilli(time.Time{}) != 0 || domain.NonZeroTimeUnixMilli(now) != now.UnixMilli() {
 		t.Fatalf("time helpers returned unexpected values")
 	}
-	if !loaderTriggerUsesSchedule(LoaderTriggerKindCron) || loaderTriggerUsesSchedule(LoaderTriggerKindEvent) {
+	if !domain.LoaderTriggerUsesSchedule(LoaderTriggerKindCron) || domain.LoaderTriggerUsesSchedule(LoaderTriggerKindEvent) {
 		t.Fatalf("schedule trigger helper returned unexpected values")
 	}
-	if !loaderTriggerScheduledAt(now, 0).IsZero() || !loaderTriggerScheduledAt(now, 1).Equal(now.Add(time.Millisecond)) {
+	if !domain.LoaderTriggerScheduledAt(now, 0).IsZero() || !domain.LoaderTriggerScheduledAt(now, 1).Equal(now.Add(time.Millisecond)) {
 		t.Fatalf("scheduled at helper returned unexpected values")
 	}
-	if defaultLoaderName(now) != "Loader 2026-06-02 09:00" {
-		t.Fatalf("default loader name = %q", defaultLoaderName(now))
+	if domain.DefaultLoaderName(now) != "Loader 2026-06-02 09:00" {
+		t.Fatalf("default loader name = %q", domain.DefaultLoaderName(now))
 	}
-	if script := defaultLoaderScript(); !strings.Contains(script, "function main") || !strings.Contains(script, "scheduler.interval") || !strings.Contains(script, "scheduler.on") {
+	if script := domain.DefaultLoaderScript(); !strings.Contains(script, "function main") || !strings.Contains(script, "scheduler.interval") || !strings.Contains(script, "scheduler.on") {
 		t.Fatalf("default loader script missing expected registrations: %s", script)
 	}
 }

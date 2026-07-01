@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-compose/pkg/agentcompose/configstore"
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/events"
 )
 
@@ -147,13 +148,13 @@ func (s *ConfigStore) CreateEvent(ctx context.Context, item TopicEventRecord) (T
 		normalized.PublisherRunID,
 		normalized.ReplayOfEventID,
 		normalized.ClaimID,
-		nonZeroTimeUnixMilli(normalized.ClaimUntil),
+		domain.NonZeroTimeUnixMilli(normalized.ClaimUntil),
 		normalized.AttemptCount,
-		nonZeroTimeUnixMilli(normalized.NextAttemptAt),
+		domain.NonZeroTimeUnixMilli(normalized.NextAttemptAt),
 		normalized.LastError,
-		nonZeroTimeUnixMilli(normalized.DeadLetterAt),
+		domain.NonZeroTimeUnixMilli(normalized.DeadLetterAt),
 		normalized.CreatedAt.UnixMilli(),
-		nonZeroTimeUnixMilli(normalized.DispatchedAt),
+		domain.NonZeroTimeUnixMilli(normalized.DispatchedAt),
 	)
 	if err != nil {
 		if normalized.IdempotencyKey != "" {
@@ -391,7 +392,7 @@ func (s *ConfigStore) ReleaseEventClaim(ctx context.Context, eventID, claimID, s
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE event SET dispatch_status = ?, claim_id = '', claim_until = 0, next_attempt_at = ?, last_error = ? WHERE id = ? AND claim_id = ?`,
 		status,
-		nonZeroTimeUnixMilli(nextAttemptAt),
+		domain.NonZeroTimeUnixMilli(nextAttemptAt),
 		strings.TrimSpace(lastError),
 		eventID,
 		claimID,

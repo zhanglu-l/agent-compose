@@ -103,54 +103,54 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 	}
 
 	for _, runtime := range []string{"", LoaderRuntimeScheduler} {
-		if got, err := normalizeLoaderRuntime(runtime); err != nil || got != LoaderRuntimeScheduler {
-			t.Fatalf("normalizeLoaderRuntime(%q) = %q/%v", runtime, got, err)
+		if got, err := domain.NormalizeLoaderRuntime(runtime); err != nil || got != LoaderRuntimeScheduler {
+			t.Fatalf("domain.NormalizeLoaderRuntime(%q) = %q/%v", runtime, got, err)
 		}
 	}
 	for _, runtime := range []string{"qjs", "quickjs", "bad"} {
-		if _, err := normalizeLoaderRuntime(runtime); err == nil {
-			t.Fatalf("normalizeLoaderRuntime(%q) returned nil error", runtime)
+		if _, err := domain.NormalizeLoaderRuntime(runtime); err == nil {
+			t.Fatalf("domain.NormalizeLoaderRuntime(%q) returned nil error", runtime)
 		}
 	}
 	for _, kind := range []string{LoaderTriggerKindInterval, LoaderTriggerKindEvent, LoaderTriggerKindTimeout, LoaderTriggerKindCron} {
-		if got, err := normalizeLoaderTriggerKind(kind); err != nil || got != kind {
-			t.Fatalf("normalizeLoaderTriggerKind(%q) = %q/%v", kind, got, err)
+		if got, err := domain.NormalizeLoaderTriggerKind(kind); err != nil || got != kind {
+			t.Fatalf("domain.NormalizeLoaderTriggerKind(%q) = %q/%v", kind, got, err)
 		}
 	}
-	if _, err := normalizeLoaderTriggerKind("bad"); err == nil {
+	if _, err := domain.NormalizeLoaderTriggerKind("bad"); err == nil {
 		t.Fatalf("normalizeLoaderTriggerKind bad returned nil error")
 	}
-	if normalizeLoaderSessionPolicy("new") != LoaderSessionPolicyNew || normalizeLoaderSessionPolicy("bad") != LoaderSessionPolicySticky {
+	if domain.NormalizeLoaderSessionPolicy("new") != LoaderSessionPolicyNew || domain.NormalizeLoaderSessionPolicy("bad") != LoaderSessionPolicySticky {
 		t.Fatalf("normalizeLoaderSessionPolicy returned unexpected values")
 	}
-	if normalizeLoaderConcurrencyPolicy("allow") != LoaderConcurrencyPolicyParallel || normalizeLoaderConcurrencyPolicy("bad") != LoaderConcurrencyPolicySkip {
+	if domain.NormalizeLoaderConcurrencyPolicy("allow") != LoaderConcurrencyPolicyParallel || domain.NormalizeLoaderConcurrencyPolicy("bad") != LoaderConcurrencyPolicySkip {
 		t.Fatalf("normalizeLoaderConcurrencyPolicy returned unexpected values")
 	}
 	for _, status := range []string{LoaderRunStatusRunning, LoaderRunStatusSucceeded, LoaderRunStatusFailed, LoaderRunStatusSkipped} {
-		if normalizeLoaderRunStatus(status) != status {
-			t.Fatalf("normalizeLoaderRunStatus(%q) changed", status)
+		if domain.NormalizeLoaderRunStatus(status) != status {
+			t.Fatalf("domain.NormalizeLoaderRunStatus(%q) changed", status)
 		}
 	}
-	if normalizeLoaderRunStatus("bad") != LoaderRunStatusRunning {
+	if domain.NormalizeLoaderRunStatus("bad") != LoaderRunStatusRunning {
 		t.Fatalf("normalizeLoaderRunStatus bad did not default")
 	}
-	if !loaderTriggerTopicMatches("agent-compose.session.*", "agent-compose.session.created") || loaderTriggerTopicMatches("", "agent-compose.session.created") || loaderTriggerTopicMatches("agent-compose.loader", "") {
+	if !domain.LoaderTriggerTopicMatches("agent-compose.session.*", "agent-compose.session.created") || domain.LoaderTriggerTopicMatches("", "agent-compose.session.created") || domain.LoaderTriggerTopicMatches("agent-compose.loader", "") {
 		t.Fatalf("loaderTriggerTopicMatches returned unexpected values")
 	}
 	legacySessionWildcard := "a" + "dp.session.*"
-	if loaderTriggerTopicMatches(legacySessionWildcard, "agent-compose.session.created") {
+	if domain.LoaderTriggerTopicMatches(legacySessionWildcard, "agent-compose.session.created") {
 		t.Fatalf("legacy session wildcard matched agent-compose lifecycle topic")
 	}
-	if !loaderTriggerUsesSchedule(LoaderTriggerKindCron) || loaderTriggerUsesSchedule(LoaderTriggerKindEvent) {
+	if !domain.LoaderTriggerUsesSchedule(LoaderTriggerKindCron) || domain.LoaderTriggerUsesSchedule(LoaderTriggerKindEvent) {
 		t.Fatalf("loaderTriggerUsesSchedule returned unexpected values")
 	}
-	if !timeIsSet(now) || timeIsSet(time.Time{}) || nonZeroTimeUnixMilli(time.Time{}) != 0 || nonZeroTimeUnixMilli(now) == 0 {
+	if !domain.TimeIsSet(now) || domain.TimeIsSet(time.Time{}) || domain.NonZeroTimeUnixMilli(time.Time{}) != 0 || domain.NonZeroTimeUnixMilli(now) == 0 {
 		t.Fatalf("time helper returned unexpected values")
 	}
-	if loaderTriggerScheduledAt(now, 0).IsZero() == false || !loaderTriggerScheduledAt(now, 10).After(now) {
+	if domain.LoaderTriggerScheduledAt(now, 0).IsZero() == false || !domain.LoaderTriggerScheduledAt(now, 10).After(now) {
 		t.Fatalf("loaderTriggerScheduledAt returned unexpected values")
 	}
-	if defaultLoaderName(now) == "" || !strings.Contains(defaultLoaderScript(), "scheduler.interval") || loaderSourceSHA("script") == "" || loaderTriggerStableID("kind", "topic", 1, "cb", 0) == "" {
+	if domain.DefaultLoaderName(now) == "" || !strings.Contains(domain.DefaultLoaderScript(), "scheduler.interval") || domain.LoaderSourceSHA("script") == "" || domain.LoaderTriggerStableID("kind", "topic", 1, "cb", 0) == "" {
 		t.Fatalf("loader default/hash helpers returned empty values")
 	}
 

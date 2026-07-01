@@ -62,9 +62,9 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader Loader, request
 	if err != nil {
 		return nil, "", err
 	}
-	effectivePolicy := normalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
+	effectivePolicy := domain.NormalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
 	if strings.TrimSpace(request.SessionPolicy) != "" {
-		effectivePolicy = normalizeLoaderSessionPolicy(request.SessionPolicy)
+		effectivePolicy = domain.NormalizeLoaderSessionPolicy(request.SessionPolicy)
 	}
 	hasOverrides := loaderAgentRequestOverridesSession(request, titleOverridesSession)
 	forceNew := effectivePolicy == LoaderSessionPolicyNew || hasOverrides
@@ -106,7 +106,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader Loader, request
 		return nil, "", err
 	}
 	guestImage := r.guestImage(request, loader, agentDefinition, driver)
-	title := firstNonEmpty(strings.TrimSpace(request.Title), strings.TrimSpace(loader.Summary.Name), defaultLoaderName(time.Now().UTC()))
+	title := firstNonEmpty(strings.TrimSpace(request.Title), strings.TrimSpace(loader.Summary.Name), domain.DefaultLoaderName(time.Now().UTC()))
 	if agentDefinition != nil {
 		tags = append(tags, sessionTagsFromProto(agentDefinitionTags(*agentDefinition))...)
 	}

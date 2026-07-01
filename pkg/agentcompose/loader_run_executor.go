@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	"context"
 	"fmt"
 	"log/slog"
@@ -49,7 +50,7 @@ func (e *LoaderRunExecutor) Prepare(ctx context.Context, loader Loader, trigger 
 		Status:           LoaderRunStatusRunning,
 		StartedAt:        now,
 		PayloadJSON:      payloadJSON,
-		SourceScriptHash: loaderSourceSHA(loader.Script),
+		SourceScriptHash: domain.LoaderSourceSHA(loader.Script),
 		ArtifactsDir:     m.runArtifactsDir(loader.Summary.ID, ""),
 	}
 	if trigger != nil {
