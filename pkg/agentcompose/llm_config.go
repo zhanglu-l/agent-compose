@@ -264,7 +264,7 @@ func (s *ConfigStore) GetLLMFacadeToken(ctx context.Context, rawToken string) (L
 	token, err := scanLLMFacadeToken(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return LLMFacadeToken{}, fmt.Errorf("llm facade token %s not found: %w", fingerprint, err)
+			return LLMFacadeToken{}, resourceError(ErrNotFound, "llm facade token", fingerprint, fmt.Sprintf("llm facade token %s not found", fingerprint), err)
 		}
 		return LLMFacadeToken{}, err
 	}
