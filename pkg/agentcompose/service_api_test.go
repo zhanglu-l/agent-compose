@@ -1068,6 +1068,37 @@ func testServiceConfigAndLoaderAPIs(t *testing.T) {
 	if _, err := service.DeleteLoader(ctx, connect.NewRequest(&agentcomposev1.LoaderIDRequest{LoaderId: loaderID})); err != nil {
 		t.Fatalf("DeleteLoader returned error: %v", err)
 	}
+	for _, item := range []struct {
+		name string
+		run  func() error
+	}{
+		{"UpdateLoader", func() error {
+			_, err := service.UpdateLoader(ctx, connect.NewRequest(&agentcomposev1.UpdateLoaderRequest{
+				LoaderId: "missing-loader",
+				Name:     "Missing",
+				Runtime:  LoaderRuntimeScheduler,
+				Script:   `scheduler.timeout("once", function(){}, 5000);`,
+			}))
+			return err
+		}},
+		{"DeleteLoader", func() error {
+			_, err := service.DeleteLoader(ctx, connect.NewRequest(&agentcomposev1.LoaderIDRequest{LoaderId: "missing-loader"}))
+			return err
+		}},
+		{"SetLoaderEnabled", func() error {
+			_, err := service.SetLoaderEnabled(ctx, connect.NewRequest(&agentcomposev1.SetLoaderEnabledRequest{LoaderId: "missing-loader", Enabled: true}))
+			return err
+		}},
+		{"RunLoaderNow", func() error {
+			_, err := service.RunLoaderNow(ctx, connect.NewRequest(&agentcomposev1.RunLoaderNowRequest{LoaderId: "missing-loader"}))
+			return err
+		}},
+	} {
+		err := item.run()
+		if connect.CodeOf(err) != connect.CodeNotFound {
+			t.Fatalf("%s missing code = %s, want not_found (err=%v)", item.name, connect.CodeOf(err), err)
+		}
+	}
 	if _, err := service.DeleteWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.WorkspaceConfigIDRequest{WorkspaceId: workspaceID})); err != nil {
 		t.Fatalf("DeleteWorkspaceConfig returned error: %v", err)
 	}
