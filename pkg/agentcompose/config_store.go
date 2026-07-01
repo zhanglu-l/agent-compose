@@ -3,7 +3,6 @@ package agentcompose
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -681,68 +680,15 @@ func normalizeEnvItems(items []SessionEnvVar) []SessionEnvVar {
 }
 
 func encodeAgentEnvJSON(items []SessionEnvVar) (string, error) {
-	normalized := normalizeEnvItems(items)
-	if normalized == nil {
-		normalized = []SessionEnvVar{}
-	}
-	data, err := json.Marshal(normalized)
-	if err != nil {
-		return "", fmt.Errorf("encode agent env items: %w", err)
-	}
-	return string(data), nil
-}
-
-func decodeAgentEnvJSON(raw string) ([]SessionEnvVar, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-	var items []SessionEnvVar
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return nil, fmt.Errorf("decode agent env items: %w", err)
-	}
-	return normalizeEnvItems(items), nil
+	return configstore.EncodeAgentEnvJSON(items)
 }
 
 func scanAgentDefinition(scan func(dest ...any) error) (AgentDefinition, error) {
-	var item AgentDefinition
-	var enabled int
-	var deletedAtRaw any
-	var envJSON string
-	var capsetIDsRaw string
-	var createdAtRaw any
-	var updatedAtRaw any
-	if err := scan(&item.ID, &item.Name, &item.Description, &enabled, &deletedAtRaw, &item.Provider, &item.Model, &item.SystemPrompt,
-		&item.Driver, &item.GuestImage, &item.WorkspaceID, &envJSON, &item.ConfigJSON, &capsetIDsRaw,
-		&item.ManagedProjectID, &item.ManagedProjectRevision, &item.ManagedAgentName, &createdAtRaw, &updatedAtRaw); err != nil {
-		return AgentDefinition{}, fmt.Errorf("scan agent definition: %w", err)
-	}
-	envItems, err := decodeAgentEnvJSON(envJSON)
-	if err != nil {
-		return AgentDefinition{}, err
-	}
-	item.Enabled = enabled != 0
-	item.DeletedAt = parseStoredTime(deletedAtRaw)
-	item.EnvItems = envItems
-	item.CapsetIDs = decodeCapsetIDs(capsetIDsRaw)
-	item.ManagedProjectID = strings.TrimSpace(item.ManagedProjectID)
-	item.ManagedAgentName = strings.TrimSpace(item.ManagedAgentName)
-	item.CreatedAt = parseStoredTime(createdAtRaw)
-	item.UpdatedAt = parseStoredTime(updatedAtRaw)
-	return item, nil
+	return configstore.ScanAgentDefinition(scan)
 }
 
 func agentMatchesQuery(item AgentDefinition, query string) bool {
-	if query == "" {
-		return true
-	}
-	fields := []string{item.Name, item.Description, item.Provider, item.ManagedProjectID, item.ManagedAgentName}
-	for _, field := range fields {
-		if strings.Contains(strings.ToLower(field), query) {
-			return true
-		}
-	}
-	return false
+	return configstore.AgentMatchesQuery(item, query)
 }
 
 func mergeEnvItems(globalItems, sessionItems []SessionEnvVar) []SessionEnvVar {

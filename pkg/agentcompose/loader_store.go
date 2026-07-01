@@ -198,10 +198,6 @@ func encodeCapsetIDs(ids []string) (string, error) {
 	return capabilities.EncodeCapsetIDs(ids)
 }
 
-func decodeCapsetIDs(raw string) []string {
-	return capabilities.DecodeCapsetIDs(raw)
-}
-
 func (s *ConfigStore) CreateLoader(ctx context.Context, item Loader) (Loader, error) {
 	normalized, err := normalizeLoader(item, true)
 	if err != nil {
