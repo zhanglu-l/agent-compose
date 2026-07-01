@@ -292,45 +292,15 @@ func (s *ConfigStore) RevokeLLMFacadeTokensForSession(ctx context.Context, sessi
 }
 
 func scanLLMProvider(scan func(dest ...any) error) (LLMProvider, error) {
-	var item LLMProvider
-	var genericResponsesTextParts, enabled int
-	var createdAt, updatedAt int64
-	if err := scan(&item.ID, &item.Name, &item.ProviderType, &item.DefaultWireAPI, &item.BaseURL, &item.APIKey, &item.AuthHeader, &item.AuthScheme, &item.HeadersJSON, &genericResponsesTextParts, &item.Weight, &enabled, &item.Scope, &createdAt, &updatedAt); err != nil {
-		return LLMProvider{}, err
-	}
-	item.UseGenericResponsesTextParts = genericResponsesTextParts != 0
-	item.Enabled = enabled != 0
-	item.ProviderType = normalizeLLMProviderType(item.ProviderType)
-	item.DefaultWireAPI = normalizeLLMWireAPI(item.DefaultWireAPI)
-	item.CreatedAt = parseStoredTime(createdAt)
-	item.UpdatedAt = parseStoredTime(updatedAt)
-	return item, nil
+	return llms.ScanProvider(scan)
 }
 
 func scanLLMModel(scan func(dest ...any) error) (LLMModel, error) {
-	var item LLMModel
-	var defaultModel, enabled int
-	var createdAt, updatedAt int64
-	if err := scan(&item.ID, &item.Name, &item.Description, &defaultModel, &enabled, &item.Scope, &createdAt, &updatedAt); err != nil {
-		return LLMModel{}, err
-	}
-	item.DefaultModel = defaultModel != 0
-	item.Enabled = enabled != 0
-	item.CreatedAt = parseStoredTime(createdAt)
-	item.UpdatedAt = parseStoredTime(updatedAt)
-	return item, nil
+	return llms.ScanModel(scan)
 }
 
 func scanLLMFacadeToken(scan func(dest ...any) error) (LLMFacadeToken, error) {
-	var item LLMFacadeToken
-	var issuedAt, expiresAt, revokedAt int64
-	if err := scan(&item.SessionID, &item.TokenHash, &item.TokenFingerprint, &item.Model, &item.ProviderID, &item.WireAPI, &item.Source, &item.RunID, &issuedAt, &expiresAt, &revokedAt); err != nil {
-		return LLMFacadeToken{}, err
-	}
-	item.IssuedAt = parseStoredTime(issuedAt)
-	item.ExpiresAt = parseStoredTime(expiresAt)
-	item.RevokedAt = parseStoredTime(revokedAt)
-	return item, nil
+	return llms.ScanFacadeToken(scan)
 }
 
 func bootstrapDefaultLLMConfig(ctx context.Context, config *appconfig.Config, store *ConfigStore, requestedModel string) error {
@@ -944,55 +914,19 @@ func forbiddenProviderHeader(name, authHeader string) bool {
 }
 
 func normalizeLLMWireAPI(value string) string {
-	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_") {
-	case "", llmAPIProtocolResponses:
-		return llmAPIProtocolResponses
-	case "chat", "chat_completion", llmAPIProtocolChatCompletions:
-		return llmAPIProtocolChatCompletions
-	case "message", llmAPIProtocolMessages:
-		return llmAPIProtocolMessages
-	default:
-		return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_")
-	}
+	return llms.NormalizeWireAPI(value)
 }
 
 func normalizeLLMProviderType(value string) string {
-	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_") {
-	case "", "openai", "openai_compatible":
-		return llmProviderFamilyOpenAI
-	case "anthropic", "claude", "anthropic_messages":
-		return llmProviderFamilyAnthropic
-	default:
-		return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_")
-	}
+	return llms.NormalizeProviderType(value)
 }
 
 func normalizeOptionalLLMProviderType(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return ""
-	}
-	return normalizeLLMProviderType(value)
+	return llms.NormalizeOptionalProviderType(value)
 }
 
 func normalizeLLMAPIBaseURL(raw, wireAPI string) string {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	if raw == "" {
-		return ""
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	cleanPath := strings.TrimRight(parsed.Path, "/")
-	switch {
-	case strings.HasSuffix(cleanPath, "/responses"):
-		parsed.Path = strings.TrimSuffix(cleanPath, "/responses")
-	case strings.HasSuffix(cleanPath, "/chat/completions"):
-		parsed.Path = strings.TrimSuffix(cleanPath, "/chat/completions")
-	default:
-		parsed.Path = cleanPath
-	}
-	return strings.TrimRight(parsed.String(), "/")
+	return llms.NormalizeAPIBaseURL(raw, wireAPI)
 }
 
 func llmEndpointForProvider(provider LLMProvider, wireAPI string) string {
@@ -1013,67 +947,11 @@ func llmEndpointForProvider(provider LLMProvider, wireAPI string) string {
 }
 
 func appendLLMAPIEndpointToBaseURL(baseURL, wireAPI string) string {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		return ""
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		switch normalizeLLMWireAPI(wireAPI) {
-		case llmAPIProtocolChatCompletions:
-			return baseURL + "/v1/chat/completions"
-		default:
-			return baseURL + "/v1/responses"
-		}
-	}
-	cleanPath := strings.TrimRight(parsed.Path, "/")
-	switch normalizeLLMWireAPI(wireAPI) {
-	case llmAPIProtocolChatCompletions:
-		if cleanPath == "/v1" || strings.HasSuffix(cleanPath, "/v1") {
-			joinLLMAPIBasePath(parsed, cleanPath, "chat/completions")
-		} else {
-			joinLLMAPIBasePath(parsed, cleanPath, "v1/chat/completions")
-		}
-	default:
-		if cleanPath == "/v1" || strings.HasSuffix(cleanPath, "/v1") {
-			joinLLMAPIBasePath(parsed, cleanPath, "responses")
-		} else {
-			joinLLMAPIBasePath(parsed, cleanPath, "v1/responses")
-		}
-	}
-	return parsed.String()
-}
-
-func joinLLMAPIBasePath(parsed *url.URL, basePath, suffix string) {
-	if parsed == nil {
-		return
-	}
-	joined := pathpkg.Join(basePath, suffix)
-	if parsed.Host != "" && !strings.HasPrefix(joined, "/") {
-		joined = "/" + joined
-	}
-	parsed.Path = joined
+	return llms.AppendAPIEndpointToBaseURL(baseURL, wireAPI)
 }
 
 func normalizeAnthropicAPIBaseURL(raw string) string {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	if raw == "" {
-		return ""
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	cleanPath := strings.TrimRight(parsed.Path, "/")
-	switch {
-	case strings.HasSuffix(cleanPath, "/messages"):
-		parsed.Path = strings.TrimSuffix(cleanPath, "/messages")
-	case cleanPath == "":
-		parsed.Path = "/v1"
-	default:
-		parsed.Path = cleanPath
-	}
-	return strings.TrimRight(parsed.String(), "/")
+	return llms.NormalizeAnthropicAPIBaseURL(raw)
 }
 
 func lookupEnvValue(ctx context.Context, store *ConfigStore, key string) string {
