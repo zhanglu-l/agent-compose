@@ -78,10 +78,6 @@ func (e *llmClientError) Error() string {
 	return e.message
 }
 
-func applyLLMForwardHeaders(dst http.Header, src http.Header) {
-	llms.ApplyForwardHeaders(dst, src)
-}
-
 func (c *LLMClient) resolveSetting(ctx context.Context, fallback string, keys ...string) string {
 	return llms.ResolveSetting(ctx, c.globalEnvStore(), fallback, keys...)
 }
@@ -109,12 +105,4 @@ func (c *LLMClient) clientConfig() llms.ClientConfig {
 		Endpoint: c.config.LLMAPIEndpoint,
 		Protocol: c.config.LLMAPIProtocol,
 	}
-}
-
-func normalizeLLMAPIEndpoint(raw string) string {
-	return llms.NormalizeAPIEndpoint(raw)
-}
-
-func normalizeLLMAPIEndpointForProtocol(raw, protocol string) string {
-	return llms.NormalizeAPIEndpointForProtocol(raw, protocol)
 }

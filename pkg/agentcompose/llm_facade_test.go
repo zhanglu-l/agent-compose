@@ -799,7 +799,7 @@ func TestEnsureSessionOpenCodeOpenAIWritesRequestedModelConfig(t *testing.T) {
 }
 
 func TestSplitOpenCodeModelPreservesNestedModelID(t *testing.T) {
-	providerID, modelName, err := splitOpenCodeModel("openrouter/meta-llama/llama-3.1-8b")
+	providerID, modelName, err := llms.SplitOpenCodeModel("openrouter/meta-llama/llama-3.1-8b")
 	if err != nil {
 		t.Fatalf("splitOpenCodeModel returned error: %v", err)
 	}

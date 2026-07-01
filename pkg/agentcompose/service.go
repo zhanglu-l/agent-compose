@@ -26,6 +26,7 @@ import (
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/images"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/loaders"
 	"agent-compose/pkg/agentcompose/workspaces"
 	"agent-compose/pkg/capproxy"
@@ -1274,7 +1275,7 @@ func (e *Executor) executeAgentRun(ctx context.Context, session *Session, agent,
 		return ExecResult{}, AgentRunResult{}, err
 	}
 	if len(managedEnv) > 0 {
-		spec.Env = mergeManagedExecEnv(spec.Env, managedEnv)
+		spec.Env = llms.MergeManagedExecEnv(spec.Env, managedEnv)
 		// The per-run facade token is only needed while this bounded run executes.
 		// Retire it as soon as the run returns so live tokens never accumulate over
 		// the lifetime of a long-running session. Use a detached context because the

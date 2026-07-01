@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/execution"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/sessions"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
@@ -129,7 +130,7 @@ func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, 
 		return err
 	}
 	if len(managedEnv) > 0 {
-		session.RuntimeEnvItems = envItemsFromMap(managedEnv, false)
+		session.RuntimeEnvItems = llms.EnvItemsFromMap(managedEnv, false)
 	}
 	*vmState = execution.FromDriverVMState(prepared)
 	return nil

@@ -132,7 +132,7 @@ func (s *Service) handleRuntimeLLM(c echo.Context, inboundProtocol protocolbridg
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "create upstream llm request failed"})
 	}
 	llms.CopyRuntimeHeaders(upstreamReq.Header, c.Request().Header)
-	applyLLMForwardHeaders(upstreamReq.Header, target.Headers)
+	llms.ApplyForwardHeaders(upstreamReq.Header, target.Headers)
 	resp, err := s.llm.client.Do(upstreamReq)
 	if err != nil {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": "call upstream llm failed"})
@@ -172,7 +172,7 @@ func (s *Service) proxyRuntimeLLMTransparent(c echo.Context, upstreamEndpoint st
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "create upstream llm request failed"})
 	}
 	llms.CopyRuntimeHeaders(upstreamReq.Header, c.Request().Header)
-	applyLLMForwardHeaders(upstreamReq.Header, target.Headers)
+	llms.ApplyForwardHeaders(upstreamReq.Header, target.Headers)
 	resp, err := s.llm.client.Do(upstreamReq)
 	if err != nil {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": "call upstream llm failed"})

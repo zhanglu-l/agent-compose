@@ -311,7 +311,7 @@ func (e *Executor) prepareLoaderCommandLLMFacadeEnv(ctx context.Context, session
 		return nil, "", err
 	}
 	if len(managedEnv) > 0 {
-		execSession.RuntimeEnvItems = domain.MergeEnvItems(execSession.RuntimeEnvItems, envItemsFromMap(managedEnv, false))
+		execSession.RuntimeEnvItems = domain.MergeEnvItems(execSession.RuntimeEnvItems, llms.EnvItemsFromMap(managedEnv, false))
 	}
 	return &execSession, managedEnv["AGENT_COMPOSE_SESSION_TOKEN"], nil
 }

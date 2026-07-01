@@ -133,7 +133,7 @@ func ensureSessionClaudeLLMFacadeConfig(ctx context.Context, config *appconfig.C
 }
 
 func ensureSessionOpenCodeLLMFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
-	providerID, modelName, err := splitOpenCodeModel(model)
+	providerID, modelName, err := llms.SplitOpenCodeModel(model)
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +151,6 @@ func ensureSessionOpenCodeLLMFacadeConfig(ctx context.Context, config *appconfig
 	default:
 		return ensureSessionOpenCodeCustomProviderConfig(ctx, config, configDB, session, providerID, modelName, source, runID)
 	}
-}
-
-func splitOpenCodeModel(model string) (string, string, error) {
-	return llms.SplitOpenCodeModel(model)
 }
 
 func ensureSessionOpenCodeAnthropicFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
@@ -484,12 +480,4 @@ func lookupRuntimeBaseURLEnv(session *Session) string {
 		}
 	}
 	return ""
-}
-
-func mergeManagedExecEnv(base map[string]string, managed map[string]string) map[string]string {
-	return llms.MergeManagedExecEnv(base, managed)
-}
-
-func envItemsFromMap(values map[string]string, secret bool) []SessionEnvVar {
-	return llms.EnvItemsFromMap(values, secret)
 }

@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/llms"
 	appconfig "agent-compose/pkg/config"
 	"context"
 	"io"
@@ -45,25 +46,25 @@ func TestLLMClientResolveEndpointPrefersGlobalEnvThenProcessEnvThenDefault(t *te
 }
 
 func TestNormalizeLLMAPIEndpointKeepsExplicitPath(t *testing.T) {
-	if got := normalizeLLMAPIEndpoint("https://api.example.invalid/v1/responses"); got != "https://api.example.invalid/v1/responses" {
+	if got := llms.NormalizeAPIEndpoint("https://api.example.invalid/v1/responses"); got != "https://api.example.invalid/v1/responses" {
 		t.Fatalf("normalizeLLMAPIEndpoint explicit path = %q, want unchanged", got)
 	}
-	if got := normalizeLLMAPIEndpoint("https://api.example.invalid/custom/path"); got != "https://api.example.invalid/custom/path" {
+	if got := llms.NormalizeAPIEndpoint("https://api.example.invalid/custom/path"); got != "https://api.example.invalid/custom/path" {
 		t.Fatalf("normalizeLLMAPIEndpoint custom path = %q, want unchanged", got)
 	}
-	if got := normalizeLLMAPIEndpointForProtocol("https://api.example.invalid", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/v1/chat/completions" {
+	if got := llms.NormalizeAPIEndpointForProtocol("https://api.example.invalid", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/v1/chat/completions" {
 		t.Fatalf("normalizeLLMAPIEndpointForProtocol chat base = %q, want chat completions path", got)
 	}
-	if got := normalizeLLMAPIEndpointForProtocol("https://api.example.invalid/v1", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/v1/chat/completions" {
+	if got := llms.NormalizeAPIEndpointForProtocol("https://api.example.invalid/v1", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/v1/chat/completions" {
 		t.Fatalf("normalizeLLMAPIEndpointForProtocol chat v1 = %q, want chat completions path", got)
 	}
-	if got := normalizeLLMAPIEndpoint("https://api.example.invalid/openai"); got != "https://api.example.invalid/openai/v1/responses" {
+	if got := llms.NormalizeAPIEndpoint("https://api.example.invalid/openai"); got != "https://api.example.invalid/openai/v1/responses" {
 		t.Fatalf("normalizeLLMAPIEndpoint openai base = %q, want openai responses path", got)
 	}
-	if got := normalizeLLMAPIEndpointForProtocol("https://api.example.invalid/openai/v1", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/openai/v1/chat/completions" {
+	if got := llms.NormalizeAPIEndpointForProtocol("https://api.example.invalid/openai/v1", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/openai/v1/chat/completions" {
 		t.Fatalf("normalizeLLMAPIEndpointForProtocol openai v1 chat = %q, want openai chat completions path", got)
 	}
-	if got := normalizeLLMAPIEndpointForProtocol("https://api.example.invalid/custom/chat", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/custom/chat" {
+	if got := llms.NormalizeAPIEndpointForProtocol("https://api.example.invalid/custom/chat", llmAPIProtocolChatCompletions); got != "https://api.example.invalid/custom/chat" {
 		t.Fatalf("normalizeLLMAPIEndpointForProtocol chat custom = %q, want unchanged", got)
 	}
 }
