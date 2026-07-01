@@ -21,13 +21,7 @@ type (
 	ImageInspectResult  = images.InspectResult
 	ImageRemoveRequest  = images.RemoveRequest
 	ImageRemoveResult   = images.RemoveResult
-	DockerImageBackend  = images.DockerBackend
-	dockerImageClient   = images.DockerClient
 )
-
-func NewDockerImageBackend(options ...images.DockerBackendOption) *DockerImageBackend {
-	return images.NewDockerBackend(options...)
-}
 
 func (s *Service) ListImages(ctx context.Context, req *connect.Request[agentcomposev2.ListImagesRequest]) (*connect.Response[agentcomposev2.ListImagesResponse], error) {
 	backend, err := s.imageBackendForStore(req.Msg.GetStore())

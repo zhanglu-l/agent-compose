@@ -26,7 +26,7 @@ import (
 func TestOCIImageBackendListInspectRemoveWithMetadata(t *testing.T) {
 	cache := newAgentcomposeImageCache(t, "")
 	image := saveAgentcomposeOCIMetadata(t, cache, "team/app:latest")
-	backend := NewOCIImageBackend(cache, images.WithOCIClock(func() time.Time {
+	backend := images.NewOCIBackend(cache, images.WithOCIClock(func() time.Time {
 		return time.Date(2026, 6, 11, 13, 14, 15, 0, time.UTC)
 	}))
 
@@ -143,7 +143,7 @@ func TestIntegrationOCIImageBackendPullFromLocalRegistry(t *testing.T) {
 	}
 
 	cache := newAgentcomposeImageCache(t, host)
-	backend := NewOCIImageBackend(cache)
+	backend := images.NewOCIBackend(cache)
 	pull, err := backend.PullImage(ctx, ImagePullRequest{
 		ImageRef: refString,
 		Platform: &agentcomposev2.ImagePlatform{

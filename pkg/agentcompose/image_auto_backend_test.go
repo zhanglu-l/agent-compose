@@ -16,7 +16,7 @@ import (
 func TestAutoImageBackendUsesDockerWhenAutoPingSucceeds(t *testing.T) {
 	dockerCalled := false
 	ociCalled := false
-	backend := NewAutoImageBackend(
+	backend := images.NewAutoBackend(
 		appconfig.ImageStoreModeAuto,
 		&fakeImageBackend{listImages: func(ctx context.Context, req ImageListRequest) (ImageListResult, error) {
 			dockerCalled = true
@@ -42,7 +42,7 @@ func TestAutoImageBackendUsesDockerWhenAutoPingSucceeds(t *testing.T) {
 func TestAutoImageBackendUsesOCIWhenAutoPingFails(t *testing.T) {
 	dockerCalled := false
 	ociCalled := false
-	backend := NewAutoImageBackend(
+	backend := images.NewAutoBackend(
 		appconfig.ImageStoreModeAuto,
 		&fakeImageBackend{pullImage: func(ctx context.Context, req ImagePullRequest) (ImagePullResult, error) {
 			dockerCalled = true
@@ -69,13 +69,13 @@ func TestAutoImageBackendForcedModesDoNotPing(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mode string
-		run  func(*AutoImageBackend) error
+		run  func(*images.AutoBackend) error
 		want string
 	}{
 		{
 			name: appconfig.ImageStoreModeDocker,
 			mode: appconfig.ImageStoreModeDocker,
-			run: func(backend *AutoImageBackend) error {
+			run: func(backend *images.AutoBackend) error {
 				_, err := backend.InspectImage(context.Background(), ImageInspectRequest{ImageRef: "team/app:latest"})
 				return err
 			},
@@ -84,7 +84,7 @@ func TestAutoImageBackendForcedModesDoNotPing(t *testing.T) {
 		{
 			name: appconfig.ImageStoreModeOCI,
 			mode: appconfig.ImageStoreModeOCI,
-			run: func(backend *AutoImageBackend) error {
+			run: func(backend *images.AutoBackend) error {
 				_, err := backend.RemoveImage(context.Background(), ImageRemoveRequest{ImageRef: "team/app:latest"})
 				return err
 			},
@@ -95,7 +95,7 @@ func TestAutoImageBackendForcedModesDoNotPing(t *testing.T) {
 			pinged := false
 			dockerCalled := false
 			ociCalled := false
-			backend := NewAutoImageBackend(
+			backend := images.NewAutoBackend(
 				tc.mode,
 				&fakeImageBackend{
 					inspectImage: func(ctx context.Context, req ImageInspectRequest) (ImageInspectResult, error) {

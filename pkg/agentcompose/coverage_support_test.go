@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/images"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -267,11 +268,11 @@ func testSupportConstructorsAndHelpers(t *testing.T) {
 	if err != nil || service.startedAt.IsZero() || service.store != store {
 		t.Fatalf("NewService = %#v/%v", service, err)
 	}
-	ociBackend, ok := service.ociImages.(*OCIImageBackend)
+	ociBackend, ok := service.ociImages.(*images.OCIBackend)
 	if !ok || !ociBackend.HasCache() || ociBackend.CacheRoot() != config.ImageCacheRoot {
 		t.Fatalf("NewService OCI backend = %#v ok=%v", service.ociImages, ok)
 	}
-	autoBackend, ok := service.autoImages.(*AutoImageBackend)
+	autoBackend, ok := service.autoImages.(*images.AutoBackend)
 	if !ok || !autoBackend.HasDockerBackend() || !autoBackend.HasOCIBackend() || autoBackend.Mode() != config.ImageStoreMode {
 		t.Fatalf("NewService auto backend = %#v ok=%v", service.autoImages, ok)
 	}

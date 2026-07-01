@@ -89,8 +89,8 @@ func TestE2EImageServiceDockerUnavailableErrorIncludesEndpointAndImage(t *testin
 func testImageServiceDockerUnavailableErrorIncludesEndpointAndImage(t *testing.T) {
 	t.Helper()
 	t.Setenv("DOCKER_HOST", "tcp://docker.example:2375")
-	service := &Service{images: NewDockerImageBackend(
-		images.WithDockerClientFactory(func() (dockerImageClient, error) {
+	service := &Service{images: images.NewDockerBackend(
+		images.WithDockerClientFactory(func() (images.DockerClient, error) {
 			return nil, errors.New("docker daemon unavailable")
 		}),
 	)}
@@ -145,8 +145,8 @@ func testDockerImageBackendListPullInspectRemove(t *testing.T) {
 		},
 		removeResponse: []typesimage.DeleteResponse{{Untagged: "agent:latest"}, {Deleted: "sha256:inspect"}},
 	}
-	backend := NewDockerImageBackend(
-		images.WithDockerClientFactory(func() (dockerImageClient, error) { return fake, nil }),
+	backend := images.NewDockerBackend(
+		images.WithDockerClientFactory(func() (images.DockerClient, error) { return fake, nil }),
 		images.WithDockerClock(func() time.Time { return time.Date(2026, 6, 11, 1, 2, 3, 0, time.UTC) }),
 	)
 	ctx := context.Background()
@@ -202,7 +202,7 @@ func testDockerImageBackendListPullInspectRemove(t *testing.T) {
 func TestOCIMetadataToProtoImage(t *testing.T) {
 	createdAt := time.Date(2026, 6, 11, 3, 4, 5, 0, time.UTC)
 	pulledAt := createdAt.Add(time.Hour)
-	image := ociMetadataToProtoImage(imagecache.ImageMetadata{
+	image := images.OCIMetadataToProtoImage(imagecache.ImageMetadata{
 		CacheKey:        "sha256:config",
 		RequestedRef:    "team/app",
 		NormalizedRef:   "registry.example/team/app:latest",
@@ -259,25 +259,25 @@ func testDockerImageBackendOperationErrorsIncludeEndpointAndImage(t *testing.T) 
 	t.Helper()
 	for _, tc := range []struct {
 		name string
-		run  func(*DockerImageBackend) error
+		run  func(*images.DockerBackend) error
 	}{
 		{
 			name: "pull",
-			run: func(backend *DockerImageBackend) error {
+			run: func(backend *images.DockerBackend) error {
 				_, err := backend.PullImage(context.Background(), ImagePullRequest{ImageRef: "broken:pull"})
 				return err
 			},
 		},
 		{
 			name: "inspect",
-			run: func(backend *DockerImageBackend) error {
+			run: func(backend *images.DockerBackend) error {
 				_, err := backend.InspectImage(context.Background(), ImageInspectRequest{ImageRef: "broken:inspect"})
 				return err
 			},
 		},
 		{
 			name: "remove",
-			run: func(backend *DockerImageBackend) error {
+			run: func(backend *images.DockerBackend) error {
 				_, err := backend.RemoveImage(context.Background(), ImageRemoveRequest{ImageRef: "broken:remove"})
 				return err
 			},
@@ -292,7 +292,7 @@ func testDockerImageBackendOperationErrorsIncludeEndpointAndImage(t *testing.T) 
 				pullReader:   io.NopCloser(strings.NewReader(`{}`)),
 				inspectImage: typesimage.InspectResponse{ID: "sha256:unused"},
 			}
-			backend := NewDockerImageBackend(images.WithDockerClientFactory(func() (dockerImageClient, error) { return fake, nil }))
+			backend := images.NewDockerBackend(images.WithDockerClientFactory(func() (images.DockerClient, error) { return fake, nil }))
 			err := tc.run(backend)
 			if err == nil {
 				t.Fatal("operation returned nil error")

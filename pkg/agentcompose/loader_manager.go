@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/images"
 	"agent-compose/pkg/agentcompose/loaders"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -97,7 +98,7 @@ func NewLoaderManager(di do.Injector) (*LoaderManager, error) {
 		configDB:     do.MustInvoke[*ConfigStore](di),
 		driver:       do.MustInvoke[Driver](di),
 		executor:     do.MustInvoke[*Executor](di),
-		images:       NewDockerImageBackend(),
+		images:       images.NewDockerBackend(),
 		llm:          do.MustInvoke[*LLMClient](di),
 		cap:          do.MustInvoke[capabilityIntegration](di),
 		bus:          do.MustInvoke[*LoaderBus](di),
