@@ -173,23 +173,8 @@ func toWorkspaceHTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, message)
 	case errors.Is(err, ErrInvalidArgument), errors.Is(err, ErrRequired):
 		return echo.NewHTTPError(http.StatusBadRequest, message)
-	case legacyWorkspaceHTTPStatus(message) != 0:
-		return echo.NewHTTPError(legacyWorkspaceHTTPStatus(message), message)
 	default:
 		return echo.NewHTTPError(http.StatusInternalServerError, message)
-	}
-}
-
-func legacyWorkspaceHTTPStatus(message string) int {
-	switch {
-	case strings.Index(message, "not found") >= 0:
-		return http.StatusNotFound
-	case strings.Index(message, "not a file workspace") >= 0,
-		strings.Index(message, "invalid") >= 0,
-		strings.Index(message, "missing") >= 0:
-		return http.StatusBadRequest
-	default:
-		return 0
 	}
 }
 

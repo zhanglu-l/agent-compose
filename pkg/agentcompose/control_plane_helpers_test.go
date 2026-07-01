@@ -43,10 +43,10 @@ func testControlPlaneHelperErrorAndParsingBranches(t *testing.T) {
 		err  error
 		code int
 	}{
-		{errors.New("workspace not found"), http.StatusNotFound},
-		{errors.New("workspace config is not a file workspace"), http.StatusBadRequest},
-		{errors.New("invalid path"), http.StatusBadRequest},
-		{errors.New("missing root"), http.StatusBadRequest},
+		{classifyError(ErrNotFound, "workspace not found", nil), http.StatusNotFound},
+		{classifyError(ErrInvalidArgument, "workspace config is not a file workspace", nil), http.StatusBadRequest},
+		{classifyError(ErrInvalidArgument, "invalid path", nil), http.StatusBadRequest},
+		{classifyError(ErrRequired, "missing root", nil), http.StatusBadRequest},
 		{errors.New("disk failed"), http.StatusInternalServerError},
 	} {
 		httpErr, ok := toWorkspaceHTTPError(item.err).(*echo.HTTPError)
