@@ -71,3 +71,70 @@ func NormalizeComparableLoaderTriggers(items []domain.LoaderTrigger) []domain.Lo
 	})
 	return cloned
 }
+
+func ManagedAgentDefinitionUnchanged(existing, current domain.AgentDefinition) bool {
+	return existing.Name == current.Name &&
+		existing.Description == current.Description &&
+		existing.Provider == current.Provider &&
+		existing.Model == current.Model &&
+		existing.SystemPrompt == current.SystemPrompt &&
+		existing.Driver == current.Driver &&
+		existing.GuestImage == current.GuestImage &&
+		existing.WorkspaceID == current.WorkspaceID &&
+		existing.ConfigJSON == current.ConfigJSON &&
+		SameSessionEnvItems(existing.EnvItems, current.EnvItems) &&
+		SameCapsetIDs(existing.CapsetIDs, current.CapsetIDs) &&
+		existing.ManagedProjectID == current.ManagedProjectID &&
+		existing.ManagedProjectRevision == current.ManagedProjectRevision &&
+		existing.ManagedAgentName == current.ManagedAgentName
+}
+
+func SchedulerRecordUnchanged(existing, current domain.ProjectSchedulerRecord) bool {
+	return existing.ManagedLoaderID == current.ManagedLoaderID &&
+		existing.Revision == current.Revision &&
+		existing.Enabled == current.Enabled &&
+		existing.TriggerCount == current.TriggerCount &&
+		existing.SpecJSON == current.SpecJSON
+}
+
+func ManagedLoaderUnchanged(existing, current domain.Loader) bool {
+	return existing.Summary.Name == current.Summary.Name &&
+		existing.Summary.Description == current.Summary.Description &&
+		existing.Summary.Enabled == current.Summary.Enabled &&
+		existing.Summary.Runtime == current.Summary.Runtime &&
+		existing.Summary.WorkspaceID == current.Summary.WorkspaceID &&
+		existing.Summary.AgentID == current.Summary.AgentID &&
+		existing.Summary.Driver == current.Summary.Driver &&
+		existing.Summary.GuestImage == current.Summary.GuestImage &&
+		existing.Summary.DefaultAgent == current.Summary.DefaultAgent &&
+		existing.Summary.SessionPolicy == current.Summary.SessionPolicy &&
+		existing.Summary.ConcurrencyPolicy == current.Summary.ConcurrencyPolicy &&
+		existing.Summary.ManagedProjectID == current.Summary.ManagedProjectID &&
+		existing.Summary.ManagedRevision == current.Summary.ManagedRevision &&
+		existing.Summary.ManagedAgentName == current.Summary.ManagedAgentName &&
+		existing.Summary.ManagedSchedulerID == current.Summary.ManagedSchedulerID &&
+		existing.Script == current.Script &&
+		SameSessionEnvItems(existing.EnvItems, current.EnvItems) &&
+		SameCapsetIDs(existing.Summary.CapsetIDs, current.Summary.CapsetIDs) &&
+		SameLoaderTriggerSpecs(existing.Triggers, current.Triggers)
+}
+
+func ProjectRecordUnchanged(existing, current domain.ProjectRecord) bool {
+	return existing.ID == current.ID &&
+		existing.Name == current.Name &&
+		existing.SourcePath == current.SourcePath &&
+		existing.SpecHash == current.SpecHash &&
+		existing.CurrentRevision == current.CurrentRevision &&
+		existing.RemovedAt.IsZero()
+}
+
+func ProjectAgentRecordUnchanged(existing, current domain.ProjectAgentRecord) bool {
+	return existing.ManagedAgentID == current.ManagedAgentID &&
+		existing.Revision == current.Revision &&
+		existing.Provider == current.Provider &&
+		existing.Model == current.Model &&
+		existing.Image == current.Image &&
+		existing.Driver == current.Driver &&
+		existing.SchedulerEnabled == current.SchedulerEnabled &&
+		existing.SpecJSON == current.SpecJSON
+}

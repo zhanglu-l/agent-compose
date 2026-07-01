@@ -1236,20 +1236,7 @@ func managedAgentDefinitionChangeAction(existing AgentDefinition, found bool, cu
 	if !existing.DeletedAt.IsZero() || !existing.Enabled {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
 	}
-	if existing.Name == current.Name &&
-		existing.Description == current.Description &&
-		existing.Provider == current.Provider &&
-		existing.Model == current.Model &&
-		existing.SystemPrompt == current.SystemPrompt &&
-		existing.Driver == current.Driver &&
-		existing.GuestImage == current.GuestImage &&
-		existing.WorkspaceID == current.WorkspaceID &&
-		existing.ConfigJSON == current.ConfigJSON &&
-		sameSessionEnvItems(existing.EnvItems, current.EnvItems) &&
-		sameStringSlices(existing.CapsetIDs, current.CapsetIDs) &&
-		existing.ManagedProjectID == current.ManagedProjectID &&
-		existing.ManagedProjectRevision == current.ManagedProjectRevision &&
-		existing.ManagedAgentName == current.ManagedAgentName {
+	if projects.ManagedAgentDefinitionUnchanged(existing, current) {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
 	}
 	return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
@@ -1259,11 +1246,7 @@ func schedulerChangeAction(existing ProjectSchedulerRecord, found bool, current 
 	if !found {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
 	}
-	if existing.ManagedLoaderID == current.ManagedLoaderID &&
-		existing.Revision == current.Revision &&
-		existing.Enabled == current.Enabled &&
-		existing.TriggerCount == current.TriggerCount &&
-		existing.SpecJSON == current.SpecJSON {
+	if projects.SchedulerRecordUnchanged(existing, current) {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
 	}
 	return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
@@ -1273,25 +1256,7 @@ func managedLoaderChangeAction(existing Loader, found bool, current Loader) agen
 	if !found {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
 	}
-	if existing.Summary.Name == current.Summary.Name &&
-		existing.Summary.Description == current.Summary.Description &&
-		existing.Summary.Enabled == current.Summary.Enabled &&
-		existing.Summary.Runtime == current.Summary.Runtime &&
-		existing.Summary.WorkspaceID == current.Summary.WorkspaceID &&
-		existing.Summary.AgentID == current.Summary.AgentID &&
-		existing.Summary.Driver == current.Summary.Driver &&
-		existing.Summary.GuestImage == current.Summary.GuestImage &&
-		existing.Summary.DefaultAgent == current.Summary.DefaultAgent &&
-		existing.Summary.SessionPolicy == current.Summary.SessionPolicy &&
-		existing.Summary.ConcurrencyPolicy == current.Summary.ConcurrencyPolicy &&
-		existing.Summary.ManagedProjectID == current.Summary.ManagedProjectID &&
-		existing.Summary.ManagedRevision == current.Summary.ManagedRevision &&
-		existing.Summary.ManagedAgentName == current.Summary.ManagedAgentName &&
-		existing.Summary.ManagedSchedulerID == current.Summary.ManagedSchedulerID &&
-		existing.Script == current.Script &&
-		sameSessionEnvItems(existing.EnvItems, current.EnvItems) &&
-		sameStringSlices(existing.Summary.CapsetIDs, current.Summary.CapsetIDs) &&
-		sameLoaderTriggerSpecs(existing.Triggers, current.Triggers) {
+	if projects.ManagedLoaderUnchanged(existing, current) {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
 	}
 	return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
@@ -1299,14 +1264,6 @@ func managedLoaderChangeAction(existing Loader, found bool, current Loader) agen
 
 func sameLoaderTriggerSpecs(a, b []LoaderTrigger) bool {
 	return projects.SameLoaderTriggerSpecs(a, b)
-}
-
-func sameSessionEnvItems(a, b []SessionEnvVar) bool {
-	return projects.SameSessionEnvItems(a, b)
-}
-
-func sameStringSlices(a, b []string) bool {
-	return projects.SameCapsetIDs(a, b)
 }
 
 func getProjectAgentIfExists(ctx context.Context, store *ConfigStore, projectID, agentName string) (ProjectAgentRecord, bool, error) {
@@ -1402,26 +1359,14 @@ func dryRunProjectChanges(project ProjectRecord, agents []ProjectAgentRecord, ag
 }
 
 func projectRecordUnchanged(existing ProjectRecord, current ProjectRecord) bool {
-	return existing.ID == current.ID &&
-		existing.Name == current.Name &&
-		existing.SourcePath == current.SourcePath &&
-		existing.SpecHash == current.SpecHash &&
-		existing.CurrentRevision == current.CurrentRevision &&
-		existing.RemovedAt.IsZero()
+	return projects.ProjectRecordUnchanged(existing, current)
 }
 
 func agentChangeAction(existing ProjectAgentRecord, found bool, current ProjectAgentRecord) agentcomposev2.ProjectChangeAction {
 	if !found {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED
 	}
-	if existing.ManagedAgentID == current.ManagedAgentID &&
-		existing.Revision == current.Revision &&
-		existing.Provider == current.Provider &&
-		existing.Model == current.Model &&
-		existing.Image == current.Image &&
-		existing.Driver == current.Driver &&
-		existing.SchedulerEnabled == current.SchedulerEnabled &&
-		existing.SpecJSON == current.SpecJSON {
+	if projects.ProjectAgentRecordUnchanged(existing, current) {
 		return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED
 	}
 	return agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED
