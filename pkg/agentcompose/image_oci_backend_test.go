@@ -109,7 +109,7 @@ func TestImageServiceOCIStoreRequiresBackendWithoutUnimplemented(t *testing.T) {
 func TestImageServiceMapsOCIBackendErrors(t *testing.T) {
 	service := &Service{ociImages: &fakeImageBackend{
 		inspectImage: func(ctx context.Context, req ImageInspectRequest) (ImageInspectResult, error) {
-			return ImageInspectResult{}, imageBackendOpError{
+			return ImageInspectResult{}, images.OpError{
 				Op:       "inspect image",
 				Endpoint: "/cache/oci",
 				ImageRef: req.ImageRef,

@@ -35,7 +35,7 @@ func (s *Service) ListImages(ctx context.Context, req *connect.Request[agentcomp
 	if err != nil {
 		return nil, connectErrorForImageBackend("list images", "", err)
 	}
-	images, hasMore, nextOffset := paginateImages(result.Images, req.Msg.GetOffset(), req.Msg.GetLimit())
+	images, hasMore, nextOffset := images.PaginateProtoImages(result.Images, req.Msg.GetOffset(), req.Msg.GetLimit())
 	return connect.NewResponse(&agentcomposev2.ListImagesResponse{
 		Images:      images,
 		TotalCount:  uint32(len(result.Images)),
@@ -139,8 +139,6 @@ func (s *Service) imageBackendForStore(store agentcomposev2.ImageStoreKind) (Ima
 	}
 }
 
-type imageBackendOpError = images.OpError
-
 func connectErrorForImageBackend(op, imageRef string, err error) error {
 	if err == nil {
 		return nil
@@ -168,8 +166,4 @@ func connectErrorForImageBackend(op, imageRef string, err error) error {
 		return connect.NewError(code, backendErr)
 	}
 	return connect.NewError(connect.CodeUnknown, err)
-}
-
-func paginateImages(items []*agentcomposev2.Image, offset, limit uint32) ([]*agentcomposev2.Image, bool, uint32) {
-	return images.PaginateProtoImages(items, offset, limit)
 }
