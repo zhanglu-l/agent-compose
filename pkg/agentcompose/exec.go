@@ -551,31 +551,15 @@ func firstNonEmpty(values ...string) string {
 }
 
 type execStreamAccumulator struct {
-	stdout strings.Builder
-	stderr strings.Builder
-	output strings.Builder
+	execution.ExecStreamAccumulator
 }
 
 func (a *execStreamAccumulator) writeChunk(chunk ExecChunk) {
-	if chunk.Text == "" {
-		return
-	}
-	a.output.WriteString(chunk.Text)
-	if chunk.IsStderr {
-		a.stderr.WriteString(chunk.Text)
-		return
-	}
-	a.stdout.WriteString(chunk.Text)
+	a.WriteChunk(chunk)
 }
 
 func (a *execStreamAccumulator) result(exitCode int, success bool) ExecResult {
-	return ExecResult{
-		ExitCode: exitCode,
-		Stdout:   a.stdout.String(),
-		Stderr:   a.stderr.String(),
-		Output:   a.output.String(),
-		Success:  success,
-	}
+	return a.Result(exitCode, success)
 }
 
 func hostSessionDir(session *Session) string {
@@ -604,23 +588,7 @@ func firstNonZeroInt(values ...int) int {
 }
 
 func mergeExecResults(primary, fallback ExecResult) ExecResult {
-	merged := primary
-	if strings.TrimSpace(merged.Stdout) == "" {
-		merged.Stdout = fallback.Stdout
-	}
-	if strings.TrimSpace(merged.Stderr) == "" {
-		merged.Stderr = fallback.Stderr
-	}
-	if strings.TrimSpace(merged.Output) == "" {
-		merged.Output = fallback.Output
-	}
-	if merged.ExitCode == 0 {
-		merged.ExitCode = fallback.ExitCode
-	}
-	if !merged.Success {
-		merged.Success = fallback.Success
-	}
-	return merged
+	return execution.MergeExecResults(primary, fallback)
 }
 
 func writeAgentSessionArtifact(path string, info *AgentResumeInfo) error {
