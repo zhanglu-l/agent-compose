@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,11 +16,12 @@ import (
 
 	"github.com/samber/do/v2"
 
+	"agent-compose/pkg/agentcompose/configstore"
 	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 )
 
-const storedUnixMillisecondThreshold int64 = 10_000_000_000
+const storedUnixMillisecondThreshold int64 = configstore.StoredUnixMillisecondThreshold
 
 type ConfigStore struct {
 	db *sql.DB
@@ -831,85 +831,25 @@ func scanWorkspaceConfig(scan func(dest ...any) error) (WorkspaceConfig, error) 
 }
 
 func parseStoredUnixTimeAuto(value int64) time.Time {
-	if value <= 0 {
-		return time.Time{}
-	}
-	if value >= storedUnixMillisecondThreshold {
-		return time.UnixMilli(value).UTC()
-	}
-	return time.Unix(value, 0).UTC()
+	return configstore.ParseStoredUnixTimeAuto(value)
 }
 
 func parseStoredLoaderTriggerTime(value any) time.Time {
-	switch typed := value.(type) {
-	case nil:
-		return time.Time{}
-	case int64:
-		return parseStoredUnixTimeAuto(typed)
-	case int:
-		return parseStoredUnixTimeAuto(int64(typed))
-	case float64:
-		return parseStoredUnixTimeAuto(int64(typed))
-	case []byte:
-		return parseStoredLoaderTriggerTime(string(typed))
-	case string:
-		trimmed := strings.TrimSpace(typed)
-		if trimmed == "" {
-			return time.Time{}
-		}
-		if unixValue, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-			return parseStoredUnixTimeAuto(unixValue)
-		}
-		return parseStoredTime(trimmed)
-	default:
-		return parseStoredTime(value)
-	}
+	return configstore.ParseStoredLoaderTriggerTime(value)
 }
 
 func parseStoredTime(value any) time.Time {
-	switch typed := value.(type) {
-	case nil:
-		return time.Time{}
-	case int64:
-		return parseStoredUnixTimeAuto(typed)
-	case int:
-		return parseStoredUnixTimeAuto(int64(typed))
-	case float64:
-		return parseStoredUnixTimeAuto(int64(typed))
-	case []byte:
-		return parseStoredTime(string(typed))
-	case string:
-		trimmed := strings.TrimSpace(typed)
-		if trimmed == "" {
-			return time.Time{}
-		}
-		if unixValue, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-			return parseStoredUnixTimeAuto(unixValue)
-		}
-		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z"} {
-			if parsed, err := time.Parse(layout, trimmed); err == nil {
-				return parsed.UTC()
-			}
-		}
-	}
-	return time.Time{}
+	return configstore.ParseStoredTime(value)
 }
 
 func normalizeSQLiteTimestampExpr(columnName string) string {
-	return fmt.Sprintf(`CASE
-		WHEN trim(COALESCE(%[1]s, '')) = '' THEN CAST(strftime('%%s','now') AS INTEGER)
-		WHEN trim(COALESCE(%[1]s, '')) NOT GLOB '*[^0-9]*' THEN CAST(%[1]s AS INTEGER)
-		ELSE COALESCE(CAST(strftime('%%s', %[1]s) AS INTEGER), CAST(strftime('%%s','now') AS INTEGER))
-	END`, columnName)
+	return configstore.NormalizeSQLiteTimestampExpr(columnName)
 }
 
 func isIntegerColumnType(columnType string) bool {
-	return strings.Contains(strings.ToUpper(strings.TrimSpace(columnType)), "INT")
+	return configstore.IsIntegerColumnType(columnType)
 }
 
 func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
+	return configstore.BoolToInt(value)
 }
