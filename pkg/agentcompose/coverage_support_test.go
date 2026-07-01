@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/images"
 	"agent-compose/pkg/agentcompose/workspaces"
@@ -306,16 +307,16 @@ func testSupportAgentAndLoaderHelpers(t *testing.T) {
 		t.Fatalf("summarizeAgentResult display = %q", got)
 	}
 
-	if fromProtoCellType(agentcomposev1.CellType_CELL_TYPE_SHELL) != CellTypeShell ||
-		fromProtoCellType(agentcomposev1.CellType_CELL_TYPE_PYTHON) != CellTypePython ||
-		fromProtoCellType(agentcomposev1.CellType_CELL_TYPE_AGENT) != CellTypeAgent ||
-		fromProtoCellType(agentcomposev1.CellType_CELL_TYPE_UNSPECIFIED) != CellTypeJavaScript {
+	if api.CellTypeFromProto(agentcomposev1.CellType_CELL_TYPE_SHELL) != CellTypeShell ||
+		api.CellTypeFromProto(agentcomposev1.CellType_CELL_TYPE_PYTHON) != CellTypePython ||
+		api.CellTypeFromProto(agentcomposev1.CellType_CELL_TYPE_AGENT) != CellTypeAgent ||
+		api.CellTypeFromProto(agentcomposev1.CellType_CELL_TYPE_UNSPECIFIED) != CellTypeJavaScript {
 		t.Fatalf("fromProtoCellType returned unexpected values")
 	}
-	if toProtoCellType(CellTypeShell) != agentcomposev1.CellType_CELL_TYPE_SHELL ||
-		toProtoCellType(CellTypePython) != agentcomposev1.CellType_CELL_TYPE_PYTHON ||
-		toProtoCellType(CellTypeAgent) != agentcomposev1.CellType_CELL_TYPE_AGENT ||
-		toProtoCellType("unknown") != agentcomposev1.CellType_CELL_TYPE_JAVASCRIPT {
+	if api.CellTypeToProto(CellTypeShell) != agentcomposev1.CellType_CELL_TYPE_SHELL ||
+		api.CellTypeToProto(CellTypePython) != agentcomposev1.CellType_CELL_TYPE_PYTHON ||
+		api.CellTypeToProto(CellTypeAgent) != agentcomposev1.CellType_CELL_TYPE_AGENT ||
+		api.CellTypeToProto("unknown") != agentcomposev1.CellType_CELL_TYPE_JAVASCRIPT {
 		t.Fatalf("toProtoCellType returned unexpected values")
 	}
 

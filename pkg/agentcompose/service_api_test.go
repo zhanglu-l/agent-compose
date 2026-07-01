@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/api"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -407,25 +408,25 @@ func testServiceProtoConversionHelpers(t *testing.T) {
 			{Name: "SECRET", Value: "secret-value", Secret: true},
 		},
 	}
-	detail := toProtoSessionDetail(session)
+	detail := api.SessionDetailToProto(session)
 	if detail.GetSummary().GetSessionId() != "session-proto" || detail.GetWorkspace().GetId() != "workspace-1" {
 		t.Fatalf("session detail = %+v", detail)
 	}
 	if len(detail.GetEnvItems()) != 2 || detail.GetEnvItems()[1].GetValue() != "********" {
 		t.Fatalf("session env items = %+v", detail.GetEnvItems())
 	}
-	globalEnv := toProtoGlobalEnvConfig([]SessionEnvVar{{Name: "VISIBLE", Value: "visible"}, {Name: "TOKEN", Value: "token", Secret: true}})
+	globalEnv := api.GlobalEnvConfigToProto([]SessionEnvVar{{Name: "VISIBLE", Value: "visible"}, {Name: "TOKEN", Value: "token", Secret: true}})
 	if len(globalEnv.GetEnvItems()) != 2 || globalEnv.GetEnvItems()[1].GetValue() != "********" {
 		t.Fatalf("global env = %+v", globalEnv.GetEnvItems())
 	}
 	if toSessionWorkspaceSnapshot(WorkspaceConfig{ID: "ws", Name: "WS", Type: "git", ConfigJSON: "{}"}).Type != "git" {
 		t.Fatalf("workspace snapshot conversion failed")
 	}
-	workspaceProto := toProtoWorkspaceConfig(WorkspaceConfig{ID: "ws", Name: "WS", Type: "git", ConfigJSON: "{}", Comment: "note", CreatedAt: now, UpdatedAt: now})
+	workspaceProto := api.WorkspaceConfigToProto(WorkspaceConfig{ID: "ws", Name: "WS", Type: "git", ConfigJSON: "{}", Comment: "note", CreatedAt: now, UpdatedAt: now})
 	if workspaceProto.GetId() != "ws" || workspaceProto.GetComment() != "note" {
 		t.Fatalf("workspace proto = %+v", workspaceProto)
 	}
-	if toProtoSessionWorkspace(nil) != nil {
+	if api.SessionWorkspaceToProto(nil) != nil {
 		t.Fatalf("nil session workspace did not convert to nil")
 	}
 
@@ -444,11 +445,11 @@ func testServiceProtoConversionHelpers(t *testing.T) {
 		AgentSessionID: "agent-session",
 		StopReason:     "failed",
 	}
-	cellProto := toProtoCell(cell)
+	cellProto := api.CellToProto(cell)
 	if cellProto.GetType() != agentcomposev1.CellType_CELL_TYPE_AGENT || cellProto.GetOutput() != "stdoutstderr" || cellProto.GetExitCode() != 3 {
 		t.Fatalf("cell proto = %+v", cellProto)
 	}
-	agentProto := toProtoAgentRun(cell)
+	agentProto := api.AgentRunToProto(cell)
 	if agentProto.GetAgentSessionId() != "agent-session" || !agentProto.GetRunning() {
 		t.Fatalf("agent proto = %+v", agentProto)
 	}
@@ -462,17 +463,17 @@ func testServiceProtoConversionHelpers(t *testing.T) {
 		{agentcomposev1.CellType_CELL_TYPE_JAVASCRIPT, CellTypeJavaScript},
 		{agentcomposev1.CellType_CELL_TYPE_UNSPECIFIED, CellTypeJavaScript},
 	} {
-		if got := fromProtoCellType(item.proto); got != item.local {
-			t.Fatalf("fromProtoCellType(%v) = %q, want %q", item.proto, got, item.local)
+		if got := api.CellTypeFromProto(item.proto); got != item.local {
+			t.Fatalf("api.CellTypeFromProto(%v) = %q, want %q", item.proto, got, item.local)
 		}
-		if got := toProtoCellType(item.local); item.local != CellTypeJavaScript && got != item.proto {
-			t.Fatalf("toProtoCellType(%q) = %v, want %v", item.local, got, item.proto)
+		if got := api.CellTypeToProto(item.local); item.local != CellTypeJavaScript && got != item.proto {
+			t.Fatalf("api.CellTypeToProto(%q) = %v, want %v", item.local, got, item.proto)
 		}
 	}
-	if toProtoCellType("unknown") != agentcomposev1.CellType_CELL_TYPE_JAVASCRIPT {
+	if api.CellTypeToProto("unknown") != agentcomposev1.CellType_CELL_TYPE_JAVASCRIPT {
 		t.Fatalf("unknown cell type did not map to javascript")
 	}
-	eventProto := toProtoEvent(SessionEvent{ID: "event-1", Type: "session.test", Level: "info", Message: "tested", CreatedAt: now})
+	eventProto := api.SessionEventToProto(SessionEvent{ID: "event-1", Type: "session.test", Level: "info", Message: "tested", CreatedAt: now})
 	if eventProto.GetId() != "event-1" || eventProto.GetCreatedAt() == "" {
 		t.Fatalf("event proto = %+v", eventProto)
 	}

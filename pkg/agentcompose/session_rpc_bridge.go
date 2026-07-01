@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/loaders"
@@ -241,7 +242,7 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	}
 	restoreSessionTransientFields(loaded, session)
 	b.publishLoaderTopic("agent-compose.session.created", loaders.SessionTopicPayload(loaded, source))
-	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: toProtoSessionDetail(loaded)}), nil
+	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(loaded)}), nil
 }
 
 func (b *SessionRPCBridge) ResumeSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
@@ -275,7 +276,7 @@ func (b *SessionRPCBridge) resumeSession(ctx context.Context, req *connect.Reque
 	}
 	restoreSessionTransientFields(loaded, session)
 	b.publishLoaderTopic("agent-compose.session.resumed", loaders.SessionTopicPayload(loaded, source))
-	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: toProtoSessionDetail(loaded)}), nil
+	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(loaded)}), nil
 }
 
 func (b *SessionRPCBridge) reconcileSessionRuntimeState(ctx context.Context, session *Session) (*Session, error) {
@@ -358,7 +359,7 @@ func (b *SessionRPCBridge) stopSession(ctx context.Context, req *connect.Request
 		session = reconciled
 	}
 	if session.Summary.VMStatus != VMStatusRunning {
-		return connect.NewResponse(&agentcomposev1.SessionResponse{Session: toProtoSessionDetail(session)}), nil
+		return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(session)}), nil
 	}
 	if err := b.driver.StopSessionVM(ctx, session); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -377,7 +378,7 @@ func (b *SessionRPCBridge) stopSession(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	b.publishLoaderTopic("agent-compose.session.stopped", loaders.SessionTopicPayload(loaded, source))
-	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: toProtoSessionDetail(loaded)}), nil
+	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(loaded)}), nil
 }
 
 func (b *SessionRPCBridge) GetSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
@@ -390,7 +391,7 @@ func (b *SessionRPCBridge) GetSession(ctx context.Context, req *connect.Request[
 	} else {
 		session = reconciled
 	}
-	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: toProtoSessionDetail(session)}), nil
+	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(session)}), nil
 }
 
 func (b *SessionRPCBridge) ListSessions(ctx context.Context, req *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
@@ -413,7 +414,7 @@ func (b *SessionRPCBridge) ListSessions(ctx context.Context, req *connect.Reques
 		} else {
 			session = reconciled
 		}
-		resp.Sessions = append(resp.Sessions, toProtoSessionSummary(&session.Summary))
+		resp.Sessions = append(resp.Sessions, api.SessionSummaryToProto(&session.Summary))
 	}
 	return connect.NewResponse(resp), nil
 }

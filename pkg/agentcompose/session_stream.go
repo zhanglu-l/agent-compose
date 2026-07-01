@@ -7,7 +7,6 @@ import (
 )
 
 type (
-	sessionWatchEvent   = sessions.WatchEvent
 	SessionStreamBroker = sessions.StreamBroker
 )
 

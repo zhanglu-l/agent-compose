@@ -227,7 +227,7 @@ func (s *Service) WatchSession(ctx context.Context, req *connect.Request[agentco
 	}
 	if sendErr := stream.Send(&agentcomposev1.WatchSessionResponse{
 		EventType: agentcomposev1.WatchSessionEventType_WATCH_SESSION_EVENT_TYPE_SESSION_UPDATED,
-		Session:   toProtoSessionSummary(&session.Summary),
+		Session:   api.SessionSummaryToProto(&session.Summary),
 	}); sendErr != nil {
 		return connect.NewError(connect.CodeUnknown, sendErr)
 	}
@@ -241,7 +241,7 @@ func (s *Service) WatchSession(ctx context.Context, req *connect.Request[agentco
 			if !ok {
 				return nil
 			}
-			if sendErr := stream.Send(toProtoWatchSessionResponse(event)); sendErr != nil {
+			if sendErr := stream.Send(api.WatchSessionResponseToProto(event)); sendErr != nil {
 				return connect.NewError(connect.CodeUnknown, sendErr)
 			}
 		}
@@ -254,7 +254,7 @@ func (s *Service) GetGlobalEnvConfig(ctx context.Context, req *connect.Request[e
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(toProtoGlobalEnvConfig(items)), nil
+	return connect.NewResponse(api.GlobalEnvConfigToProto(items)), nil
 }
 
 func (s *Service) UpdateGlobalEnvConfig(ctx context.Context, req *connect.Request[agentcomposev1.UpdateGlobalEnvConfigRequest]) (*connect.Response[agentcomposev1.GlobalEnvConfigResponse], error) {
@@ -271,7 +271,7 @@ func (s *Service) UpdateGlobalEnvConfig(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(toProtoGlobalEnvConfig(saved)), nil
+	return connect.NewResponse(api.GlobalEnvConfigToProto(saved)), nil
 }
 
 func (s *Service) preserveUnchangedGlobalEnvSecrets(ctx context.Context, items []SessionEnvVar) ([]SessionEnvVar, error) {
@@ -309,7 +309,7 @@ func (s *Service) ListWorkspaceConfigs(ctx context.Context, req *connect.Request
 	}
 	resp := &agentcomposev1.ListWorkspaceConfigsResponse{}
 	for _, item := range items {
-		resp.Workspaces = append(resp.Workspaces, toProtoWorkspaceConfig(item))
+		resp.Workspaces = append(resp.Workspaces, api.WorkspaceConfigToProto(item))
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -347,7 +347,7 @@ func (s *Service) CreateWorkspaceConfig(ctx context.Context, req *connect.Reques
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	return connect.NewResponse(&agentcomposev1.WorkspaceConfigResponse{Workspace: toProtoWorkspaceConfig(item)}), nil
+	return connect.NewResponse(&agentcomposev1.WorkspaceConfigResponse{Workspace: api.WorkspaceConfigToProto(item)}), nil
 }
 
 func (s *Service) UpdateWorkspaceConfig(ctx context.Context, req *connect.Request[agentcomposev1.UpdateWorkspaceConfigRequest]) (*connect.Response[agentcomposev1.WorkspaceConfigResponse], error) {
@@ -400,7 +400,7 @@ func (s *Service) UpdateWorkspaceConfig(ctx context.Context, req *connect.Reques
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	return connect.NewResponse(&agentcomposev1.WorkspaceConfigResponse{Workspace: toProtoWorkspaceConfig(item)}), nil
+	return connect.NewResponse(&agentcomposev1.WorkspaceConfigResponse{Workspace: api.WorkspaceConfigToProto(item)}), nil
 }
 
 func (s *Service) DeleteWorkspaceConfig(ctx context.Context, req *connect.Request[agentcomposev1.WorkspaceConfigIDRequest]) (*connect.Response[emptypb.Empty], error) {
@@ -651,7 +651,7 @@ func (s *Service) ExecuteCell(ctx context.Context, req *connect.Request[agentcom
 	if session.Summary.VMStatus != VMStatusRunning {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session is not running"))
 	}
-	cell, err := s.executor.ExecuteCell(ctx, session, fromProtoCellType(req.Msg.GetType()), req.Msg.GetSource())
+	cell, err := s.executor.ExecuteCell(ctx, session, api.CellTypeFromProto(req.Msg.GetType()), req.Msg.GetSource())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -660,7 +660,7 @@ func (s *Service) ExecuteCell(ctx context.Context, req *connect.Request[agentcom
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.publishLoaderTopic("agent-compose.cell.completed", loaders.CellTopicPayload(session.Summary.ID, cell, "api"))
-	return connect.NewResponse(&agentcomposev1.ExecuteCellResponse{Session: toProtoSessionSummary(&loaded.Summary), Cell: toProtoCell(cell)}), nil
+	return connect.NewResponse(&agentcomposev1.ExecuteCellResponse{Session: api.SessionSummaryToProto(&loaded.Summary), Cell: api.CellToProto(cell)}), nil
 }
 
 func (s *Service) ExecuteCellStream(ctx context.Context, req *connect.Request[agentcomposev1.ExecuteCellRequest], stream *connect.ServerStream[agentcomposev1.ExecuteCellStreamResponse]) error {
@@ -679,12 +679,12 @@ func (s *Service) ExecuteCellStream(ctx context.Context, req *connect.Request[ag
 		}
 		return connect.NewError(connect.CodeUnknown, sendErr)
 	}
-	cell, err := s.executor.ExecuteCellStream(ctx, session, fromProtoCellType(req.Msg.GetType()), req.Msg.GetSource(), CellExecutionStream{
+	cell, err := s.executor.ExecuteCellStream(ctx, session, api.CellTypeFromProto(req.Msg.GetType()), req.Msg.GetSource(), CellExecutionStream{
 		OnStart: func(cell NotebookCell) error {
 			return streamErr(stream.Send(&agentcomposev1.ExecuteCellStreamResponse{
 				EventType: agentcomposev1.ExecuteCellStreamEventType_EXECUTE_CELL_STREAM_EVENT_TYPE_STARTED,
-				Session:   toProtoSessionSummary(&session.Summary),
-				Cell:      toProtoCell(cell),
+				Session:   api.SessionSummaryToProto(&session.Summary),
+				Cell:      api.CellToProto(cell),
 				CellId:    cell.ID,
 			}))
 		},
@@ -710,8 +710,8 @@ func (s *Service) ExecuteCellStream(ctx context.Context, req *connect.Request[ag
 	s.publishLoaderTopic("agent-compose.cell.completed", loaders.CellTopicPayload(session.Summary.ID, cell, "api"))
 	return streamErr(stream.Send(&agentcomposev1.ExecuteCellStreamResponse{
 		EventType: agentcomposev1.ExecuteCellStreamEventType_EXECUTE_CELL_STREAM_EVENT_TYPE_COMPLETED,
-		Session:   toProtoSessionSummary(&loaded.Summary),
-		Cell:      toProtoCell(cell),
+		Session:   api.SessionSummaryToProto(&loaded.Summary),
+		Cell:      api.CellToProto(cell),
 		CellId:    cell.ID,
 	}))
 }
@@ -723,7 +723,7 @@ func (s *Service) ListCells(ctx context.Context, req *connect.Request[agentcompo
 	}
 	resp := &agentcomposev1.ListCellsResponse{SessionId: req.Msg.GetSessionId()}
 	for _, cell := range cells {
-		resp.Cells = append(resp.Cells, toProtoCell(cell))
+		resp.Cells = append(resp.Cells, api.CellToProto(cell))
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -753,7 +753,7 @@ func (s *Service) SendAgentMessage(ctx context.Context, req *connect.Request[age
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.publishLoaderTopic("agent-compose.agent.completed", loaders.CellTopicPayload(session.Summary.ID, cell, "api"))
-	return connect.NewResponse(&agentcomposev1.SendAgentMessageResponse{UserEvent: toProtoEvent(userEvent), AssistantEvent: toProtoEvent(assistantEvent)}), nil
+	return connect.NewResponse(&agentcomposev1.SendAgentMessageResponse{UserEvent: api.SessionEventToProto(userEvent), AssistantEvent: api.SessionEventToProto(assistantEvent)}), nil
 }
 
 func (s *Service) SendAgentMessageStream(ctx context.Context, req *connect.Request[agentcomposev1.SendAgentMessageRequest], stream *connect.ServerStream[agentcomposev1.SendAgentMessageStreamResponse]) error {
@@ -788,8 +788,8 @@ func (s *Service) SendAgentMessageStream(ctx context.Context, req *connect.Reque
 			OnStart: func(cell NotebookCell) error {
 				return streamErr(stream.Send(&agentcomposev1.SendAgentMessageStreamResponse{
 					EventType: agentcomposev1.SendAgentMessageStreamEventType_SEND_AGENT_MESSAGE_STREAM_EVENT_TYPE_STARTED,
-					Session:   toProtoSessionSummary(&session.Summary),
-					Run:       toProtoAgentRun(cell),
+					Session:   api.SessionSummaryToProto(&session.Summary),
+					Run:       api.AgentRunToProto(cell),
 					RunId:     cell.ID,
 				}))
 			},
@@ -813,11 +813,11 @@ func (s *Service) SendAgentMessageStream(ctx context.Context, req *connect.Reque
 	s.publishLoaderTopic("agent-compose.agent.completed", loaders.CellTopicPayload(session.Summary.ID, cell, "api"))
 	return streamErr(stream.Send(&agentcomposev1.SendAgentMessageStreamResponse{
 		EventType:      agentcomposev1.SendAgentMessageStreamEventType_SEND_AGENT_MESSAGE_STREAM_EVENT_TYPE_COMPLETED,
-		Session:        toProtoSessionSummary(&loaded.Summary),
-		Run:            toProtoAgentRun(cell),
+		Session:        api.SessionSummaryToProto(&loaded.Summary),
+		Run:            api.AgentRunToProto(cell),
 		RunId:          cell.ID,
-		UserEvent:      toProtoEvent(userEvent),
-		AssistantEvent: toProtoEvent(assistantEvent),
+		UserEvent:      api.SessionEventToProto(userEvent),
+		AssistantEvent: api.SessionEventToProto(assistantEvent),
 	}))
 }
 
@@ -897,7 +897,7 @@ func (s *Service) ListSessionEvents(ctx context.Context, req *connect.Request[ag
 	}
 	resp := &agentcomposev1.ListSessionEventsResponse{SessionId: req.Msg.GetSessionId()}
 	for _, event := range events {
-		resp.Events = append(resp.Events, toProtoEvent(event))
+		resp.Events = append(resp.Events, api.SessionEventToProto(event))
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -1339,18 +1339,6 @@ func summarizeAgentResult(result AgentRunResult) string {
 	return body
 }
 
-func toProtoSessionDetail(session *Session) *agentcomposev1.SessionDetail {
-	return api.SessionDetailToProto(session)
-}
-
-func toProtoSessionSummary(summary *SessionSummary) *agentcomposev1.SessionSummary {
-	return api.SessionSummaryToProto(summary)
-}
-
-func toProtoGlobalEnvConfig(items []SessionEnvVar) *agentcomposev1.GlobalEnvConfigResponse {
-	return api.GlobalEnvConfigToProto(items)
-}
-
 func toSessionWorkspaceSnapshot(item WorkspaceConfig) *SessionWorkspace {
 	return &SessionWorkspace{
 		ID:         item.ID,
@@ -1358,36 +1346,4 @@ func toSessionWorkspaceSnapshot(item WorkspaceConfig) *SessionWorkspace {
 		Type:       item.Type,
 		ConfigJSON: item.ConfigJSON,
 	}
-}
-
-func toProtoSessionWorkspace(item *SessionWorkspace) *agentcomposev1.SessionWorkspaceSnapshot {
-	return api.SessionWorkspaceToProto(item)
-}
-
-func toProtoWorkspaceConfig(item WorkspaceConfig) *agentcomposev1.WorkspaceConfig {
-	return api.WorkspaceConfigToProto(item)
-}
-
-func toProtoCell(cell NotebookCell) *agentcomposev1.NotebookCell {
-	return api.CellToProto(cell)
-}
-
-func toProtoAgentRun(cell NotebookCell) *agentcomposev1.AgentRun {
-	return api.AgentRunToProto(cell)
-}
-
-func fromProtoCellType(cellType agentcomposev1.CellType) string {
-	return api.CellTypeFromProto(cellType)
-}
-
-func toProtoWatchSessionResponse(event sessionWatchEvent) *agentcomposev1.WatchSessionResponse {
-	return api.WatchSessionResponseToProto(event)
-}
-
-func toProtoCellType(cellType string) agentcomposev1.CellType {
-	return api.CellTypeToProto(cellType)
-}
-
-func toProtoEvent(event SessionEvent) *agentcomposev1.SessionEvent {
-	return api.SessionEventToProto(event)
 }
