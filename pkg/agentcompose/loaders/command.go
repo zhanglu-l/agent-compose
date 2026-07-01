@@ -30,3 +30,18 @@ func CommandCellSource(request domain.LoaderCommandRequest) string {
 	items := append([]string{request.Command}, request.Args...)
 	return strings.Join(items, " ")
 }
+
+func CommandRequestRequiresCleanup(loader domain.Loader, request domain.LoaderCommandRequest) bool {
+	effectivePolicy := domain.NormalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
+	if strings.TrimSpace(request.SessionPolicy) != "" {
+		effectivePolicy = domain.NormalizeLoaderSessionPolicy(request.SessionPolicy)
+	}
+	return effectivePolicy == domain.LoaderSessionPolicyNew || CommandRequestOverridesSession(request)
+}
+
+func CommandRequestOverridesSession(request domain.LoaderCommandRequest) bool {
+	return strings.TrimSpace(request.Driver) != "" ||
+		strings.TrimSpace(request.GuestImage) != "" ||
+		strings.TrimSpace(request.WorkspaceID) != "" ||
+		len(domain.NormalizeEnvItems(request.SessionEnv)) > 0
+}

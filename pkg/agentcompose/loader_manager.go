@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/loaders"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 	"context"
@@ -1052,18 +1053,7 @@ func loaderAgentRequestOverridesSession(request LoaderAgentRequest, includeTitle
 }
 
 func loaderCommandRequestRequiresCleanup(loader Loader, request LoaderCommandRequest) bool {
-	effectivePolicy := normalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
-	if strings.TrimSpace(request.SessionPolicy) != "" {
-		effectivePolicy = normalizeLoaderSessionPolicy(request.SessionPolicy)
-	}
-	return effectivePolicy == LoaderSessionPolicyNew || loaderCommandRequestOverridesSession(request)
-}
-
-func loaderCommandRequestOverridesSession(request LoaderCommandRequest) bool {
-	return strings.TrimSpace(request.Driver) != "" ||
-		strings.TrimSpace(request.GuestImage) != "" ||
-		strings.TrimSpace(request.WorkspaceID) != "" ||
-		len(normalizeEnvItems(request.SessionEnv)) > 0
+	return loaders.CommandRequestRequiresCleanup(loader, request)
 }
 
 func (m *LoaderManager) runArtifactsDir(loaderID, runID string) string {
