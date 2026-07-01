@@ -480,17 +480,11 @@ func dockerImageDangling(tags, digests []string) bool {
 }
 
 func firstString(values []string) string {
-	if len(values) == 0 {
-		return ""
-	}
-	return values[0]
+	return images.FirstString(values)
 }
 
 func nonNegativeUint64(value int64) uint64 {
-	if value <= 0 {
-		return 0
-	}
-	return uint64(value)
+	return images.NonNegativeUint64(value)
 }
 
 func unixSecondsString(value int64) string {
@@ -525,12 +519,5 @@ func dockerEndpointFromEnv() string {
 }
 
 func cloneStringMap(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	result := make(map[string]string, len(values))
-	for key, value := range values {
-		result[key] = value
-	}
-	return result
+	return images.CloneStringMap(values)
 }
