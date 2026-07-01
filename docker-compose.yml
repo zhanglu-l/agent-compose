@@ -1,37 +1,17 @@
 services:
-
   agent-compose:
-    image: agent-compose:latest
+    image: ${AGENT_COMPOSE_IMAGE:-ghcr.io/chaitin/agent-compose:latest}
     container_name: agent-compose
     restart: always
     privileged: true
     command: ["/app/agent-compose", "daemon"]
     devices:
       - /dev/kvm:/dev/kvm
-    ports:
-      - "127.0.0.1:7410:7410"
     environment:
-      DATA_ROOT: /data
-      SESSION_ROOT: /data/sessions
-      DOCKER_HOST_SESSION_ROOT: ${DOCKER_HOST_SESSION_ROOT:-$PWD/data/agent-compose/sessions}
-      HTTP_LISTEN: 0.0.0.0:7410
+      DOCKER_HOST_SESSION_ROOT: ${DOCKER_HOST_SESSION_ROOT:-${PWD}/data/agent-compose/sessions}
       AGENT_COMPOSE_RUNTIME_BASE_URL: ${AGENT_COMPOSE_RUNTIME_BASE_URL:-http://agent-compose:7410}
-      RUNTIME_DRIVER: docker
-      DEFAULT_IMAGE: ${DEFAULT_IMAGE:-debian:bookworm-slim}
-      GUEST_WORKSPACE: /workspace
-      GUEST_STATE_ROOT: /data/state
-      GUEST_RUNTIME_ROOT: /data/runtime
-      GUEST_LOG_ROOT: /data/logs
-      JUPYTER_PROXY_BASE: ${JUPYTER_PROXY_BASE:-/jupyter}
-      BOXLITE_RUNTIME_DIR: /app/boxlite/runtime
-      IMAGE_REGISTRY: ${IMAGE_REGISTRY:-docker.io}
-      MICROSANDBOX_HOME: /data/microsandbox
-      MICROSANDBOX_MSB_PATH: /app/microsandbox/bin/msb
-      MICROSANDBOX_LIB_PATH: /app/microsandbox/lib/libmicrosandbox_go_ffi.so
-      MICROSANDBOX_DEFAULT_IMAGE: ${MICROSANDBOX_DEFAULT_IMAGE:-debian:bookworm-slim}
-      LD_LIBRARY_PATH: /app/boxlite/runtime:/app/microsandbox/lib
-      TZ: Asia/Shanghai
     volumes:
+      - ./.env:/app/.env:ro
       - ./data/agent-compose:/data
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -43,9 +23,6 @@ services:
       - agent-compose
     environment:
       JUPYTER_PROXY_BASE: ${JUPYTER_PROXY_BASE:-/jupyter}
+      NGINX_JUPYTER_PROXY_BASE: ${JUPYTER_PROXY_BASE:-/jupyter}
     ports:
-      - 8000:8000/tcp
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/templates/agent-compose.conf.template:ro
-      - ./nginx_log:/var/log/nginx
-      - ./data:/data
+      - "${AGENT_COMPOSE_HTTP_PORT:-80}:8000/tcp"

@@ -79,7 +79,16 @@ Current compose behavior:
 - `docker-compose.yml` deploys the `agent-compose` service and the published `agent-compose-frontend` nginx image
 - the agent-compose service listens on `7410`
 - data is mounted from `./data/agent-compose`
-- Docker socket and `/dev/kvm` are exposed for runtime support
+- the user-created `.env` is mounted read-only at `/app/.env` for daemon configuration
+- the Docker socket and `/dev/kvm` are exposed for runtime support
+
+Compose and environment variable conventions:
+- Keep `docker-compose.yml` deployable on its own with published images. A remote deployment should only need `docker-compose.yml` plus a user-created `.env`.
+- Use `docker-compose.override.yml` for local development behavior such as `build:`, locally built image tags, local-only build args, or other settings that should not affect remote deployments.
+- Do not add new application defaults directly to `docker-compose.yml` when the daemon image or application config can provide the default. Prefer image `ENV` defaults or application defaults, and document them as comments in `.env.example` when they help operators.
+- Expose only deployment-specific knobs in `.env.example`, grouped by purpose. Use commented examples for optional or advanced settings.
+- When adding or changing environment variables, decide whether they are deploy-time, image-default, application-default, or local-development-only before editing compose files.
+- Keep secrets and required deployment credentials in `.env.example` empty unless a safe example value exists, and document that operators must set them before exposing a deployment.
 
 ## Quality Gates
 
