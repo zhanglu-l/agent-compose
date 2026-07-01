@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/projects"
 	"context"
 	"fmt"
 	"strings"
@@ -107,25 +108,7 @@ func ListProjectSessionStatuses(ctx context.Context, configDB *ConfigStore, stor
 }
 
 func normalizeProjectRunStatusFilter(statuses []string) []string {
-	seen := make(map[string]struct{}, len(statuses))
-	normalized := make([]string, 0, len(statuses))
-	for _, status := range statuses {
-		status = strings.ToLower(strings.TrimSpace(status))
-		if status == "" {
-			continue
-		}
-		switch status {
-		case ProjectRunStatusPending, ProjectRunStatusRunning, ProjectRunStatusSucceeded, ProjectRunStatusFailed, ProjectRunStatusCanceled:
-		default:
-			continue
-		}
-		if _, ok := seen[status]; ok {
-			continue
-		}
-		seen[status] = struct{}{}
-		normalized = append(normalized, status)
-	}
-	return normalized
+	return projects.NormalizeRunStatusFilter(statuses)
 }
 
 func placeholders(count int) string {

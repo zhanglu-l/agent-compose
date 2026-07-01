@@ -153,6 +153,28 @@ func NormalizeRunStatus(status string) string {
 	}
 }
 
+func NormalizeRunStatusFilter(statuses []string) []string {
+	seen := make(map[string]struct{}, len(statuses))
+	normalized := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		status = strings.ToLower(strings.TrimSpace(status))
+		if status == "" {
+			continue
+		}
+		switch status {
+		case domain.ProjectRunStatusPending, domain.ProjectRunStatusRunning, domain.ProjectRunStatusSucceeded, domain.ProjectRunStatusFailed, domain.ProjectRunStatusCanceled:
+		default:
+			continue
+		}
+		if _, ok := seen[status]; ok {
+			continue
+		}
+		seen[status] = struct{}{}
+		normalized = append(normalized, status)
+	}
+	return normalized
+}
+
 func RecordMatchesQuery(item domain.ProjectRecord, query string) bool {
 	return strings.Contains(strings.ToLower(item.ID), query) ||
 		strings.Contains(strings.ToLower(item.Name), query) ||
