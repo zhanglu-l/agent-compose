@@ -3,6 +3,8 @@ package runs
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"agent-compose/pkg/agentcompose/domain"
@@ -72,4 +74,59 @@ func MergeEnvItems(groups ...[]domain.SessionEnvVar) []domain.SessionEnvVar {
 		merged = domain.MergeEnvItems(merged, group)
 	}
 	return merged
+}
+
+func ResolveLocalProjectWorkspacePath(project domain.ProjectRecord, rawPath string) (string, error) {
+	cleanPath, err := CleanLocalWorkspacePath(rawPath)
+	if err != nil {
+		return "", err
+	}
+	sourcePath := strings.TrimSpace(project.SourcePath)
+	if sourcePath == "" {
+		return "", fmt.Errorf("local workspace requires project source path")
+	}
+	sourceAbs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve project source path %q: %w", sourcePath, err)
+	}
+	sourceDir := sourceAbs
+	if info, err := os.Stat(sourceAbs); err == nil && !info.IsDir() {
+		sourceDir = filepath.Dir(sourceAbs)
+	} else if err != nil {
+		sourceDir = filepath.Dir(sourceAbs)
+	}
+	target := sourceDir
+	if cleanPath != "." {
+		target = filepath.Join(sourceDir, cleanPath)
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve local workspace path %q: %w", rawPath, err)
+	}
+	info, err := os.Lstat(targetAbs)
+	if err != nil {
+		return "", fmt.Errorf("local workspace source %s: %w", targetAbs, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("local workspace source %s is a symlink", targetAbs)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("local workspace source %s is not a directory", targetAbs)
+	}
+	return targetAbs, nil
+}
+
+func CleanLocalWorkspacePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("local workspace path is required")
+	}
+	if filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("local workspace path %q must be relative", trimmed)
+	}
+	clean := filepath.Clean(trimmed)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("local workspace path %q escapes project source root", trimmed)
+	}
+	return clean, nil
 }

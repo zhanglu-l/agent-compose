@@ -13,6 +13,7 @@ import (
 
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/projects"
+	"agent-compose/pkg/agentcompose/runs"
 	"agent-compose/pkg/compose"
 	driverpkg "agent-compose/pkg/driver"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -252,7 +253,7 @@ func (s *Service) GetProject(ctx context.Context, req *connect.Request[agentcomp
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		spec, err = decodeProjectRevisionSpec(revision.SpecJSON)
+		spec, err = runs.DecodeRevisionSpec(revision.SpecJSON)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decode project %s revision %d: %w", project.Name, project.CurrentRevision, err))
 		}

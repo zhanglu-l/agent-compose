@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"agent-compose/pkg/agentcompose/runs"
@@ -28,11 +27,11 @@ func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, r
 	if err != nil {
 		return ProjectRunPreparation{}, fmt.Errorf("resolve project revision %s/%d: %w", run.ProjectID, run.ProjectRevision, err)
 	}
-	spec, err := decodeProjectRevisionSpec(revision.SpecJSON)
+	spec, err := runs.DecodeRevisionSpec(revision.SpecJSON)
 	if err != nil {
 		return ProjectRunPreparation{}, err
 	}
-	agentSpec, ok := normalizedProjectAgentByName(spec, run.AgentName)
+	agentSpec, ok := runs.AgentSpecByName(spec, run.AgentName)
 	if !ok {
 		return ProjectRunPreparation{}, fmt.Errorf("project revision %s/%d missing agent %s", run.ProjectID, run.ProjectRevision, run.AgentName)
 	}
@@ -44,15 +43,15 @@ func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, r
 	if err != nil {
 		return ProjectRunPreparation{}, fmt.Errorf("list global env: %w", err)
 	}
-	envItems := mergeRunEnvItems(
+	envItems := runs.MergeEnvItems(
 		globalEnv,
-		sessionEnvItemsFromV2(spec.GetVariables()),
+		runs.EnvItemsFromV2(spec.GetVariables()),
 		agent.EnvItems,
-		sessionEnvItemsFromV2(requestEnv),
+		runs.EnvItemsFromV2(requestEnv),
 	)
 	providerEnvItems := envItems
 	envItems = filterPersistedRuntimeEnv(envItems)
-	workspace, err := s.prepareProjectRunWorkspace(ctx, run, project, composeWorkspaceSpecFromV2(spec.GetWorkspace()), composeWorkspaceSpecFromV2(agentSpec.GetWorkspace()))
+	workspace, err := s.prepareProjectRunWorkspace(ctx, run, project, runs.ComposeWorkspaceSpecFromV2(spec.GetWorkspace()), runs.ComposeWorkspaceSpecFromV2(agentSpec.GetWorkspace()))
 	if err != nil {
 		return ProjectRunPreparation{}, err
 	}
@@ -62,26 +61,6 @@ func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, r
 		prepared.Workspace = toSessionWorkspaceSnapshot(*workspace)
 	}
 	return prepared, nil
-}
-
-func decodeProjectRevisionSpec(raw string) (*agentcomposev2.ProjectSpec, error) {
-	return runs.DecodeRevisionSpec(raw)
-}
-
-func normalizedProjectAgentByName(spec *agentcomposev2.ProjectSpec, name string) (*agentcomposev2.AgentSpec, bool) {
-	return runs.AgentSpecByName(spec, name)
-}
-
-func sessionEnvItemsFromV2(items []*agentcomposev2.EnvVarSpec) []SessionEnvVar {
-	return runs.EnvItemsFromV2(items)
-}
-
-func composeWorkspaceSpecFromV2(workspace *agentcomposev2.WorkspaceSpec) *compose.WorkspaceSpec {
-	return runs.ComposeWorkspaceSpecFromV2(workspace)
-}
-
-func mergeRunEnvItems(groups ...[]SessionEnvVar) []SessionEnvVar {
-	return runs.MergeEnvItems(groups...)
 }
 
 func (s *Service) prepareProjectRunWorkspace(ctx context.Context, run ProjectRunRecord, project ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*WorkspaceConfig, error) {
@@ -119,7 +98,7 @@ func (s *Service) materializeLocalProjectRunWorkspace(run ProjectRunRecord, proj
 	if s == nil || s.config == nil {
 		return WorkspaceConfig{}, fmt.Errorf("config is required")
 	}
-	sourceDir, err := resolveLocalProjectWorkspacePath(project, workspace.Path)
+	sourceDir, err := runs.ResolveLocalProjectWorkspacePath(project, workspace.Path)
 	if err != nil {
 		return WorkspaceConfig{}, err
 	}
@@ -152,61 +131,6 @@ func (s *Service) materializeLocalProjectRunWorkspace(run ProjectRunRecord, proj
 		return WorkspaceConfig{}, fmt.Errorf("materialize local workspace snapshot: %w", err)
 	}
 	return config, nil
-}
-
-func resolveLocalProjectWorkspacePath(project ProjectRecord, rawPath string) (string, error) {
-	cleanPath, err := cleanLocalWorkspacePath(rawPath)
-	if err != nil {
-		return "", err
-	}
-	sourcePath := strings.TrimSpace(project.SourcePath)
-	if sourcePath == "" {
-		return "", fmt.Errorf("local workspace requires project source path")
-	}
-	sourceAbs, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve project source path %q: %w", sourcePath, err)
-	}
-	sourceDir := sourceAbs
-	if info, err := os.Stat(sourceAbs); err == nil && !info.IsDir() {
-		sourceDir = filepath.Dir(sourceAbs)
-	} else if err != nil {
-		sourceDir = filepath.Dir(sourceAbs)
-	}
-	target := sourceDir
-	if cleanPath != "." {
-		target = filepath.Join(sourceDir, cleanPath)
-	}
-	targetAbs, err := filepath.Abs(target)
-	if err != nil {
-		return "", fmt.Errorf("resolve local workspace path %q: %w", rawPath, err)
-	}
-	info, err := os.Lstat(targetAbs)
-	if err != nil {
-		return "", fmt.Errorf("local workspace source %s: %w", targetAbs, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("local workspace source %s is a symlink", targetAbs)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("local workspace source %s is not a directory", targetAbs)
-	}
-	return targetAbs, nil
-}
-
-func cleanLocalWorkspacePath(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("local workspace path is required")
-	}
-	if filepath.IsAbs(trimmed) {
-		return "", fmt.Errorf("local workspace path %q must be relative", trimmed)
-	}
-	clean := filepath.Clean(trimmed)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("local workspace path %q escapes project source root", trimmed)
-	}
-	return clean, nil
 }
 
 func projectRunGitWorkspaceConfig(run ProjectRunRecord, workspace *compose.WorkspaceSpec) (WorkspaceConfig, error) {
