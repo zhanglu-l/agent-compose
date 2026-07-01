@@ -15,7 +15,7 @@ type (
 )
 
 func (s *ConfigStore) ListProjectSessionRuns(ctx context.Context, filter ProjectSessionRelationFilter) ([]ProjectRunRecord, error) {
-	query := selectProjectRunSQL() + ` WHERE session_id != ''`
+	query := projects.SelectProjectRunSQL() + ` WHERE session_id != ''`
 	args := make([]any, 0, 4+len(filter.Statuses))
 	if projectID := strings.TrimSpace(filter.ProjectID); projectID != "" {
 		query += ` AND project_id = ?`
@@ -29,7 +29,7 @@ func (s *ConfigStore) ListProjectSessionRuns(ctx context.Context, filter Project
 		query += ` AND session_id = ?`
 		args = append(args, sessionID)
 	}
-	statuses := normalizeProjectRunStatusFilter(filter.Statuses)
+	statuses := projects.NormalizeRunStatusFilter(filter.Statuses)
 	if len(statuses) > 0 {
 		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
 		for _, status := range statuses {
@@ -54,7 +54,7 @@ func (s *ConfigStore) ListProjectSessionRuns(ctx context.Context, filter Project
 	defer func() { _ = rows.Close() }()
 	var items []ProjectRunRecord
 	for rows.Next() {
-		item, err := scanProjectRun(rows.Scan)
+		item, err := projects.ScanProjectRun(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -76,10 +76,6 @@ func (s *ConfigStore) ListProjectRunsForSession(ctx context.Context, sessionID s
 
 func ListProjectSessionStatuses(ctx context.Context, configDB *ConfigStore, store *Store, filter ProjectSessionRelationFilter) ([]ProjectSessionStatus, error) {
 	return runs.ListProjectSessionStatuses(ctx, configDB, store, filter)
-}
-
-func normalizeProjectRunStatusFilter(statuses []string) []string {
-	return projects.NormalizeRunStatusFilter(statuses)
 }
 
 func placeholders(count int) string {

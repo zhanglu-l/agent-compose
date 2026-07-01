@@ -75,7 +75,7 @@ func NewProjectSchedulerRecordFromSpec(projectID string, revision int64, agent c
 }
 
 func (s *ConfigStore) UpsertProject(ctx context.Context, project ProjectRecord) (ProjectRecord, error) {
-	project, err := normalizeProjectRecord(project)
+	project, err := projects.NormalizeRecord(project)
 	if err != nil {
 		return ProjectRecord{}, err
 	}
@@ -135,7 +135,7 @@ func (s *ConfigStore) SaveProjectRevision(ctx context.Context, revision ProjectR
 
 	row := tx.QueryRowContext(ctx, `SELECT project_id, revision, spec_hash, spec_json, created_at
 		FROM project_revision WHERE project_id = ? AND spec_hash = ?`, revision.ProjectID, revision.SpecHash)
-	existing, err := scanProjectRevision(row.Scan)
+	existing, err := projects.ScanProjectRevision(row.Scan)
 	if err == nil {
 		return existing, false, tx.Commit()
 	}
@@ -202,14 +202,14 @@ func (s *ConfigStore) ListProjects(ctx context.Context, options ProjectListOptio
 	query := strings.ToLower(strings.TrimSpace(options.Query))
 	matched := make([]ProjectRecord, 0)
 	for rows.Next() {
-		item, err := scanProject(rows.Scan)
+		item, err := projects.ScanProject(rows.Scan)
 		if err != nil {
 			return ProjectListResult{}, err
 		}
 		if !options.IncludeRemoved && !item.RemovedAt.IsZero() {
 			continue
 		}
-		if query != "" && !projectMatchesQuery(item, query) {
+		if query != "" && !projects.RecordMatchesQuery(item, query) {
 			continue
 		}
 		matched = append(matched, item)
@@ -236,7 +236,7 @@ func (s *ConfigStore) ListProjects(ctx context.Context, options ProjectListOptio
 func (s *ConfigStore) GetProjectRevision(ctx context.Context, projectID string, revision int64) (ProjectRevisionRecord, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT project_id, revision, spec_hash, spec_json, created_at
 		FROM project_revision WHERE project_id = ? AND revision = ?`, strings.TrimSpace(projectID), revision)
-	item, err := scanProjectRevision(row.Scan)
+	item, err := projects.ScanProjectRevision(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			id := fmt.Sprintf("%s/%d", strings.TrimSpace(projectID), revision)
@@ -248,7 +248,7 @@ func (s *ConfigStore) GetProjectRevision(ctx context.Context, projectID string, 
 }
 
 func (s *ConfigStore) UpsertProjectAgent(ctx context.Context, agent ProjectAgentRecord) (ProjectAgentRecord, error) {
-	agent, err := normalizeProjectAgentRecord(agent)
+	agent, err := projects.NormalizeAgentRecord(agent)
 	if err != nil {
 		return ProjectAgentRecord{}, err
 	}
@@ -279,7 +279,7 @@ func (s *ConfigStore) UpsertProjectAgent(ctx context.Context, agent ProjectAgent
 func (s *ConfigStore) GetProjectAgent(ctx context.Context, projectID, agentName string) (ProjectAgentRecord, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT project_id, agent_name, managed_agent_id, revision, provider, model, image, driver, scheduler_enabled, spec_json, created_at, updated_at
 		FROM project_agent WHERE project_id = ? AND agent_name = ?`, strings.TrimSpace(projectID), strings.TrimSpace(agentName))
-	item, err := scanProjectAgent(row.Scan)
+	item, err := projects.ScanProjectAgent(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			id := strings.TrimSpace(projectID) + "/" + strings.TrimSpace(agentName)
@@ -299,7 +299,7 @@ func (s *ConfigStore) ListProjectAgents(ctx context.Context, projectID string) (
 	defer func() { _ = rows.Close() }()
 	var items []ProjectAgentRecord
 	for rows.Next() {
-		item, err := scanProjectAgent(rows.Scan)
+		item, err := projects.ScanProjectAgent(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func (s *ConfigStore) ListProjectAgents(ctx context.Context, projectID string) (
 }
 
 func (s *ConfigStore) UpsertProjectScheduler(ctx context.Context, scheduler ProjectSchedulerRecord) (ProjectSchedulerRecord, error) {
-	scheduler, err := normalizeProjectSchedulerRecord(scheduler)
+	scheduler, err := projects.NormalizeSchedulerRecord(scheduler)
 	if err != nil {
 		return ProjectSchedulerRecord{}, err
 	}
@@ -343,7 +343,7 @@ func (s *ConfigStore) UpsertProjectScheduler(ctx context.Context, scheduler Proj
 func (s *ConfigStore) GetProjectScheduler(ctx context.Context, projectID, schedulerID string) (ProjectSchedulerRecord, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT project_id, scheduler_id, agent_name, managed_loader_id, revision, enabled, trigger_count, spec_json, created_at, updated_at
 		FROM project_scheduler WHERE project_id = ? AND scheduler_id = ?`, strings.TrimSpace(projectID), strings.TrimSpace(schedulerID))
-	item, err := scanProjectScheduler(row.Scan)
+	item, err := projects.ScanProjectScheduler(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			id := strings.TrimSpace(projectID) + "/" + strings.TrimSpace(schedulerID)
@@ -381,7 +381,7 @@ func (s *ConfigStore) ListProjectSchedulers(ctx context.Context, projectID strin
 	defer func() { _ = rows.Close() }()
 	var items []ProjectSchedulerRecord
 	for rows.Next() {
-		item, err := scanProjectScheduler(rows.Scan)
+		item, err := projects.ScanProjectScheduler(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -394,7 +394,7 @@ func (s *ConfigStore) ListProjectSchedulers(ctx context.Context, projectID strin
 }
 
 func (s *ConfigStore) CreateProjectRun(ctx context.Context, run ProjectRunRecord) (ProjectRunRecord, error) {
-	run, err := normalizeProjectRunRecord(run)
+	run, err := projects.NormalizeRunRecord(run)
 	if err != nil {
 		return ProjectRunRecord{}, err
 	}
@@ -415,7 +415,7 @@ func (s *ConfigStore) CreateProjectRun(ctx context.Context, run ProjectRunRecord
 }
 
 func (s *ConfigStore) UpdateProjectRun(ctx context.Context, run ProjectRunRecord) (ProjectRunRecord, error) {
-	run, err := normalizeProjectRunRecord(run)
+	run, err := projects.NormalizeRunRecord(run)
 	if err != nil {
 		return ProjectRunRecord{}, err
 	}
@@ -438,8 +438,8 @@ func (s *ConfigStore) UpdateProjectRun(ctx context.Context, run ProjectRunRecord
 }
 
 func (s *ConfigStore) GetProjectRun(ctx context.Context, runID string) (ProjectRunRecord, error) {
-	row := s.db.QueryRowContext(ctx, selectProjectRunSQL()+` WHERE run_id = ?`, strings.TrimSpace(runID))
-	item, err := scanProjectRun(row.Scan)
+	row := s.db.QueryRowContext(ctx, projects.SelectProjectRunSQL()+` WHERE run_id = ?`, strings.TrimSpace(runID))
+	item, err := projects.ScanProjectRun(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			id := strings.TrimSpace(runID)
@@ -486,13 +486,13 @@ func (s *ConfigStore) ListProjectRunsByOptions(ctx context.Context, options Proj
 	}
 	if status := strings.TrimSpace(options.Status); status != "" {
 		where = append(where, "status = ?")
-		args = append(args, normalizeProjectRunStatus(status))
+		args = append(args, projects.NormalizeRunStatus(status))
 	}
 	if source := strings.TrimSpace(options.Source); source != "" {
 		where = append(where, "source = ?")
 		args = append(args, normalizeProjectRunSource(source))
 	}
-	query := selectProjectRunSQL()
+	query := projects.SelectProjectRunSQL()
 	if len(where) > 0 {
 		query += ` WHERE ` + strings.Join(where, ` AND `)
 	}
@@ -505,7 +505,7 @@ func (s *ConfigStore) ListProjectRunsByOptions(ctx context.Context, options Proj
 	defer func() { _ = rows.Close() }()
 	var items []ProjectRunRecord
 	for rows.Next() {
-		item, err := scanProjectRun(rows.Scan)
+		item, err := projects.ScanProjectRun(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -528,7 +528,7 @@ func (s *ConfigStore) getProject(ctx context.Context, projectID string, includeR
 	}
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, source_path, source_json, current_revision, spec_hash, created_at, updated_at, removed_at
 		FROM project WHERE `+where, projectID)
-	item, err := scanProject(row.Scan)
+	item, err := projects.ScanProject(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ProjectRecord{}, false, nil
@@ -536,52 +536,4 @@ func (s *ConfigStore) getProject(ctx context.Context, projectID string, includeR
 		return ProjectRecord{}, false, err
 	}
 	return item, true, nil
-}
-
-func normalizeProjectRecord(project ProjectRecord) (ProjectRecord, error) {
-	return projects.NormalizeRecord(project)
-}
-
-func normalizeProjectAgentRecord(agent ProjectAgentRecord) (ProjectAgentRecord, error) {
-	return projects.NormalizeAgentRecord(agent)
-}
-
-func normalizeProjectSchedulerRecord(scheduler ProjectSchedulerRecord) (ProjectSchedulerRecord, error) {
-	return projects.NormalizeSchedulerRecord(scheduler)
-}
-
-func normalizeProjectRunRecord(run ProjectRunRecord) (ProjectRunRecord, error) {
-	return projects.NormalizeRunRecord(run)
-}
-
-func normalizeProjectRunStatus(status string) string {
-	return projects.NormalizeRunStatus(status)
-}
-
-func scanProject(scan func(dest ...any) error) (ProjectRecord, error) {
-	return projects.ScanProject(scan)
-}
-
-func scanProjectRevision(scan func(dest ...any) error) (ProjectRevisionRecord, error) {
-	return projects.ScanProjectRevision(scan)
-}
-
-func scanProjectAgent(scan func(dest ...any) error) (ProjectAgentRecord, error) {
-	return projects.ScanProjectAgent(scan)
-}
-
-func scanProjectScheduler(scan func(dest ...any) error) (ProjectSchedulerRecord, error) {
-	return projects.ScanProjectScheduler(scan)
-}
-
-func scanProjectRun(scan func(dest ...any) error) (ProjectRunRecord, error) {
-	return projects.ScanProjectRun(scan)
-}
-
-func selectProjectRunSQL() string {
-	return projects.SelectProjectRunSQL()
-}
-
-func projectMatchesQuery(item ProjectRecord, query string) bool {
-	return projects.RecordMatchesQuery(item, query)
 }
