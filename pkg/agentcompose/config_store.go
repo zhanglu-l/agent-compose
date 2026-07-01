@@ -445,7 +445,7 @@ func (s *ConfigStore) UpdateAgentDefinition(ctx context.Context, item AgentDefin
 		return AgentDefinition{}, fmt.Errorf("update agent definition %s: %w", normalized.ID, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return AgentDefinition{}, fmt.Errorf("agent definition %s not found", normalized.ID)
+		return AgentDefinition{}, resourceError(ErrNotFound, "agent definition", normalized.ID, fmt.Sprintf("agent definition %s not found", normalized.ID), nil)
 	}
 	return normalized, nil
 }
@@ -486,7 +486,7 @@ func (s *ConfigStore) UpsertManagedAgentDefinition(ctx context.Context, item Age
 			return AgentDefinition{}, fmt.Errorf("update managed agent definition %s: %w", normalized.ID, err)
 		}
 		if rows, _ := result.RowsAffected(); rows == 0 {
-			return AgentDefinition{}, fmt.Errorf("managed agent definition %s not found", normalized.ID)
+			return AgentDefinition{}, resourceError(ErrNotFound, "managed agent definition", normalized.ID, fmt.Sprintf("managed agent definition %s not found", normalized.ID), nil)
 		}
 		return s.GetAgentDefinition(ctx, normalized.ID)
 	}
@@ -520,7 +520,8 @@ func (s *ConfigStore) getAgentDefinition(ctx context.Context, id string, include
 		return AgentDefinition{}, err
 	}
 	if !found {
-		return AgentDefinition{}, fmt.Errorf("agent definition %s not found: %w", strings.TrimSpace(id), sql.ErrNoRows)
+		trimmedID := strings.TrimSpace(id)
+		return AgentDefinition{}, resourceError(ErrNotFound, "agent definition", trimmedID, fmt.Sprintf("agent definition %s not found", trimmedID), sql.ErrNoRows)
 	}
 	return item, nil
 }
@@ -640,7 +641,7 @@ func (s *ConfigStore) DeleteAgentDefinition(ctx context.Context, id string) erro
 		return fmt.Errorf("delete agent definition %s: %w", trimmedID, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return fmt.Errorf("agent definition %s not found", trimmedID)
+		return resourceError(ErrNotFound, "agent definition", trimmedID, fmt.Sprintf("agent definition %s not found", trimmedID), nil)
 	}
 	return nil
 }
@@ -656,7 +657,7 @@ func (s *ConfigStore) SetAgentDefinitionEnabled(ctx context.Context, id string, 
 		return AgentDefinition{}, fmt.Errorf("set agent definition enabled %s: %w", trimmedID, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return AgentDefinition{}, fmt.Errorf("agent definition %s not found", trimmedID)
+		return AgentDefinition{}, resourceError(ErrNotFound, "agent definition", trimmedID, fmt.Sprintf("agent definition %s not found", trimmedID), nil)
 	}
 	return s.GetAgentDefinition(ctx, trimmedID)
 }
