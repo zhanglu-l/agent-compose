@@ -1,0 +1,134 @@
+package loaders
+
+import (
+	"agent-compose/pkg/agentcompose/domain"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	cronlib "github.com/robfig/cron/v3"
+)
+
+const loaderDefaultCronTimezone = "UTC"
+
+type loaderCronSpec struct {
+	Kind     string `json:"kind,omitempty"`
+	Expr     string `json:"expr"`
+	Timezone string `json:"timezone,omitempty"`
+}
+
+var loaderCronParser = cronlib.NewParser(cronlib.SecondOptional | cronlib.Minute | cronlib.Hour | cronlib.Dom | cronlib.Month | cronlib.Dow | cronlib.Descriptor)
+
+func loaderCronSpecJSON(expr, timezone string) (string, error) {
+	spec, err := normalizeLoaderCronSpec(loaderCronSpec{
+		Kind:     domain.LoaderTriggerKindCron,
+		Expr:     expr,
+		Timezone: timezone,
+	})
+	if err != nil {
+		return "", err
+	}
+	return marshalJSONCompact(spec)
+}
+
+func normalizeLoaderCronSpec(spec loaderCronSpec) (loaderCronSpec, error) {
+	spec.Kind = domain.LoaderTriggerKindCron
+	spec.Expr = strings.TrimSpace(spec.Expr)
+	spec.Timezone = strings.TrimSpace(spec.Timezone)
+	if spec.Expr == "" {
+		return loaderCronSpec{}, fmt.Errorf("cron expr is required")
+	}
+	if spec.Timezone == "" {
+		spec.Timezone = loaderDefaultCronTimezone
+	}
+	if _, err := time.LoadLocation(spec.Timezone); err != nil {
+		return loaderCronSpec{}, fmt.Errorf("load cron timezone %q: %w", spec.Timezone, err)
+	}
+	if _, err := loaderCronParser.Parse(spec.Expr); err != nil {
+		return loaderCronSpec{}, fmt.Errorf("parse cron expression %q: %w", spec.Expr, err)
+	}
+	return spec, nil
+}
+
+func normalizeAgentKind(agent string) string {
+	agent = strings.ToLower(strings.TrimSpace(agent))
+	switch agent {
+	case "":
+		return ""
+	case "codex":
+		return "codex"
+	case "claude", "claude-code", "claude_code":
+		return "claude"
+	case "gemini", "gemini-cli", "gemini_cli":
+		return "gemini"
+	case "opencode", "open-code", "open_code":
+		return "opencode"
+	default:
+		return agent
+	}
+}
+
+func normalizeLoaderSessionPolicy(policy string) string {
+	return domain.NormalizeLoaderSessionPolicy(policy)
+}
+
+func normalizeEnvItems(items []domain.SessionEnvVar) []domain.SessionEnvVar {
+	if len(items) == 0 {
+		return nil
+	}
+	merged := make(map[string]domain.SessionEnvVar, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		item.Name = name
+		merged[name] = item
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(merged))
+	for key := range merged {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]domain.SessionEnvVar, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, merged[key])
+	}
+	return result
+}
+
+func loaderJSONResult(text, outputSchemaJSON, sourceName string) (any, error) {
+	if strings.TrimSpace(outputSchemaJSON) == "" {
+		return nil, nil
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return nil, fmt.Errorf("%s is not valid JSON for outputSchema: %w", sourceName, err)
+	}
+	return parsed, nil
+}
+
+func marshalJSONCompact(value any) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encode json payload: %w", err)
+	}
+	return string(data), nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
