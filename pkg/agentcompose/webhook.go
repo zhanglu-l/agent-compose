@@ -464,19 +464,7 @@ func decodeWebhookJSONObject(raw []byte) (map[string]any, string, error) {
 }
 
 func existingWebhookBodyHash(payloadJSON string) string {
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-		return ""
-	}
-	body, ok := payload["body"]
-	if !ok {
-		return ""
-	}
-	compact, err := marshalJSONCompact(body)
-	if err != nil {
-		return ""
-	}
-	return topicEventPayloadSHA256(compact)
+	return webhooks.ExistingBodyHash(payloadJSON)
 }
 
 func validateExternalWebhookTopic(topic string) error {
