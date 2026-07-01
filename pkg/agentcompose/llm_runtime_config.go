@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
+
+	"agent-compose/pkg/agentcompose/llms"
 )
 
 const (
@@ -151,14 +152,7 @@ func ensureSessionOpenCodeLLMFacadeConfig(ctx context.Context, config *appconfig
 }
 
 func splitOpenCodeModel(model string) (string, string, error) {
-	model = strings.TrimSpace(model)
-	providerID, modelName, ok := strings.Cut(model, "/")
-	providerID = strings.TrimSpace(providerID)
-	modelName = strings.TrimSpace(modelName)
-	if !ok || providerID == "" || modelName == "" {
-		return "", "", fmt.Errorf("opencode model must be in provider/model format")
-	}
-	return providerID, modelName, nil
+	return llms.SplitOpenCodeModel(model)
 }
 
 func ensureSessionOpenCodeAnthropicFacadeConfig(ctx context.Context, config *appconfig.Config, configDB *ConfigStore, session *Session, model, source, runID string) (map[string]string, error) {
@@ -491,34 +485,9 @@ func lookupRuntimeBaseURLEnv(session *Session) string {
 }
 
 func mergeManagedExecEnv(base map[string]string, managed map[string]string) map[string]string {
-	if len(base) == 0 && len(managed) == 0 {
-		return nil
-	}
-	result := make(map[string]string, len(base)+len(managed))
-	for key, value := range base {
-		if llmProviderKeyName(key) {
-			continue
-		}
-		result[key] = value
-	}
-	for key, value := range managed {
-		result[key] = value
-	}
-	return result
+	return llms.MergeManagedExecEnv(base, managed)
 }
 
 func envItemsFromMap(values map[string]string, secret bool) []SessionEnvVar {
-	if len(values) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	items := make([]SessionEnvVar, 0, len(keys))
-	for _, key := range keys {
-		items = append(items, SessionEnvVar{Name: key, Value: values[key], Secret: secret})
-	}
-	return items
+	return llms.EnvItemsFromMap(values, secret)
 }
