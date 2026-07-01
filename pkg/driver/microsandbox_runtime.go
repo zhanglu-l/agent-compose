@@ -753,7 +753,7 @@ func (r *microsandboxRuntime) resolveMicrosandboxImageRef(ctx context.Context, i
 	rootfs, ok, err := resolveMicrosandboxRootFS(ctx, imageRef, microsandboxImageResolverOps{
 		dockerAvailable: dockerDaemonAvailable,
 		dockerMaterialize: func(ctx context.Context, imageRef string) (microsandboxRootFSResult, bool, error) {
-			rootfs, ok, err := materializeLocalDockerImageRootfs(ctx, r.config.DataRoot, imageRef, r.config.ImagePullTimeout)
+			rootfs, ok, err := materializeLocalDockerImageRootfs(ctx, r.config.DataRoot, imageRef)
 			if err != nil || !ok {
 				return microsandboxRootFSResult{}, ok, err
 			}
