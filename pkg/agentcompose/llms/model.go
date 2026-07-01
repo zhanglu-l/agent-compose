@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+const (
+	ProviderFamilyOpenAI    = "openai"
+	ProviderFamilyAnthropic = "anthropic"
+
+	ProviderScopeSystem     = "system"
+	ProviderScopeEnvDefault = "env_default"
+	ProviderScopeSessionEnv = "session_env"
+
+	ProviderIDDefaultOpenAI    = "default"
+	ProviderIDDefaultAnthropic = "anthropic"
+
+	APIProtocolResponses       = "responses"
+	APIProtocolChatCompletions = "chat_completions"
+	APIProtocolMessages        = "messages"
+)
+
 type Provider struct {
 	ID                           string
 	Name                         string

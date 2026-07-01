@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	llmProviderFamilyOpenAI       = "openai"
-	llmProviderFamilyAnthropic    = "anthropic"
-	llmProviderScopeSystem        = "system"
-	llmProviderScopeEnvDefault    = "env_default"
-	llmProviderScopeSessionEnv    = "session_env"
-	llmProviderIDDefaultOpenAI    = "default"
-	llmProviderIDDefaultAnthropic = "anthropic"
+	llmProviderFamilyOpenAI       = llms.ProviderFamilyOpenAI
+	llmProviderFamilyAnthropic    = llms.ProviderFamilyAnthropic
+	llmProviderScopeSystem        = llms.ProviderScopeSystem
+	llmProviderScopeEnvDefault    = llms.ProviderScopeEnvDefault
+	llmProviderScopeSessionEnv    = llms.ProviderScopeSessionEnv
+	llmProviderIDDefaultOpenAI    = llms.ProviderIDDefaultOpenAI
+	llmProviderIDDefaultAnthropic = llms.ProviderIDDefaultAnthropic
 )
 
 type (

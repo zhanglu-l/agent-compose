@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/llms"
 	appconfig "agent-compose/pkg/config"
 	"bytes"
 	"context"
@@ -30,9 +31,9 @@ type LLMGenerateResult struct {
 }
 
 const (
-	llmAPIProtocolResponses       = "responses"
-	llmAPIProtocolChatCompletions = "chat_completions"
-	llmAPIProtocolMessages        = "messages"
+	llmAPIProtocolResponses       = llms.APIProtocolResponses
+	llmAPIProtocolChatCompletions = llms.APIProtocolChatCompletions
+	llmAPIProtocolMessages        = llms.APIProtocolMessages
 )
 
 type llmAPIRequest struct {
