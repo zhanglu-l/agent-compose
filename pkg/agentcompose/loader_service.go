@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/loaders"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
 
@@ -167,18 +168,7 @@ func loaderServiceConnectError(err error) error {
 }
 
 func parseLoaderRunTimeout(raw string) (time.Duration, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, nil
-	}
-	timeout, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, err
-	}
-	if timeout <= 0 {
-		return 0, fmt.Errorf("loader run timeout must be positive")
-	}
-	return timeout, nil
+	return loaders.ParseRunTimeout(raw)
 }
 
 func (s *Service) ListLoaderRuns(ctx context.Context, req *connect.Request[agentcomposev1.ListLoaderRunsRequest]) (*connect.Response[agentcomposev1.ListLoaderRunsResponse], error) {
