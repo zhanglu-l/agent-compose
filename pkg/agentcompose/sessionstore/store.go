@@ -105,7 +105,7 @@ func (s *Store) CreateSession(_ context.Context, title, baseWorkspace, driver, g
 		Summary: SessionSummary{
 			ID:            id,
 			Title:         strings.TrimSpace(title),
-			TriggerSource: normalizeSessionTriggerSource(triggerSource, tags),
+			TriggerSource: domain.NormalizeSessionTriggerSource(triggerSource, tags),
 			Driver:        driver,
 			VMStatus:      VMStatusPending,
 			GuestImage:    guestImage,
@@ -191,7 +191,7 @@ func (s *Store) ListSessions(_ context.Context, options SessionListOptions) (Ses
 			continue
 		}
 		s.hydrateSessionGuestImage(session)
-		if !sessionMatchesListOptions(session, options) {
+		if !domain.SessionMatchesListOptions(session, options) {
 			continue
 		}
 		sessions = append(sessions, session)
@@ -200,8 +200,8 @@ func (s *Store) ListSessions(_ context.Context, options SessionListOptions) (Ses
 		return sessions[i].Summary.UpdatedAt.After(sessions[j].Summary.UpdatedAt)
 	})
 	totalCount := len(sessions)
-	offset, limit := normalizeSessionListBounds(options.Offset, options.Limit)
-	page := paginateSessions(sessions, offset, limit)
+	offset, limit := domain.NormalizeSessionListBounds(options.Offset, options.Limit)
+	page := domain.PaginateSessions(sessions, offset, limit)
 	result := SessionListResult{
 		Sessions:   page,
 		TotalCount: totalCount,
@@ -363,7 +363,7 @@ func (s *Store) loadSession(id string) (*Session, error) {
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("decode session metadata %s: %w", id, err)
 	}
-	session.Summary.TriggerSource = normalizeSessionTriggerSource(session.Summary.TriggerSource, session.Summary.Tags)
+	session.Summary.TriggerSource = domain.NormalizeSessionTriggerSource(session.Summary.TriggerSource, session.Summary.Tags)
 	driver, err := driverpkg.ResolveSessionRuntimeDriver(session.Summary.Driver, s.config.RuntimeDriver)
 	if err != nil {
 		return nil, fmt.Errorf("session metadata %s has invalid driver: %w", id, err)
@@ -640,22 +640,6 @@ func (s *Store) writeJSONFile(path string, value any) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
-}
-
-func normalizeSessionTriggerSource(value string, tags []SessionTag) string {
-	return domain.NormalizeSessionTriggerSource(value, tags)
-}
-
-func normalizeSessionListBounds(offset, limit int) (int, int) {
-	return domain.NormalizeSessionListBounds(offset, limit)
-}
-
-func paginateSessions(items []*Session, offset, limit int) []*Session {
-	return domain.PaginateSessions(items, offset, limit)
-}
-
-func sessionMatchesListOptions(session *Session, options SessionListOptions) bool {
-	return domain.SessionMatchesListOptions(session, options)
 }
 
 func firstNonEmpty(values ...string) string {
