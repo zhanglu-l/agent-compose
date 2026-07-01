@@ -158,7 +158,7 @@ scheduler.on("webhook.queue.test", "on-webhook", function(event) {
 		t.Fatalf("CreateEvent returned error: %v", err)
 	}
 
-	dispatcher.dispatchOnce(ctx, 10)
+	dispatcher.DispatchOnce(ctx, 10)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		loaded, err := store.GetEvent(ctx, created.ID)
@@ -246,7 +246,7 @@ scheduler.on("webhook.busy.test", "on-webhook", function(event) {
 		t.Fatalf("CreateEvent returned error: %v", err)
 	}
 
-	dispatcher.dispatchOnce(ctx, 10)
+	dispatcher.DispatchOnce(ctx, 10)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		loaded, err := store.GetEvent(ctx, created.ID)
@@ -336,7 +336,7 @@ scheduler.on("webhook.dedupe.*", "wildcard", function(event) {
 		t.Fatalf("CreateEvent returned error: %v", err)
 	}
 
-	dispatcher.dispatchOnce(ctx, 10)
+	dispatcher.DispatchOnce(ctx, 10)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		runs, err := store.ListLoaderRuns(ctx, loader.Summary.ID, 10)
@@ -435,7 +435,7 @@ scheduler.on("webhook.multi.test", "on-webhook", function(event) {
 		t.Fatalf("CreateEvent returned error: %v", err)
 	}
 
-	dispatcher.dispatchOnce(ctx, 10)
+	dispatcher.DispatchOnce(ctx, 10)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		firstRuns, err := store.ListLoaderRuns(ctx, first.Summary.ID, 10)
