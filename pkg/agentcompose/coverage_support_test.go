@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -332,7 +333,7 @@ func testSupportAgentAndLoaderHelpers(t *testing.T) {
 	if firstNonZeroInt(0, 0, 7, 9) != 7 || firstNonZeroInt(0, 0) != 0 {
 		t.Fatalf("firstNonZeroInt returned unexpected values")
 	}
-	if sessionTypeFromTriggerSource("script:loader-1") != SessionTypeScript || sessionTypeFromTriggerSource("") != SessionTypeManual {
+	if domain.SessionTypeFromTriggerSource("script:loader-1") != SessionTypeScript || domain.SessionTypeFromTriggerSource("") != SessionTypeManual {
 		t.Fatalf("sessionTypeFromTriggerSource returned unexpected values")
 	}
 	if parsed, err := parseOptionalRFC3339("2026-06-02T09:00:00Z", "created_from"); err != nil || !parsed.Equal(time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)) {

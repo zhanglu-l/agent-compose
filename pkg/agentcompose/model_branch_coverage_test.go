@@ -31,7 +31,7 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 		WorkspaceID: "workspace-1",
 		Workspace:   &SessionWorkspace{ID: "workspace-1", Name: "Workspace One", Type: "file"},
 	}
-	if !sessionMatchesListOptions(session, SessionListOptions{
+	if !domain.SessionMatchesListOptions(session, SessionListOptions{
 		SessionType:        SessionTypeScript,
 		TriggerSourceQuery: "loader",
 		TitleQuery:         "branch",
@@ -57,21 +57,21 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 		{UpdatedFrom: now.Add(2 * time.Minute)},
 		{UpdatedTo: now.Add(-time.Second)},
 	} {
-		if sessionMatchesListOptions(session, options) {
+		if domain.SessionMatchesListOptions(session, options) {
 			t.Fatalf("session unexpectedly matched options %#v", options)
 		}
 	}
-	if sessionMatchesListOptions(nil, SessionListOptions{}) {
+	if domain.SessionMatchesListOptions(nil, SessionListOptions{}) {
 		t.Fatalf("nil session matched list options")
 	}
-	if got := normalizeSessionTriggerSource("", []SessionTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: "loader-9"}}); got != "script:loader-9" {
+	if got := domain.NormalizeSessionTriggerSource("", []SessionTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: "loader-9"}}); got != "script:loader-9" {
 		t.Fatalf("normalizeSessionTriggerSource tags = %q", got)
 	}
-	if got := paginateSessions([]*Session{session}, 5, 10); got != nil {
+	if got := domain.PaginateSessions([]*Session{session}, 5, 10); got != nil {
 		t.Fatalf("paginateSessions beyond end = %#v", got)
 	}
-	offset, limit := normalizeSessionListBounds(-1, 0)
-	if offset != 0 || limit != defaultSessionListLimit {
+	offset, limit := domain.NormalizeSessionListBounds(-1, 0)
+	if offset != 0 || limit != domain.DefaultSessionListLimit {
 		t.Fatalf("normalizeSessionListBounds = %d/%d", offset, limit)
 	}
 
