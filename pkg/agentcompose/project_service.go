@@ -1335,31 +1335,11 @@ func normalizeComparableLoaderTriggers(items []LoaderTrigger) []LoaderTrigger {
 }
 
 func sameSessionEnvItems(a, b []SessionEnvVar) bool {
-	a = normalizeEnvItems(a)
-	b = normalizeEnvItems(b)
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return projects.SameSessionEnvItems(a, b)
 }
 
 func sameStringSlices(a, b []string) bool {
-	a = normalizeCapsetIDs(a)
-	b = normalizeCapsetIDs(b)
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return projects.SameCapsetIDs(a, b)
 }
 
 func getProjectAgentIfExists(ctx context.Context, store *ConfigStore, projectID, agentName string) (ProjectAgentRecord, bool, error) {
