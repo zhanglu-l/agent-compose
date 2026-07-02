@@ -702,6 +702,15 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 		}
 	}()
 	mounts["/var/lib/docker"] = microsandbox.Mount.Disk(rawPath, microsandbox.DiskOptions{Format: "raw", Fstype: "ext4"})
+	// /run must be a per-VM tmpfs (standard Linux boot semantics). The guest
+	// root is a shared, session-reused rootfs dir on virtiofs and the msb guest
+	// init does not mount /run itself, so without this, runtime state written
+	// under /run (dockerd pid files, unix sockets) outlives the VM and leaks
+	// into every later session of the same image — a stale
+	// /run/docker/containerd/containerd.pid then makes dockerd kill its own
+	// containerd and refuse to start. agentd recreates /run/microsandbox after
+	// user tmpfs mounts are applied, so shadowing /run here is safe.
+	mounts["/run"] = microsandbox.Mount.Tmpfs(microsandbox.TmpfsOptions{SizeMiB: 256})
 	hostPort := uint16(proxyState.HostPort)
 	guestPort := uint16(r.config.JupyterGuestPort)
 	imageRef := resolveSessionGuestImage(vmState.Image, session.Summary.GuestImage, defaultGuestImageForDriver(r.config, RuntimeDriverMicrosandbox))
