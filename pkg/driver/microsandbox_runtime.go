@@ -126,7 +126,13 @@ func (r *microsandboxRuntime) StopSession(ctx context.Context, session *Session,
 		return false, err
 	}
 	if handle.Status() != microsandbox.SandboxStatusRunning && handle.Status() != microsandbox.SandboxStatusDraining {
+		// Already stopped, but the sandbox metadata still persists in the
+		// daemon. Destroy it (and its docker disk) so a restart rebuilds
+		// from scratch instead of remounting the deleted disk. See
+		// removeSandboxState.
 		r.discardLifecycleHandle(name)
+		r.removeDockerDisk(session.Summary.ID)
+		r.removeSandboxState(ctx, name)
 		return false, nil
 	}
 
@@ -146,6 +152,7 @@ func (r *microsandboxRuntime) StopSession(ctx context.Context, session *Session,
 			return false, err
 		}
 		r.removeDockerDisk(session.Summary.ID)
+		r.removeSandboxState(ctx, name)
 		return false, nil
 	}
 
@@ -156,6 +163,7 @@ func (r *microsandboxRuntime) StopSession(ctx context.Context, session *Session,
 	if stale || sandbox == nil {
 		r.discardLifecycleHandle(name)
 		r.removeDockerDisk(session.Summary.ID)
+		r.removeSandboxState(ctx, name)
 		return true, nil
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
@@ -167,6 +175,7 @@ func (r *microsandboxRuntime) StopSession(ctx context.Context, session *Session,
 		return false, err
 	}
 	r.removeDockerDisk(session.Summary.ID)
+	r.removeSandboxState(ctx, name)
 	return false, nil
 }
 
@@ -523,6 +532,23 @@ func (r *microsandboxRuntime) removeDockerDisk(sessionID string) {
 	path := r.dockerDiskPath(sessionID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		slog.Warn("agent-compose microsandbox: failed to remove docker disk image", "path", path, "error", err)
+	}
+}
+
+// removeSandboxState purges a stopped sandbox's persisted metadata from the
+// microsandbox daemon so a later GetSandbox(name) returns ErrSandboxNotFound.
+// This matches the docker driver, which fully removes the container on stop:
+// without it, a restart would take the getOrCreateSandbox handle.Start() path
+// and remount the per-session docker disk that StopSession already deleted,
+// failing with "host path not found". Best-effort — a purge failure must not
+// mask the stop result; the daemon's gc reclaims any residue on restart.
+func (r *microsandboxRuntime) removeSandboxState(ctx context.Context, name string) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	if err := microsandbox.RemoveSandbox(ctx, name); err != nil &&
+		!microsandbox.IsKind(err, microsandbox.ErrSandboxNotFound) {
+		slog.Warn("agent-compose microsandbox: failed to remove sandbox state", "name", name, "error", err)
 	}
 }
 
