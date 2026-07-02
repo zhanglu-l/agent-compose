@@ -253,6 +253,105 @@ func testNewConfigEnablesTCPOnlyWhenHTTPListenIsExplicit(t *testing.T) {
 	}
 }
 
+func TestNewConfigRequiresAuthForPublicHTTPListen(t *testing.T) {
+	testNewConfigRequiresAuthForPublicHTTPListen(t)
+}
+
+func testNewConfigRequiresAuthForPublicHTTPListen(t *testing.T) {
+	t.Helper()
+	for _, tc := range []struct {
+		name      string
+		listen    string
+		env       map[string]string
+		wantError bool
+	}{
+		{
+			name:      "public listen without auth fails",
+			listen:    "0.0.0.0:7410",
+			wantError: true,
+		},
+		{
+			name:      "all IPv6 listen without auth fails",
+			listen:    "[::]:7410",
+			wantError: true,
+		},
+		{
+			name:   "loopback listen without auth is allowed",
+			listen: "127.0.0.1:7410",
+		},
+		{
+			name:   "localhost listen without auth is allowed",
+			listen: "localhost:7410",
+		},
+		{
+			name:   "password auth requires secret",
+			listen: "0.0.0.0:7410",
+			env: map[string]string{
+				"AUTH_PASSWORD": "secret",
+			},
+			wantError: true,
+		},
+		{
+			name:   "password auth with secret is allowed",
+			listen: "0.0.0.0:7410",
+			env: map[string]string{
+				"AUTH_PASSWORD": "secret",
+				"AUTH_SECRET":   "auth-secret",
+			},
+		},
+		{
+			name:   "basic auth is allowed",
+			listen: "0.0.0.0:7410",
+			env: map[string]string{
+				"HTTP_BASIC_AUTH": base64.StdEncoding.EncodeToString([]byte("user:pass")),
+			},
+		},
+		{
+			name:   "oauth requires auth secret",
+			listen: "0.0.0.0:7410",
+			env: map[string]string{
+				"OAUTH_APIKEY":       "client-id",
+				"OAUTH_CALLBACK_URL": "http://localhost:7410/oauth/callback",
+			},
+			wantError: true,
+		},
+		{
+			name:   "oauth with auth secret is allowed",
+			listen: "0.0.0.0:7410",
+			env: map[string]string{
+				"AUTH_SECRET":        "auth-secret",
+				"OAUTH_APIKEY":       "client-id",
+				"OAUTH_CALLBACK_URL": "http://localhost:7410/oauth/callback",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("DATA_ROOT", filepath.Join(root, "data"))
+			t.Setenv("HTTP_LISTEN", tc.listen)
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+
+			di := do.New()
+			do.ProvideValue(di, slog.Default())
+			_, err := NewConfig(di)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("NewConfig returned nil error, want auth requirement error")
+				}
+				if !strings.Contains(err.Error(), "HTTP_LISTEN") || !strings.Contains(err.Error(), "AUTH_PASSWORD") {
+					t.Fatalf("error = %q, want HTTP_LISTEN auth guidance", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewConfig returned error: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewConfigRejectsInvalidDaemonAddresses(t *testing.T) {
 	testNewConfigRejectsInvalidDaemonAddresses(t)
 }

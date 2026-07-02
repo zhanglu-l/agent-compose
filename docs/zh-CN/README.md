@@ -104,26 +104,37 @@ agent 常用字段：
 
 Web UI 在独立仓库 [agent-compose-ui](https://github.com/chaitin/agent-compose-ui)。它通过已发布的 [`@chaitin-ai/agent-compose-client`](https://www.npmjs.com/package/@chaitin-ai/agent-compose-client) 包消费 API 客户端——该包由本仓库的 `proto/` 经 `proto-client/` 生成发布。
 
-daemon 不托管 Web UI。前端仓库构建一个 nginx 镜像（`ghcr.io/chaitin/agent-compose-ui`），负责托管构建后的前端并把 API、Jupyter proxy 路由反向代理到 daemon。本仓库的 `docker-compose.yml` 和 `docker-compose.deploy.yml` 直接引用该已发布镜像。
+daemon 不托管 Web UI。前端仓库构建一个 nginx 镜像（`ghcr.io/chaitin/agent-compose-ui`），负责托管构建后的前端并把 API、Jupyter proxy 路由反向代理到 daemon。仓库根目录的 `docker-compose.yml` 直接引用该已发布镜像，并作为默认部署入口。
+
+使用已发布容器镜像部署到服务器：
+
+```bash
+cp .env.example .env
+openssl rand -base64 24 # 将输出写入 AUTH_PASSWORD
+openssl rand -hex 32    # 将输出写入 AUTH_SECRET
+docker compose pull
+docker compose up -d
+```
+
+首次启动前编辑 `.env`。至少替换 `AUTH_PASSWORD` 和 `AUTH_SECRET`；如果不能使用宿主机 `80` 端口，修改 `AGENT_COMPOSE_HTTP_PORT`。本地开发时，Docker Compose 会自动加载 `docker-compose.override.yml`，使用本地 Dockerfile 构建后端镜像；需要重建时执行 `docker compose up -d --build`。
 
 ## 配置
 
-本地实验可复制 `.env.example` 为 `.env`。
+复制 `.env.example` 为 `.env`，按部署环境修改后执行 `docker compose up -d`。
 
 常用环境变量：
 
-- `DATA_ROOT`：daemon 数据根目录；session 数据位于 `<DATA_ROOT>/sessions`。
-- `HTTP_LISTEN`：可选 TCP 监听地址；本地无认证开发建议保持 loopback。
-- `AGENT_COMPOSE_SOCKET`、`AGENT_COMPOSE_HOST`：daemon 连接设置。
-- `AUTH_USERNAME`、`AUTH_PASSWORD`、`AUTH_SECRET`、`AUTH_SESSION_TTL`：密码登录设置。
+- `AUTH_USERNAME`、`AUTH_PASSWORD`、`AUTH_SECRET`、`AUTH_SESSION_TTL`：密码登录设置。对外部署前应替换示例密码和 secret。
+- `AGENT_COMPOSE_HTTP_PORT`：Web UI 和反向代理发布到宿主机的端口。
+- `AGENT_COMPOSE_IMAGE`、`AGENT_COMPOSE_FRONTEND_IMAGE`：Docker Compose 服务镜像。
+- `DEFAULT_IMAGE`、`DOCKER_DEFAULT_IMAGE`、`MICROSANDBOX_DEFAULT_IMAGE`：guest 镜像默认值。
+- `RUNTIME_DRIVER`：默认 runtime driver。
 - `OAUTH_*`：OAuth 登录设置。
-- `HTTP_BASIC_AUTH`：额外 HTTP Basic 认证（base64 编码的 `username:password`）。
 - `LLM_API_ENDPOINT`、`LLM_API_PROTOCOL`、`LLM_API_KEY`、`OPENAI_API_KEY`、`LLM_MODEL`、`LLM_TIMEOUT`：daemon 侧 OpenAI family LLM 配置，供 `LLMService`、`scheduler.llm` 和 runtime agent LLM facade bootstrap 使用。这些值不会作为 provider key 注入 guest agent runtime。对接 OpenAI 兼容 Chat Completions 后端时设置 `LLM_API_PROTOCOL=chat_completions`。
 - `ANTHROPIC_BASE_URL`、`ANTHROPIC_API_ENDPOINT`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_MODEL`、`CLAUDE_MODEL`：daemon 侧 Anthropic family LLM facade bootstrap 配置。
 - `AGENT_COMPOSE_RUNTIME_BASE_URL`：可选的 runtime 内可访问 daemon base URL，用于生成 Runtime LLM Facade 配置。Docker Compose 默认使用 `http://agent-compose:7410`；宿主机 Docker 场景应配置具体的宿主机 IP/名称和端口。
+- `DOCKER_HOST_SESSION_ROOT`：guest 容器 bind mount 使用的宿主机 session 数据路径。Docker Compose 默认使用 `./data/agent-compose/sessions`。
 - `CAP_GRPC_LISTEN`、`CAP_GRPC_TARGET`：仅在 Agent 需要调用 OctoBus gRPC capability 时必须配置。`CAP_GRPC_LISTEN` 启动 agent-compose capability proxy；`CAP_GRPC_TARGET` 是注入新 session 的 guest 可达地址。修改后需要重启 daemon 并新建 session。
-- `RUNTIME_DRIVER`：默认 runtime driver。
-- `DEFAULT_IMAGE`、`DOCKER_DEFAULT_IMAGE`、`MICROSANDBOX_DEFAULT_IMAGE`：guest 镜像默认值。
 
 ### Agent Provider
 
@@ -144,7 +155,7 @@ task image:agent-compose-guest
 
 创建新 session（或 resume 已有 session）以加载更新后的镜像和环境变量。
 
-> **升级注意（部分 Docker 部署存在破坏性变更）：** provider key 不再透传进 guest runtime，Codex/Claude 改为通过 daemon facade 访问上游 LLM，需要一个 runtime 内可达的 daemon URL。自带的 `docker-compose.yml` / `docker-compose.deploy.yml` 已默认设置 `AGENT_COMPOSE_RUNTIME_BASE_URL=http://agent-compose:7410`。如果你在宿主机上直接运行 daemon（Docker driver）且 `HTTP_LISTEN=127.0.0.1:...`，容器无法访问该 loopback 地址，facade 配置会被跳过，agent run 将没有可用的 LLM 凭据。此时需要把 `AGENT_COMPOSE_RUNTIME_BASE_URL` 设为宿主机可达的具体 IP/名称和端口（例如 `http://host.docker.internal:7410`）。
+> **升级注意（部分 Docker 部署存在破坏性变更）：** provider key 不再透传进 guest runtime，Codex/Claude 改为通过 daemon facade 访问上游 LLM，需要一个 runtime 内可达的 daemon URL。自带的 `docker-compose.yml` 已默认设置 `AGENT_COMPOSE_RUNTIME_BASE_URL=http://agent-compose:7410`。如果你在宿主机上直接运行 daemon（Docker driver）且 `HTTP_LISTEN=127.0.0.1:...`，容器无法访问该 loopback 地址，facade 配置会被跳过，agent run 将没有可用的 LLM 凭据。此时需要把 `AGENT_COMPOSE_RUNTIME_BASE_URL` 设为宿主机可达的具体 IP/名称和端口（例如 `http://host.docker.internal:7410`）。
 
 Runtime LLM Facade 设计见 [design/agent-compose-runtime-llm-facade.md](design/agent-compose-runtime-llm-facade.md)。
 

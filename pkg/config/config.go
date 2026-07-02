@@ -381,6 +381,9 @@ func NewConfig(di do.Injector) (*Config, error) {
 	if oauthClientAuthMethod == "" {
 		oauthClientAuthMethod = "client_secret_post"
 	}
+	if err := validateHTTPListenAuth(httpListen, authPassword, authSecret, basicAuth, oauthAPIKey, oauthCallbackURL, oauthAuthURL, oauthTokenURL); err != nil {
+		return nil, err
+	}
 
 	jupyterProxyBase := strings.TrimSpace(os.Getenv("JUPYTER_PROXY_BASE"))
 	if jupyterProxyBase == "" {
@@ -548,6 +551,51 @@ func validateAgentComposeHost(value string) error {
 		return fmt.Errorf("invalid AGENT_COMPOSE_HOST %q: host is required", value)
 	}
 	return nil
+}
+
+func validateHTTPListenAuth(httpListen, authPassword, authSecret, basicAuth, oauthAPIKey, oauthCallbackURL, oauthAuthURL, oauthTokenURL string) error {
+	if httpListen == "" || isLoopbackListenAddress(httpListen) {
+		return nil
+	}
+	oauthEnabled := oauthAPIKey != "" && oauthCallbackURL != "" && oauthAuthURL != "" && oauthTokenURL != ""
+	switch {
+	case basicAuth != "":
+		return nil
+	case authPassword != "" && authSecret != "":
+		return nil
+	case oauthEnabled && authSecret != "":
+		return nil
+	default:
+		return fmt.Errorf("HTTP_LISTEN %q exposes the daemon on a non-loopback address; set AUTH_PASSWORD with AUTH_SECRET, configure OAuth with AUTH_SECRET, or set HTTP_BASIC_AUTH", httpListen)
+	}
+}
+
+func isLoopbackListenAddress(value string) bool {
+	host, _, err := net.SplitHostPort(value)
+	if err != nil {
+		return false
+	}
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback()
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, resolved := range ips {
+		if !resolved.IsLoopback() {
+			return false
+		}
+	}
+	return true
 }
 
 func ApplyDefaultGuestPaths(config *Config) {

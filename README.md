@@ -210,42 +210,48 @@ package, which is built from this repository's `proto/` via `proto-client/`.
 
 The daemon does not host the Web UI. The frontend repository builds an nginx
 image (`ghcr.io/chaitin/agent-compose-ui`) that serves the built UI and
-reverse-proxies API and Jupyter routes to the daemon. The `docker-compose.yml`
-and `docker-compose.deploy.yml` here reference that published image.
+reverse-proxies API and Jupyter routes to the daemon. The root
+`docker-compose.yml` references that published image and is the default
+deployment entrypoint.
 
-For a deployment that uses published container images:
+For a server deployment that uses published container images:
 
 ```bash
-export AUTH_PASSWORD="$(openssl rand -base64 24)"
-export AUTH_SECRET="$(openssl rand -hex 32)"
-docker compose -f docker-compose.deploy.yml pull
-docker compose -f docker-compose.deploy.yml up -d
+cp .env.example .env
+openssl rand -base64 24 # use this value for AUTH_PASSWORD
+openssl rand -hex 32    # use this value for AUTH_SECRET
+docker compose pull
+docker compose up -d
 ```
 
+Edit `.env` before the first start. At minimum, replace `AUTH_PASSWORD` and
+`AUTH_SECRET`; set `AGENT_COMPOSE_HTTP_PORT` if port `80` is not suitable.
 Override `AGENT_COMPOSE_IMAGE`, `AGENT_COMPOSE_FRONTEND_IMAGE`, or
-`DEFAULT_IMAGE` to pin release tags or use locally built images. The frontend is
-released independently by `agent-compose-ui`; installer manifests declare
-`AGENT_COMPOSE_FRONTEND_VERSION`, which defaults to `latest` unless explicitly
-pinned. The deployment compose serves the frontend on port `80` by default; set
-`AGENT_COMPOSE_HTTP_PORT` to use another host port. The default
-`docker-compose.yml` remains oriented toward local development builds. Set
-`AUTH_USERNAME` and `AUTH_PASSWORD` before exposing the deployment to a network.
+`DEFAULT_IMAGE` to pin release tags or use a mirror/private registry. The
+frontend is released independently by `agent-compose-ui`.
+
+For local development, Docker Compose automatically loads
+`docker-compose.override.yml`, which builds the backend image from the local
+Dockerfile while keeping the same service topology. Use
+`docker compose up -d --build` when you want to rebuild the local backend image.
 
 ## Configuration
 
-Copy `.env.example` to `.env` for local experiments.
+Copy `.env.example` to `.env`, edit the values for your environment, then run
+`docker compose up -d`.
 
 Important variables include:
 
-- `DATA_ROOT`: daemon data root. Session data lives under `<DATA_ROOT>/sessions`.
-- `HTTP_LISTEN`: optional TCP listen address. Keep it on loopback for local
-  unauthenticated development.
-- `AGENT_COMPOSE_SOCKET`, `AGENT_COMPOSE_HOST`: daemon connection settings.
 - `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_SECRET`, `AUTH_SESSION_TTL`: password
-  login settings.
+  login settings. Replace the example password and secret before exposing a
+  deployment.
+- `AGENT_COMPOSE_HTTP_PORT`: host port for the web UI and reverse proxy.
+- `AGENT_COMPOSE_IMAGE`, `AGENT_COMPOSE_FRONTEND_IMAGE`: Docker Compose service
+  images.
+- `DEFAULT_IMAGE`, `DOCKER_DEFAULT_IMAGE`, `MICROSANDBOX_DEFAULT_IMAGE`: guest
+  image defaults.
+- `RUNTIME_DRIVER`: default runtime driver.
 - `OAUTH_*`: OAuth login settings.
-- `HTTP_BASIC_AUTH`: base64-encoded `username:password` for additional HTTP
-  Basic authentication.
 - `LLM_API_ENDPOINT`, `LLM_API_PROTOCOL`, `LLM_API_KEY`, `OPENAI_API_KEY`,
   `LLM_MODEL`, `LLM_TIMEOUT`: daemon-side OpenAI-family LLM settings for
   `LLMService`, `scheduler.llm`, and runtime agent LLM facade bootstrap. These
@@ -259,23 +265,20 @@ Important variables include:
   used when generating runtime LLM facade configuration. Docker Compose
   defaults this to `http://agent-compose:7410`; host-based Docker setups should
   set it to a concrete host IP/name and port.
+- `DOCKER_HOST_SESSION_ROOT`: host path for session data bind-mounted into guest
+  containers. Docker Compose defaults this to `./data/agent-compose/sessions`.
 - `CAP_GRPC_LISTEN`, `CAP_GRPC_TARGET`: required only when agents need to call
   OctoBus gRPC capabilities. `CAP_GRPC_LISTEN` starts the agent-compose
   capability proxy; `CAP_GRPC_TARGET` is the guest-reachable address injected
   into new sessions. After changing either value, restart the daemon and create
   a new session.
-- `RUNTIME_DRIVER`: default runtime driver.
-- `DEFAULT_IMAGE`, `DOCKER_DEFAULT_IMAGE`, `MICROSANDBOX_DEFAULT_IMAGE`: guest
-  image defaults.
-- `AGENT_COMPOSE_IMAGE`, `AGENT_COMPOSE_FRONTEND_IMAGE`: Docker Compose service
-  images.
 - `IMAGE_STORE_MODE`, `IMAGE_CACHE_ROOT`, `IMAGE_REGISTRY`,
   `IMAGE_INSECURE_REGISTRIES`: image store and OCI cache settings.
 - `BOXLITE_HOME`, `BOXLITE_RUNTIME_DIR`, `BOX_ROOTFS_PATH`, `BOX_CACHE_TTL`:
   BoxLite settings.
 - `BOX_DISK_SIZE_GB`: shared guest disk size for VM-type drivers (the boxlite
   box disk and the microsandbox docker disk). Default 6 GiB.
-- `DOCKER_HOME`, `DOCKER_HOST_SESSION_ROOT`: Docker runtime settings.
+- `DOCKER_HOME`: Docker runtime state directory.
 - `MICROSANDBOX_HOME`, `MICROSANDBOX_MSB_PATH`, `MICROSANDBOX_LIB_PATH`,
   `MICROSANDBOX_INSECURE_REGISTRIES`: Microsandbox settings.
 - `GUEST_WORKSPACE`, `GUEST_STATE_ROOT`, `GUEST_RUNTIME_ROOT`,
@@ -315,7 +318,7 @@ variables are picked up.
 > **Upgrade note (breaking for some Docker setups):** Because provider keys are
 > no longer passed through to guest runtimes, Codex/Claude now reach their LLM
 > upstream through the daemon facade and need a guest-reachable daemon URL. The
-> bundled `docker-compose.yml` / `docker-compose.deploy.yml` set
+> bundled `docker-compose.yml` sets
 > `AGENT_COMPOSE_RUNTIME_BASE_URL=http://agent-compose:7410` for you. If you run
 > the daemon directly on a host with the Docker driver and an
 > `HTTP_LISTEN=127.0.0.1:...` bind, the container cannot reach that loopback

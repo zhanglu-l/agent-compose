@@ -7,7 +7,9 @@ on:
       - Dockerfile
       - cmd/**
       - deploy/**
-      - docker-compose.deploy.yml
+      - docker-compose.yml
+      - docker-compose.override.yml
+      - .env.example
       - guest-images/**
       - go.mod
       - go.sum
@@ -218,9 +220,9 @@ jobs:
           # multi-arch images from the registry.
           payload="$(mktemp -d)/agent-compose-installer"
           mkdir -p "${payload}/nginx" "${payload}/images"
-          cp docker-compose.deploy.yml "${payload}/docker-compose.yml"
+          cp docker-compose.yml "${payload}/docker-compose.yml"
           cp nginx/nginx.conf "${payload}/nginx/nginx.conf"
-          cp deploy/.env.example deploy/README.md deploy/install.sh "${payload}/"
+          cp .env.example deploy/README.md deploy/install.sh "${payload}/"
           chmod +x "${payload}/install.sh"
           {
             echo "AGENT_COMPOSE_IMAGE=${IMAGE_PREFIX}/agent-compose:${VERSION}"
