@@ -23,7 +23,9 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/events"
 	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/images"
 	"agent-compose/pkg/agentcompose/llms"
@@ -48,11 +50,11 @@ type Service struct {
 	ociImages  ImageBackend
 	autoImages ImageBackend
 	llm        *LLMClient
-	cap        CapabilityProvider
-	bus        *LoaderBus
+	cap        capabilities.Provider
+	bus        *loaders.Bus
 	streams    *SessionStreamBroker
 	dashboard  *DashboardOverviewHub
-	events     *EventDispatcher
+	events     *events.Dispatcher
 	sessions   *SessionRPCBridge
 	startedAt  time.Time
 	startOnce  sync.Once
@@ -112,10 +114,10 @@ func NewService(di do.Injector) (*Service, error) {
 		autoImages: autoImages,
 		llm:        do.MustInvoke[*LLMClient](di),
 		cap:        do.MustInvoke[capabilityIntegration](di),
-		bus:        do.MustInvoke[*LoaderBus](di),
+		bus:        do.MustInvoke[*loaders.Bus](di),
 		streams:    do.MustInvoke[*SessionStreamBroker](di),
 		dashboard:  dashboard,
-		events:     NewEventDispatcher(do.MustInvoke[context.Context](di), do.MustInvoke[*ConfigStore](di), do.MustInvoke[*LoaderBus](di)),
+		events:     NewEventDispatcher(do.MustInvoke[context.Context](di), do.MustInvoke[*ConfigStore](di), do.MustInvoke[*loaders.Bus](di)),
 		sessions:   do.MustInvoke[*SessionRPCBridge](di),
 		startedAt:  time.Now().UTC(),
 	}, nil
@@ -1144,11 +1146,11 @@ func buildLoaderCommandExecSpec(config *appconfig.Config, session *Session, gues
 
 func buildSessionExecEnv(config *appconfig.Config, session *Session, home string) map[string]string {
 	appconfig.ApplyDefaultGuestPaths(config)
-	env := runtimeEnvMap(session.EnvItems)
+	env := llms.RuntimeEnvMap(session.EnvItems)
 	if env == nil {
 		env = map[string]string{}
 	}
-	for key, value := range managedRuntimeEnvMap(session.RuntimeEnvItems) {
+	for key, value := range llms.ManagedRuntimeEnvMap(session.RuntimeEnvItems) {
 		env[key] = value
 	}
 	env["GOPATH"] = "/usr/local/go"

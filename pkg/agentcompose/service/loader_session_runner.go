@@ -4,6 +4,7 @@ import (
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/loaders"
 	"agent-compose/pkg/agentcompose/workspaces"
 	driverpkg "agent-compose/pkg/driver"
@@ -92,7 +93,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader Loader, request
 	envItems = domain.MergeEnvItems(envItems, loader.EnvItems)
 	envItems = domain.MergeEnvItems(envItems, request.SessionEnv)
 	providerEnvItems := envItems
-	envItems = filterPersistedRuntimeEnv(envItems)
+	envItems = llms.FilterPersistedRuntimeEnv(envItems)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(m.cap), loader.Summary.CapsetIDs)
 	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	tags := []SessionTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: loader.Summary.ID}, {Name: "loader_name", Value: loader.Summary.Name}}

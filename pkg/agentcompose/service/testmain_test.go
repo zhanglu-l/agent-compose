@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func newTestLoaderBus(buffer int) *LoaderBus {
+func newTestLoaderBus(buffer int) *loaders.Bus {
 	return loaders.NewBusWithBuffer(buffer)
 }
 

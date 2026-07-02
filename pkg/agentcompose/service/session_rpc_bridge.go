@@ -4,6 +4,7 @@ import (
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/loaders"
 	"agent-compose/pkg/agentcompose/workspaces"
 	appconfig "agent-compose/pkg/config"
@@ -31,9 +32,9 @@ type SessionRPCBridge struct {
 	configDB  *ConfigStore
 	driver    Driver
 	runtimes  RuntimeProvider
-	bus       *LoaderBus
+	bus       *loaders.Bus
 	streams   *SessionStreamBroker
-	cap       CapabilityProvider
+	cap       capabilities.Provider
 	dashboard *DashboardOverviewHub
 }
 
@@ -45,7 +46,7 @@ func NewSessionRPCBridge(di do.Injector) (*SessionRPCBridge, error) {
 		configDB:  do.MustInvoke[*ConfigStore](di),
 		driver:    do.MustInvoke[Driver](di),
 		runtimes:  do.MustInvoke[RuntimeProvider](di),
-		bus:       do.MustInvoke[*LoaderBus](di),
+		bus:       do.MustInvoke[*loaders.Bus](di),
 		streams:   do.MustInvoke[*SessionStreamBroker](di),
 		cap:       do.MustInvoke[capabilityIntegration](di),
 		dashboard: dashboard,
@@ -185,7 +186,7 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	}
 	envItems = domain.MergeEnvItems(globalEnvItems, envItems)
 	providerEnvItems := envItems
-	envItems = filterPersistedRuntimeEnv(envItems)
+	envItems = llms.FilterPersistedRuntimeEnv(envItems)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(b.cap), req.Msg.GetCapsetIds())
 	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	tags = append(tags, capabilityTags...)

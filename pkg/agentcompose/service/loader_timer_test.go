@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/loaders"
 	appconfig "agent-compose/pkg/config"
@@ -2023,8 +2024,8 @@ type fakeLoaderAgentRuntime struct {
 	agentExitCode          int
 }
 
-func (r *fakeLoaderAgentRuntime) EnsureSession(context.Context, *Session, VMState, ProxyState) (SessionVMInfo, error) {
-	return SessionVMInfo{}, nil
+func (r *fakeLoaderAgentRuntime) EnsureSession(context.Context, *Session, VMState, ProxyState) (domain.SessionVMInfo, error) {
+	return domain.SessionVMInfo{}, nil
 }
 
 func (r *fakeLoaderAgentRuntime) StopSession(context.Context, *Session, VMState) (bool, error) {

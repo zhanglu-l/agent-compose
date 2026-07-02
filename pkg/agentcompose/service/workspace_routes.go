@@ -15,8 +15,8 @@ import (
 )
 
 type workspaceFilesResponse struct {
-	WorkspaceID string               `json:"workspace_id"`
-	Files       []workspaceFileEntry `json:"files"`
+	WorkspaceID string                 `json:"workspace_id"`
+	Files       []workspaces.FileEntry `json:"files"`
 }
 
 func registerWorkspaceRoutes(app *echo.Echo, service *Service) {
@@ -136,17 +136,17 @@ func isHTTPRequestBodyTooLarge(err error) bool {
 	return err.Error() == "http: request body too large"
 }
 
-func (s *Service) loadFileWorkspaceConfig(ctx context.Context, workspaceID string) (WorkspaceConfig, fileWorkspaceContent, error) {
+func (s *Service) loadFileWorkspaceConfig(ctx context.Context, workspaceID string) (WorkspaceConfig, workspaces.FileWorkspaceContent, error) {
 	workspace, err := s.configDB.GetWorkspaceConfig(ctx, workspaceID)
 	if err != nil {
-		return WorkspaceConfig{}, fileWorkspaceContent{}, err
+		return WorkspaceConfig{}, workspaces.FileWorkspaceContent{}, err
 	}
 	if strings.ToLower(strings.TrimSpace(workspace.Type)) != "file" {
-		return WorkspaceConfig{}, fileWorkspaceContent{}, classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config %s is not a file workspace", workspace.ID), nil)
+		return WorkspaceConfig{}, workspaces.FileWorkspaceContent{}, classifyError(ErrInvalidArgument, fmt.Sprintf("workspace config %s is not a file workspace", workspace.ID), nil)
 	}
 	content, err := workspaces.OpenFileWorkspaceContent(s.config, workspace)
 	if err != nil {
-		return WorkspaceConfig{}, fileWorkspaceContent{}, err
+		return WorkspaceConfig{}, workspaces.FileWorkspaceContent{}, err
 	}
 	return workspace, content, nil
 }

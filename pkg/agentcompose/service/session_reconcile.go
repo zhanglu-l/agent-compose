@@ -8,7 +8,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
+	"agent-compose/pkg/agentcompose/runs"
 )
 
 const stalePendingSessionLastError = "session startup interrupted before runtime reached running state"
@@ -76,7 +78,7 @@ func (s *Service) reconcilePersistedProjectRuns(ctx context.Context) error {
 	if s == nil || s.configDB == nil {
 		return nil
 	}
-	coordinator := NewRunCoordinator(s.configDB)
+	coordinator := runs.NewCoordinator(s.configDB, domain.StableProjectRunID)
 	for _, status := range []string{ProjectRunStatusPending, ProjectRunStatusRunning} {
 		if err := s.reconcilePersistedProjectRunsWithStatus(ctx, coordinator, status); err != nil {
 			return err
@@ -85,7 +87,7 @@ func (s *Service) reconcilePersistedProjectRuns(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) reconcilePersistedProjectRunsWithStatus(ctx context.Context, coordinator *RunCoordinator, status string) error {
+func (s *Service) reconcilePersistedProjectRunsWithStatus(ctx context.Context, coordinator *runs.Coordinator, status string) error {
 	var staleRuns []ProjectRunRecord
 	offset := 0
 	for {
@@ -109,7 +111,7 @@ func (s *Service) reconcilePersistedProjectRunsWithStatus(ctx context.Context, c
 		offset += len(runs)
 	}
 	for _, run := range staleRuns {
-		if _, err := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
+		if _, err := coordinator.MarkFailed(ctx, runs.TransitionRequest{
 			RunID:    run.RunID,
 			ExitCode: execution.FirstNonZeroInt(run.ExitCode, 1),
 			Error:    staleProjectRunError,

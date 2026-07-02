@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/runs"
 	"agent-compose/pkg/agentcompose/workspaces"
 	"agent-compose/pkg/compose"
@@ -15,35 +16,33 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-type ProjectRunPreparation = runs.Preparation
-
-func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, requestEnv []*agentcomposev2.EnvVarSpec) (ProjectRunPreparation, error) {
+func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, requestEnv []*agentcomposev2.EnvVarSpec) (runs.Preparation, error) {
 	if s == nil || s.configDB == nil {
-		return ProjectRunPreparation{}, fmt.Errorf("config store is required")
+		return runs.Preparation{}, fmt.Errorf("config store is required")
 	}
 	project, err := s.configDB.GetProject(ctx, run.ProjectID)
 	if err != nil {
-		return ProjectRunPreparation{}, fmt.Errorf("resolve project %s: %w", run.ProjectID, err)
+		return runs.Preparation{}, fmt.Errorf("resolve project %s: %w", run.ProjectID, err)
 	}
 	revision, err := s.configDB.GetProjectRevision(ctx, run.ProjectID, run.ProjectRevision)
 	if err != nil {
-		return ProjectRunPreparation{}, fmt.Errorf("resolve project revision %s/%d: %w", run.ProjectID, run.ProjectRevision, err)
+		return runs.Preparation{}, fmt.Errorf("resolve project revision %s/%d: %w", run.ProjectID, run.ProjectRevision, err)
 	}
 	spec, err := runs.DecodeRevisionSpec(revision.SpecJSON)
 	if err != nil {
-		return ProjectRunPreparation{}, err
+		return runs.Preparation{}, err
 	}
 	agentSpec, ok := runs.AgentSpecByName(spec, run.AgentName)
 	if !ok {
-		return ProjectRunPreparation{}, fmt.Errorf("project revision %s/%d missing agent %s", run.ProjectID, run.ProjectRevision, run.AgentName)
+		return runs.Preparation{}, fmt.Errorf("project revision %s/%d missing agent %s", run.ProjectID, run.ProjectRevision, run.AgentName)
 	}
 	agent, err := s.configDB.GetAgentDefinition(ctx, run.ManagedAgentID)
 	if err != nil {
-		return ProjectRunPreparation{}, fmt.Errorf("resolve managed agent definition %s: %w", run.ManagedAgentID, err)
+		return runs.Preparation{}, fmt.Errorf("resolve managed agent definition %s: %w", run.ManagedAgentID, err)
 	}
 	globalEnv, err := s.configDB.ListGlobalEnv(ctx)
 	if err != nil {
-		return ProjectRunPreparation{}, fmt.Errorf("list global env: %w", err)
+		return runs.Preparation{}, fmt.Errorf("list global env: %w", err)
 	}
 	envItems := runs.MergeEnvItems(
 		globalEnv,
@@ -52,12 +51,12 @@ func (s *Service) prepareProjectRun(ctx context.Context, run ProjectRunRecord, r
 		runs.EnvItemsFromV2(requestEnv),
 	)
 	providerEnvItems := envItems
-	envItems = filterPersistedRuntimeEnv(envItems)
+	envItems = llms.FilterPersistedRuntimeEnv(envItems)
 	workspace, err := s.prepareProjectRunWorkspace(ctx, run, project, runs.ComposeWorkspaceSpecFromV2(spec.GetWorkspace()), runs.ComposeWorkspaceSpecFromV2(agentSpec.GetWorkspace()))
 	if err != nil {
-		return ProjectRunPreparation{}, err
+		return runs.Preparation{}, err
 	}
-	prepared := ProjectRunPreparation{EnvItems: envItems, ProviderEnvItems: providerEnvItems, CapsetIDs: capabilities.NormalizeCapsetIDs(agent.CapsetIDs)}
+	prepared := runs.Preparation{EnvItems: envItems, ProviderEnvItems: providerEnvItems, CapsetIDs: capabilities.NormalizeCapsetIDs(agent.CapsetIDs)}
 	if workspace != nil {
 		prepared.WorkspaceConfig = workspace
 		prepared.Workspace = toSessionWorkspaceSnapshot(*workspace)
@@ -143,7 +142,7 @@ func projectRunGitWorkspaceConfig(run ProjectRunRecord, workspace *compose.Works
 	if _, err := workspaces.NormalizeGitCloneTarget(workspaceID, workspace.Path); err != nil {
 		return WorkspaceConfig{}, err
 	}
-	payload, err := json.Marshal(gitWorkspaceConfig{
+	payload, err := json.Marshal(workspaces.GitWorkspaceConfig{
 		URL:         strings.TrimSpace(workspace.URL),
 		Branch:      strings.TrimSpace(workspace.Branch),
 		CloneTarget: strings.TrimSpace(workspace.Path),

@@ -1,6 +1,8 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/projects"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -15,47 +17,47 @@ import (
 )
 
 func TestProjectStableIDHelpers(t *testing.T) {
-	projectID, err := StableProjectID("demo", filepath.Join("tmp", "agent-compose.yml"))
+	projectID, err := domain.StableProjectID("demo", filepath.Join("tmp", "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("StableProjectID returned error: %v", err)
+		t.Fatalf("domain.StableProjectID returned error: %v", err)
 	}
-	sameProjectID, err := StableProjectID("demo", filepath.Join("tmp", "agent-compose.yml"))
+	sameProjectID, err := domain.StableProjectID("demo", filepath.Join("tmp", "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("second StableProjectID returned error: %v", err)
+		t.Fatalf("second domain.StableProjectID returned error: %v", err)
 	}
 	if sameProjectID != projectID {
 		t.Fatalf("project id changed: %q != %q", sameProjectID, projectID)
 	}
-	otherProjectID, err := StableProjectID("demo", filepath.Join("other", "agent-compose.yml"))
+	otherProjectID, err := domain.StableProjectID("demo", filepath.Join("other", "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("other StableProjectID returned error: %v", err)
+		t.Fatalf("other domain.StableProjectID returned error: %v", err)
 	}
 	if otherProjectID == projectID {
 		t.Fatalf("project id did not include source path: %q", projectID)
 	}
 
-	agentID, err := StableManagedAgentID(projectID, "reviewer")
+	agentID, err := domain.StableManagedAgentID(projectID, "reviewer")
 	if err != nil {
-		t.Fatalf("StableManagedAgentID returned error: %v", err)
+		t.Fatalf("domain.StableManagedAgentID returned error: %v", err)
 	}
-	if again, err := StableManagedAgentID(projectID, "reviewer"); err != nil || again != agentID {
+	if again, err := domain.StableManagedAgentID(projectID, "reviewer"); err != nil || again != agentID {
 		t.Fatalf("stable agent id = %q, %v; want %q", again, err, agentID)
 	}
-	schedulerID, err := StableProjectSchedulerID(projectID, "reviewer", "")
+	schedulerID, err := domain.StableProjectSchedulerID(projectID, "reviewer", "")
 	if err != nil {
-		t.Fatalf("StableProjectSchedulerID returned error: %v", err)
+		t.Fatalf("domain.StableProjectSchedulerID returned error: %v", err)
 	}
-	loaderID, err := StableManagedLoaderID(projectID, "reviewer", "")
+	loaderID, err := domain.StableManagedLoaderID(projectID, "reviewer", "")
 	if err != nil {
-		t.Fatalf("StableManagedLoaderID returned error: %v", err)
+		t.Fatalf("domain.StableManagedLoaderID returned error: %v", err)
 	}
-	runID, err := StableProjectRunID(projectID, "reviewer", ProjectRunSourceManual, "client-request-1")
+	runID, err := domain.StableProjectRunID(projectID, "reviewer", ProjectRunSourceManual, "client-request-1")
 	if err != nil {
-		t.Fatalf("StableProjectRunID returned error: %v", err)
+		t.Fatalf("domain.StableProjectRunID returned error: %v", err)
 	}
-	otherRunID, err := StableProjectRunID(projectID, "reviewer", ProjectRunSourceManual, "client-request-2")
+	otherRunID, err := domain.StableProjectRunID(projectID, "reviewer", ProjectRunSourceManual, "client-request-2")
 	if err != nil {
-		t.Fatalf("other StableProjectRunID returned error: %v", err)
+		t.Fatalf("other domain.StableProjectRunID returned error: %v", err)
 	}
 	for label, id := range map[string]string{
 		"project":   projectID,
@@ -74,11 +76,11 @@ func TestProjectStableIDHelpers(t *testing.T) {
 	if otherRunID == runID {
 		t.Fatalf("run id did not include idempotency key: %q", runID)
 	}
-	if _, err := StableProjectID("Demo", ""); err == nil {
-		t.Fatalf("StableProjectID accepted non-normalized project name")
+	if _, err := domain.StableProjectID("Demo", ""); err == nil {
+		t.Fatalf("domain.StableProjectID accepted non-normalized project name")
 	}
-	if _, err := StableManagedAgentID(projectID, "Bad Agent"); err == nil {
-		t.Fatalf("StableManagedAgentID accepted non-normalized agent name")
+	if _, err := domain.StableManagedAgentID(projectID, "Bad Agent"); err == nil {
+		t.Fatalf("domain.StableManagedAgentID accepted non-normalized agent name")
 	}
 }
 
@@ -108,9 +110,9 @@ agents:
   worker:
     provider: claude
 `)
-	project, err := NewProjectRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
+	project, err := projects.NewRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("NewProjectRecordFromSpec returned error: %v", err)
+		t.Fatalf("projects.NewRecordFromSpec returned error: %v", err)
 	}
 	project, err = store.UpsertProject(ctx, project)
 	if err != nil {
@@ -171,9 +173,9 @@ agents:
   worker:
     provider: claude
 `)
-	changedProject, err := NewProjectRecordFromSpec(changedSpec, project.SourcePath)
+	changedProject, err := projects.NewRecordFromSpec(changedSpec, project.SourcePath)
 	if err != nil {
-		t.Fatalf("NewProjectRecordFromSpec changed returned error: %v", err)
+		t.Fatalf("projects.NewRecordFromSpec changed returned error: %v", err)
 	}
 	changedSpecJSON := mustProjectSpecJSON(t, changedSpec)
 	secondRevision, created, err := store.SaveProjectRevision(ctx, ProjectRevisionRecord{
@@ -212,9 +214,9 @@ agents:
   reviewer:
     provider: codex
 `)
-	project, err := NewProjectRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
+	project, err := projects.NewRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("NewProjectRecordFromSpec returned error: %v", err)
+		t.Fatalf("projects.NewRecordFromSpec returned error: %v", err)
 	}
 	project, err = store.UpsertProject(ctx, project)
 	if err != nil {
@@ -228,9 +230,9 @@ agents:
 	if err != nil {
 		t.Fatalf("SaveProjectRevision returned error: %v", err)
 	}
-	runID, err := StableProjectRunID(project.ID, "reviewer", ProjectRunSourceManual, "request-1")
+	runID, err := domain.StableProjectRunID(project.ID, "reviewer", ProjectRunSourceManual, "request-1")
 	if err != nil {
-		t.Fatalf("StableProjectRunID returned error: %v", err)
+		t.Fatalf("domain.StableProjectRunID returned error: %v", err)
 	}
 	startedAt := time.Date(2026, 6, 10, 9, 8, 7, 123456789, time.UTC)
 	run, err := store.CreateProjectRun(ctx, ProjectRunRecord{
@@ -292,9 +294,9 @@ agents:
   reviewer:
     provider: codex
 `)
-	project, err := NewProjectRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
+	project, err := projects.NewRecordFromSpec(spec, filepath.Join(t.TempDir(), "agent-compose.yml"))
 	if err != nil {
-		t.Fatalf("NewProjectRecordFromSpec returned error: %v", err)
+		t.Fatalf("projects.NewRecordFromSpec returned error: %v", err)
 	}
 	project, err = store.UpsertProject(ctx, project)
 	if err != nil {
@@ -323,9 +325,9 @@ agents:
 	if err != nil {
 		t.Fatalf("CreateSession tag-only returned error: %v", err)
 	}
-	runID, err := StableProjectRunID(project.ID, "reviewer", ProjectRunSourceManual, "request-sqlite")
+	runID, err := domain.StableProjectRunID(project.ID, "reviewer", ProjectRunSourceManual, "request-sqlite")
 	if err != nil {
-		t.Fatalf("StableProjectRunID returned error: %v", err)
+		t.Fatalf("domain.StableProjectRunID returned error: %v", err)
 	}
 	if _, err := store.CreateProjectRun(ctx, ProjectRunRecord{
 		RunID:           runID,
@@ -397,16 +399,16 @@ func mustProjectSpecJSON(t *testing.T, spec *compose.NormalizedProjectSpec) stri
 func upsertAgentsAndSchedulersForTest(t *testing.T, store *ConfigStore, ctx context.Context, projectID string, revision int64, spec *compose.NormalizedProjectSpec) {
 	t.Helper()
 	for _, agentSpec := range spec.Agents {
-		agent, err := NewProjectAgentRecordFromSpec(projectID, revision, agentSpec)
+		agent, err := projects.NewAgentRecordFromSpec(projectID, revision, agentSpec)
 		if err != nil {
-			t.Fatalf("NewProjectAgentRecordFromSpec(%s) returned error: %v", agentSpec.Name, err)
+			t.Fatalf("projects.NewAgentRecordFromSpec(%s) returned error: %v", agentSpec.Name, err)
 		}
 		if _, err := store.UpsertProjectAgent(ctx, agent); err != nil {
 			t.Fatalf("UpsertProjectAgent(%s) returned error: %v", agent.AgentName, err)
 		}
-		scheduler, ok, err := NewProjectSchedulerRecordFromSpec(projectID, revision, agentSpec)
+		scheduler, ok, err := projects.NewSchedulerRecordFromSpec(projectID, revision, agentSpec)
 		if err != nil {
-			t.Fatalf("NewProjectSchedulerRecordFromSpec(%s) returned error: %v", agentSpec.Name, err)
+			t.Fatalf("projects.NewSchedulerRecordFromSpec(%s) returned error: %v", agentSpec.Name, err)
 		}
 		if ok {
 			if _, err := store.UpsertProjectScheduler(ctx, scheduler); err != nil {

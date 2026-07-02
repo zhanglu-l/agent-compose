@@ -1,6 +1,8 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/runs"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -25,9 +27,9 @@ func testServiceReconcilePersistedSessionsMarksStaleProjectRunsFailed(t *testing
 	if err := os.MkdirAll(service.config.SessionRoot, 0o755); err != nil {
 		t.Fatalf("create session root: %v", err)
 	}
-	coordinator := NewRunCoordinator(store)
+	coordinator := runs.NewCoordinator(store, domain.StableProjectRunID)
 
-	stalePending, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	stalePending, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,
@@ -37,7 +39,7 @@ func testServiceReconcilePersistedSessionsMarksStaleProjectRunsFailed(t *testing
 	if err != nil {
 		t.Fatalf("BeginRun(stale pending) returned error: %v", err)
 	}
-	staleRunning, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	staleRunning, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,
@@ -51,7 +53,7 @@ func testServiceReconcilePersistedSessionsMarksStaleProjectRunsFailed(t *testing
 	if err != nil {
 		t.Fatalf("MarkRunning(stale running) returned error: %v", err)
 	}
-	freshPending, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	freshPending, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,

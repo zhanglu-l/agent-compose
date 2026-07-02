@@ -14,7 +14,9 @@ import (
 	"github.com/google/uuid"
 
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
+	"agent-compose/pkg/agentcompose/runs"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -66,8 +68,8 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	if s.configDB == nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("config store is required"))
 	}
-	coordinator := NewRunCoordinator(s.configDB)
-	run, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	coordinator := runs.NewCoordinator(s.configDB, domain.StableProjectRunID)
+	run, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       msg.GetProjectId(),
 		AgentName:       msg.GetAgentName(),
 		Source:          api.ProjectRunSourceFromProto(msg.GetSource()),
@@ -82,7 +84,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	transitionCtx := context.WithoutCancel(ctx)
 	prepared, err := s.prepareProjectRun(ctx, run, msg.GetEnv())
 	if err != nil {
-		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, runs.TransitionRequest{
 			RunID: run.RunID,
 			Error: fmt.Sprintf("workspace preparation failed: %v", err),
 		})
@@ -93,7 +95,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	}
 	sessionResult, err := s.ensureProjectRunSession(ctx, run, prepared, msg.GetSessionId())
 	if err != nil {
-		transition := ProjectRunTransitionRequest{
+		transition := runs.TransitionRequest{
 			RunID: run.RunID,
 			Error: fmt.Sprintf("session start failed: %v", err),
 		}
@@ -112,7 +114,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	}
 	agentConfig, err := s.projectRunAgentConfig(ctx, run)
 	if err != nil {
-		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, runs.TransitionRequest{
 			RunID:     run.RunID,
 			SessionID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
@@ -125,7 +127,7 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	}
 	if s.executor == nil {
 		err = fmt.Errorf("executor is required")
-		run, markErr := coordinator.MarkFailed(transitionCtx, ProjectRunTransitionRequest{
+		run, markErr := coordinator.MarkFailed(transitionCtx, runs.TransitionRequest{
 			RunID:     run.RunID,
 			SessionID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
@@ -199,8 +201,8 @@ func projectRunAgentExecutionStream(run ProjectRunRecord, sink *projectRunStream
 	}
 }
 
-func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, cell NotebookCell, execErr error) ProjectRunTransitionRequest {
-	req := ProjectRunTransitionRequest{
+func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, cell NotebookCell, execErr error) runs.TransitionRequest {
+	req := runs.TransitionRequest{
 		RunID:     run.RunID,
 		SessionID: session.Summary.ID,
 		ExitCode:  cell.ExitCode,
@@ -237,7 +239,7 @@ func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, c
 	return req
 }
 
-func (s *Service) cleanupProjectRunSession(ctx context.Context, coordinator *RunCoordinator, run ProjectRunRecord, session *Session, policy agentcomposev2.RunSessionCleanupPolicy) ProjectRunRecord {
+func (s *Service) cleanupProjectRunSession(ctx context.Context, coordinator *runs.Coordinator, run ProjectRunRecord, session *Session, policy agentcomposev2.RunSessionCleanupPolicy) ProjectRunRecord {
 	if !projectRunCleanupPolicyStopsSession(policy) || session == nil {
 		return run
 	}
@@ -245,7 +247,7 @@ func (s *Service) cleanupProjectRunSession(ctx context.Context, coordinator *Run
 	if cleanupErr == nil {
 		return run
 	}
-	updated, err := coordinator.TransitionRun(ctx, ProjectRunTransitionRequest{
+	updated, err := coordinator.TransitionRun(ctx, runs.TransitionRequest{
 		RunID:        run.RunID,
 		Status:       run.Status,
 		SessionID:    run.SessionID,
@@ -344,7 +346,7 @@ func (s *Service) StopRun(ctx context.Context, req *connect.Request[agentcompose
 	if runID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("run id is required"))
 	}
-	coordinator := NewRunCoordinator(s.configDB)
+	coordinator := runs.NewCoordinator(s.configDB, domain.StableProjectRunID)
 	current, err := s.configDB.GetProjectRun(ctx, runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -352,7 +354,7 @@ func (s *Service) StopRun(ctx context.Context, req *connect.Request[agentcompose
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if projectRunStatusIsTerminal(current.Status) {
+	if runs.StatusIsTerminal(current.Status) {
 		return connect.NewResponse(&agentcomposev2.StopRunResponse{
 			Run:           api.ProjectRunDetailToProto(current),
 			StopRequested: false,
@@ -362,7 +364,7 @@ func (s *Service) StopRun(ctx context.Context, req *connect.Request[agentcompose
 	if reason == "" {
 		reason = "stop requested"
 	}
-	run, err := coordinator.MarkCanceled(ctx, ProjectRunTransitionRequest{
+	run, err := coordinator.MarkCanceled(ctx, runs.TransitionRequest{
 		RunID: runID,
 		Error: reason,
 	})

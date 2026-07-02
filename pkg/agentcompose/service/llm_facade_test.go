@@ -99,9 +99,9 @@ func TestRuntimeLLMFacadeForwardsWithSessionToken(t *testing.T) {
 	if err := service.store.UpdateSession(ctx, session); err != nil {
 		t.Fatalf("UpdateSession returned error: %v", err)
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	token.ExpiresAt = time.Now().Add(time.Hour)
 	if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -161,9 +161,9 @@ func TestRuntimeLLMFacadeFlushesSSEResponses(t *testing.T) {
 	if err := service.store.UpdateSession(ctx, session); err != nil {
 		t.Fatalf("UpdateSession returned error: %v", err)
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	token.ExpiresAt = time.Now().Add(time.Hour)
 	if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -235,9 +235,9 @@ func TestRuntimeLLMAnthropicFacadeForwardsWithSessionToken(t *testing.T) {
 	if err := service.store.UpdateSession(ctx, session); err != nil {
 		t.Fatalf("UpdateSession returned error: %v", err)
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, "claude-test", "anthropic", llmAPIProtocolMessages, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, "claude-test", "anthropic", llmAPIProtocolMessages, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	token.ExpiresAt = time.Now().Add(time.Hour)
 	if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -303,9 +303,9 @@ func TestRuntimeLLMOpenAIResponsesFacadeBridgesToAnthropicProvider(t *testing.T)
 		t.Fatalf("UpsertDefaultLLMConfig returned error: %v", err)
 	}
 	session := createRunningLLMFacadeSession(t, ctx, service, "bridge-openai-anthropic")
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, "claude-test", "anthropic", llmAPIProtocolResponses, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, "claude-test", "anthropic", llmAPIProtocolResponses, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	token.ExpiresAt = time.Now().Add(time.Hour)
 	if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -371,9 +371,9 @@ func TestRuntimeLLMAnthropicFacadeBridgesToOpenAIResponsesProvider(t *testing.T)
 		t.Fatalf("UpsertDefaultLLMConfig returned error: %v", err)
 	}
 	session := createRunningLLMFacadeSession(t, ctx, service, "bridge-anthropic-openai")
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, "gpt-test", "default", llmAPIProtocolMessages, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, "gpt-test", "default", llmAPIProtocolMessages, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	token.ExpiresAt = time.Now().Add(time.Hour)
 	if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -487,14 +487,14 @@ func TestAnthropicProviderCanBootstrapFromAuthToken(t *testing.T) {
 }
 
 func TestProviderForwardHeadersFiltersManagedHeaders(t *testing.T) {
-	headers, err := providerForwardHeaders(LLMProvider{
+	headers, err := llms.ProviderForwardHeaders(LLMProvider{
 		APIKey:      "provider-key",
 		AuthHeader:  "Authorization",
 		AuthScheme:  "Bearer",
 		HeadersJSON: `{"Content-Type":"text/plain","Authorization":"Bearer wrong","X-Provider":"ok"}`,
 	})
 	if err != nil {
-		t.Fatalf("providerForwardHeaders returned error: %v", err)
+		t.Fatalf("llms.ProviderForwardHeaders returned error: %v", err)
 	}
 	if got := headers.Get("Content-Type"); got != "" {
 		t.Fatalf("Content-Type = %q, want filtered", got)
@@ -510,9 +510,9 @@ func TestProviderForwardHeadersFiltersManagedHeaders(t *testing.T) {
 func TestNewLLMFacadeTokenDoesNotExpireByDefault(t *testing.T) {
 	ctx := context.Background()
 	service, _, _ := newTestServiceAPIHarness(t)
-	tokenValue, token, err := newLLMFacadeToken("session-1", "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
+	tokenValue, token, err := llms.NewFacadeToken("session-1", "model-a", "default", llmAPIProtocolResponses, "test", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken returned error: %v", err)
+		t.Fatalf("llms.NewFacadeToken returned error: %v", err)
 	}
 	if !token.ExpiresAt.IsZero() {
 		t.Fatalf("ExpiresAt = %v, want zero for session-scoped token", token.ExpiresAt)
@@ -530,7 +530,7 @@ func TestNewLLMFacadeTokenDoesNotExpireByDefault(t *testing.T) {
 }
 
 func TestManagedRuntimeEnvMapKeepsFacadeKeyAliases(t *testing.T) {
-	userEnv := runtimeEnvMap([]SessionEnvVar{
+	userEnv := llms.RuntimeEnvMap([]SessionEnvVar{
 		{Name: "LLM_API_ENDPOINT", Value: "https://provider.example.invalid/v1"},
 		{Name: "OPENAI_API_KEY", Value: "provider-key"},
 		{Name: "DATABASE_PASSWORD", Value: "db-secret", Secret: true},
@@ -542,7 +542,7 @@ func TestManagedRuntimeEnvMapKeepsFacadeKeyAliases(t *testing.T) {
 		t.Fatalf("DATABASE_PASSWORD = %q, want db-secret", userEnv["DATABASE_PASSWORD"])
 	}
 
-	managedEnv := managedRuntimeEnvMap([]SessionEnvVar{
+	managedEnv := llms.ManagedRuntimeEnvMap([]SessionEnvVar{
 		{Name: "LLM_API_ENDPOINT", Value: "http://agent-compose.test/api/runtime/sessions/s1/llm/openai/v1"},
 		{Name: "LLM_API_KEY", Value: "facade-token"},
 		{Name: "LLM_API_PROTOCOL", Value: llmAPIProtocolResponses},
@@ -933,7 +933,7 @@ func TestEnsureSessionLLMFacadeConfigBootstrapsFromSessionEnvProvider(t *testing
 	if len(providers) != 1 {
 		t.Fatalf("provider count = %d, want 1: %#v", len(providers), providers)
 	}
-	if providers[0].ID != sessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) || providers[0].Scope != llmProviderScopeSessionEnv {
+	if providers[0].ID != llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) || providers[0].Scope != llmProviderScopeSessionEnv {
 		t.Fatalf("provider identity = %#v, want session env provider", providers[0])
 	}
 	if providers[0].APIKey != "session-provider-key" {
@@ -1025,7 +1025,7 @@ func TestSessionEnvGenericMessagesEndpointBootstrapsOnlyAnthropicProvider(t *tes
 	if len(providers) != 1 {
 		t.Fatalf("provider count = %d, want only anthropic provider: %#v", len(providers), providers)
 	}
-	if providers[0].ID != sessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic) || providers[0].ProviderType != llmProviderFamilyAnthropic || providers[0].Scope != llmProviderScopeSessionEnv {
+	if providers[0].ID != llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic) || providers[0].ProviderType != llmProviderFamilyAnthropic || providers[0].Scope != llmProviderScopeSessionEnv {
 		t.Fatalf("provider = %#v, want session-scoped anthropic provider", providers[0])
 	}
 	if providers[0].BaseURL != "https://session-anthropic.example.invalid/v1" {
@@ -1109,8 +1109,8 @@ func TestSessionEnvProvidersAreScopedPerSession(t *testing.T) {
 	for _, provider := range providers {
 		byID[provider.ID] = provider
 	}
-	providerA := byID[sessionEnvProviderID(sessionA.Summary.ID, llmProviderFamilyOpenAI)]
-	providerB := byID[sessionEnvProviderID(sessionB.Summary.ID, llmProviderFamilyOpenAI)]
+	providerA := byID[llms.SessionEnvProviderID(sessionA.Summary.ID, llmProviderFamilyOpenAI)]
+	providerB := byID[llms.SessionEnvProviderID(sessionB.Summary.ID, llmProviderFamilyOpenAI)]
 	if providerA.APIKey != "session-key-a" || providerA.BaseURL != "https://session-a.example.invalid/v1" || providerA.Scope != llmProviderScopeSessionEnv {
 		t.Fatalf("session A provider = %#v", providerA)
 	}
@@ -1166,7 +1166,7 @@ func TestSessionEnvProviderSelectionUsesAgentFamilyPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMFacadeToken(claude) returned error: %v", err)
 	}
-	if claudeToken.ProviderID != sessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic) {
+	if claudeToken.ProviderID != llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic) {
 		t.Fatalf("claude provider id = %q, want anthropic session provider", claudeToken.ProviderID)
 	}
 
@@ -1178,7 +1178,7 @@ func TestSessionEnvProviderSelectionUsesAgentFamilyPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMFacadeToken(codex) returned error: %v", err)
 	}
-	if codexToken.ProviderID != sessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) {
+	if codexToken.ProviderID != llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) {
 		t.Fatalf("codex provider id = %q, want openai session provider", codexToken.ProviderID)
 	}
 }
@@ -1209,7 +1209,7 @@ func TestCodexFacadeCanUseAnthropicOnlySessionEnvProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
 	}
-	wantProviderID := sessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic)
+	wantProviderID := llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyAnthropic)
 	if token.ProviderID != wantProviderID || token.Model != "kimi-k2.6" || token.WireAPI != llmAPIProtocolResponses {
 		t.Fatalf("facade token = %#v, want provider %q, model kimi-k2.6, responses facade", token, wantProviderID)
 	}
@@ -1280,7 +1280,7 @@ func TestSessionEnvProviderIsNotSelectedWithoutProviderID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveLLMTarget returned error: %v", err)
 	}
-	if target.Provider.ID == sessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) || target.Provider.APIKey == "session-only-key" {
+	if target.Provider.ID == llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI) || target.Provider.APIKey == "session-only-key" {
 		t.Fatalf("daemon target selected session env provider: %#v", target.Provider)
 	}
 	if target.Provider.ID != llmProviderIDDefaultOpenAI || target.Provider.Scope != llmProviderScopeEnvDefault {
@@ -1310,7 +1310,7 @@ func TestSessionEnvProviderResolutionWithProviderIDDoesNotBootstrapDefault(t *te
 		t.Fatalf("ensureSessionLLMFacadeConfig returned error: %v", err)
 	}
 
-	providerID := sessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI)
+	providerID := llms.SessionEnvProviderID(session.Summary.ID, llmProviderFamilyOpenAI)
 	target, err := resolveRuntimeLLMTarget(ctx, service.config, service.configDB, "session-provider-id-model", providerID)
 	if err != nil {
 		t.Fatalf("resolveRuntimeLLMTarget returned error: %v", err)
@@ -1482,7 +1482,7 @@ func TestCreateSessionFiltersLLMProviderKeysFromPersistedEnv(t *testing.T) {
 }
 
 func TestRuntimeEnvMapKeepsNonLLMSecretEnv(t *testing.T) {
-	env := runtimeEnvMap([]SessionEnvVar{
+	env := llms.RuntimeEnvMap([]SessionEnvVar{
 		{Name: "DATABASE_PASSWORD", Value: "db-secret", Secret: true},
 		{Name: "OPENAI_API_KEY", Value: "provider-key", Secret: true},
 	})
@@ -1543,26 +1543,26 @@ func TestRevokeLLMFacadeTokensForSessionPrunesDeadRows(t *testing.T) {
 	now := time.Now().UTC()
 
 	// Active token for the target session: revoked by the call, but kept (within retention).
-	activeVal, active, err := newLLMFacadeToken("sess-x", "m", "default", llmAPIProtocolResponses, "agent", "r-active")
+	activeVal, active, err := llms.NewFacadeToken("sess-x", "m", "default", llmAPIProtocolResponses, "agent", "r-active")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken: %v", err)
+		t.Fatalf("llms.NewFacadeToken: %v", err)
 	}
 	if err := store.SaveLLMFacadeToken(ctx, active); err != nil {
 		t.Fatalf("save active: %v", err)
 	}
 	// Token revoked long ago: should be pruned.
-	oldVal, old, err := newLLMFacadeToken("sess-y", "m", "default", llmAPIProtocolResponses, "agent", "r-old")
+	oldVal, old, err := llms.NewFacadeToken("sess-y", "m", "default", llmAPIProtocolResponses, "agent", "r-old")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken: %v", err)
+		t.Fatalf("llms.NewFacadeToken: %v", err)
 	}
 	old.RevokedAt = now.Add(-2 * llmFacadeTokenRetention)
 	if err := store.SaveLLMFacadeToken(ctx, old); err != nil {
 		t.Fatalf("save old: %v", err)
 	}
 	// Expired token: should be pruned.
-	expVal, exp, err := newLLMFacadeToken("sess-z", "m", "default", llmAPIProtocolResponses, "agent", "r-exp")
+	expVal, exp, err := llms.NewFacadeToken("sess-z", "m", "default", llmAPIProtocolResponses, "agent", "r-exp")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken: %v", err)
+		t.Fatalf("llms.NewFacadeToken: %v", err)
 	}
 	exp.ExpiresAt = now.Add(-time.Minute)
 	if err := store.SaveLLMFacadeToken(ctx, exp); err != nil {
@@ -1591,9 +1591,9 @@ func TestRevokeLLMFacadeTokensForSessionPrunesDeadRows(t *testing.T) {
 func TestDeleteLLMFacadeToken(t *testing.T) {
 	store := newTestConfigStore(t)
 	ctx := context.Background()
-	val, token, err := newLLMFacadeToken("sess", "m", "default", llmAPIProtocolResponses, "agent", "run-1")
+	val, token, err := llms.NewFacadeToken("sess", "m", "default", llmAPIProtocolResponses, "agent", "run-1")
 	if err != nil {
-		t.Fatalf("newLLMFacadeToken: %v", err)
+		t.Fatalf("llms.NewFacadeToken: %v", err)
 	}
 	if err := store.SaveLLMFacadeToken(ctx, token); err != nil {
 		t.Fatalf("save: %v", err)
@@ -1675,9 +1675,9 @@ func testRuntimeLLMFacadeRoundTrips(t *testing.T) {
 	}
 	mintToken := func(t *testing.T, session *Session, model, providerID, wireAPI string) string {
 		t.Helper()
-		val, token, err := newLLMFacadeToken(session.Summary.ID, model, providerID, wireAPI, "test", "run-e2e")
+		val, token, err := llms.NewFacadeToken(session.Summary.ID, model, providerID, wireAPI, "test", "run-e2e")
 		if err != nil {
-			t.Fatalf("newLLMFacadeToken: %v", err)
+			t.Fatalf("llms.NewFacadeToken: %v", err)
 		}
 		token.ExpiresAt = time.Now().Add(time.Hour)
 		if err := service.configDB.SaveLLMFacadeToken(ctx, token); err != nil {
@@ -2243,12 +2243,12 @@ func TestResolveRuntimeLLMTargetReusesSessionProviderAfterResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creation resolve: %v", err)
 	}
-	wantID := sessionEnvProviderID(sessionID, llmProviderFamilyOpenAI)
+	wantID := llms.SessionEnvProviderID(sessionID, llmProviderFamilyOpenAI)
 	if target.Provider.ID != wantID || target.Provider.APIKey != "session-real-key" {
 		t.Fatalf("creation target = %q/%q, want %q/session-real-key", target.Provider.ID, target.Provider.APIKey, wantID)
 	}
 
-	// Resume: key-filtered env (filterPersistedRuntimeEnv stripped LLM_API_KEY).
+	// Resume: key-filtered env (llms.FilterPersistedRuntimeEnv stripped LLM_API_KEY).
 	resumeEnv := []SessionEnvVar{
 		{Name: "LLM_API_ENDPOINT", Value: "https://session-llm.example.invalid"},
 		{Name: "LLM_MODEL", Value: "m-resume"},

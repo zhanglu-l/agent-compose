@@ -12,7 +12,7 @@ import (
 	"agent-compose/pkg/agentcompose/configstore"
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/projects"
-	"agent-compose/pkg/compose"
+	"agent-compose/pkg/agentcompose/runs"
 )
 
 const (
@@ -37,42 +37,6 @@ type (
 	ProjectRunListOptions  = domain.ProjectRunListOptions
 	ProjectListResult      = domain.ProjectListResult
 )
-
-func StableProjectID(name, sourcePath string) (string, error) {
-	return domain.StableProjectID(name, sourcePath)
-}
-
-func StableManagedAgentID(projectID, agentName string) (string, error) {
-	return domain.StableManagedAgentID(projectID, agentName)
-}
-
-func StableProjectSchedulerID(projectID, agentName, schedulerName string) (string, error) {
-	return domain.StableProjectSchedulerID(projectID, agentName, schedulerName)
-}
-
-func StableManagedLoaderID(projectID, agentName, schedulerName string) (string, error) {
-	return domain.StableManagedLoaderID(projectID, agentName, schedulerName)
-}
-
-func StableManagedTriggerID(projectID, agentName, schedulerName, triggerName string, triggerIndex int) (string, error) {
-	return domain.StableManagedTriggerID(projectID, agentName, schedulerName, triggerName, triggerIndex)
-}
-
-func StableProjectRunID(projectID, agentName, source, idempotencyKey string) (string, error) {
-	return domain.StableProjectRunID(projectID, agentName, source, idempotencyKey)
-}
-
-func NewProjectRecordFromSpec(spec *compose.NormalizedProjectSpec, sourcePath string) (ProjectRecord, error) {
-	return projects.NewRecordFromSpec(spec, sourcePath)
-}
-
-func NewProjectAgentRecordFromSpec(projectID string, revision int64, agent compose.NormalizedAgentSpec) (ProjectAgentRecord, error) {
-	return projects.NewAgentRecordFromSpec(projectID, revision, agent)
-}
-
-func NewProjectSchedulerRecordFromSpec(projectID string, revision int64, agent compose.NormalizedAgentSpec) (ProjectSchedulerRecord, bool, error) {
-	return projects.NewSchedulerRecordFromSpec(projectID, revision, agent)
-}
 
 func (s *ConfigStore) UpsertProject(ctx context.Context, project ProjectRecord) (ProjectRecord, error) {
 	project, err := projects.NormalizeRecord(project)
@@ -490,7 +454,7 @@ func (s *ConfigStore) ListProjectRunsByOptions(ctx context.Context, options Proj
 	}
 	if source := strings.TrimSpace(options.Source); source != "" {
 		where = append(where, "source = ?")
-		args = append(args, normalizeProjectRunSource(source))
+		args = append(args, runs.NormalizeSource(source))
 	}
 	query := projects.SelectProjectRunSQL()
 	if len(where) > 0 {

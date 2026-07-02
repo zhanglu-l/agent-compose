@@ -71,7 +71,7 @@ func ensureSessionCodexLLMFacadeConfig(ctx context.Context, config *appconfig.Co
 		return nil, nil
 	}
 	facadeWireAPI := llmAPIProtocolResponses
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, facadeWireAPI, source, runID)
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, facadeWireAPI, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func ensureSessionClaudeLLMFacadeConfig(ctx context.Context, config *appconfig.C
 		tokenModel = target.Model.Name
 		tokenProvider = target.Provider.ID
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, tokenModel, tokenProvider, llmAPIProtocolMessages, source, runID)
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, tokenModel, tokenProvider, llmAPIProtocolMessages, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func ensureSessionOpenCodeAnthropicFacadeConfig(ctx context.Context, config *app
 	if err != nil {
 		return nil, err
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolMessages, source, runID)
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolMessages, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func ensureSessionOpenCodeOpenAIFacadeEnv(ctx context.Context, config *appconfig
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, nil
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolResponses, source, runID)
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolResponses, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func ensureSessionOpenCodeCustomProviderConfig(ctx context.Context, config *appc
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, nil
 	}
-	tokenValue, token, err := newLLMFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolChatCompletions, source, runID)
+	tokenValue, token, err := llms.NewFacadeToken(session.Summary.ID, target.Model.Name, target.Provider.ID, llmAPIProtocolChatCompletions, source, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func resolveOpenCodeCustomProviderTarget(ctx context.Context, config *appconfig.
 	if hasEnabledLLMProviderID(ctx, configDB, providerID) {
 		return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, providerID, envItems)
 	}
-	if sessionID != "" && hasOpenAIEnvProviderInput(envItems) {
+	if sessionID != "" && llms.HasOpenAIEnvProviderInput(envItems) {
 		sessionProviderID, err := ensureSessionOpenAIEnvProvider(ctx, configDB, sessionID, model, envItems)
 		if err != nil {
 			return LLMResolvedTarget{}, err
@@ -265,7 +265,7 @@ func resolveOpenCodeCustomProviderTarget(ctx context.Context, config *appconfig.
 			return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, sessionProviderID, envItems)
 		}
 	}
-	if _, err := ensureOpenAIEnvProvider(ctx, configDB, defaultLLMEnvProviderLookup(ctx, config, configDB), providerID, providerID, llmProviderScopeEnvDefault, model, false); err != nil {
+	if _, err := llms.EnsureOpenAIEnvProvider(ctx, configDB, defaultLLMEnvProviderLookup(ctx, config, configDB), providerID, providerID, llmProviderScopeEnvDefault, model, false); err != nil {
 		return LLMResolvedTarget{}, err
 	}
 	return resolveRuntimeLLMTargetWithEnv(ctx, config, configDB, sessionID, llmProviderFamilyOpenAI, model, providerID, envItems)
@@ -346,7 +346,7 @@ ignore_default_excludes = false
 
 [history]
 persistence = "save-all"
-`, model, baseURL, normalizeLLMWireAPI(wireAPI))
+`, model, baseURL, llms.NormalizeWireAPI(wireAPI))
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		return fmt.Errorf("write codex config: %w", err)
 	}
@@ -475,7 +475,7 @@ func lookupRuntimeBaseURLEnv(session *Session) string {
 		return ""
 	}
 	for _, items := range [][]SessionEnvVar{session.ProviderEnvItems, session.RuntimeEnvItems, session.EnvItems} {
-		if value := lookupEnvItemValue(items, "AGENT_COMPOSE_RUNTIME_BASE_URL"); strings.TrimSpace(value) != "" {
+		if value := llms.EnvItemValue(items, "AGENT_COMPOSE_RUNTIME_BASE_URL"); strings.TrimSpace(value) != "" {
 			return value
 		}
 	}

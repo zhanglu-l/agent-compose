@@ -16,6 +16,8 @@ import (
 	"connectrpc.com/connect"
 
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
+	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/runs"
 	"agent-compose/pkg/agentcompose/workspaces"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -26,14 +28,14 @@ func TestRunCoordinatorStateMachineTransitions(t *testing.T) {
 	store, service, projectID := setupRunCoordinatorProject(t)
 	ctx := context.Background()
 	_ = service
-	coordinator := NewRunCoordinator(store)
+	coordinator := runs.NewCoordinator(store, domain.StableProjectRunID)
 	now := time.Date(2026, 6, 11, 9, 10, 0, 0, time.UTC)
 	coordinator.SetNow(func() time.Time {
 		now = now.Add(time.Second)
 		return now
 	})
 
-	run, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	run, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,
@@ -58,7 +60,7 @@ func TestRunCoordinatorStateMachineTransitions(t *testing.T) {
 		t.Fatalf("running run = %#v", running)
 	}
 
-	succeeded, err := coordinator.MarkSucceeded(ctx, ProjectRunTransitionRequest{
+	succeeded, err := coordinator.MarkSucceeded(ctx, runs.TransitionRequest{
 		RunID:      run.RunID,
 		Output:     "done",
 		ResultJSON: `{"ok":true}`,
@@ -77,9 +79,9 @@ func TestRunCoordinatorStateMachineTransitions(t *testing.T) {
 func TestRunCoordinatorRejectsInvalidTransitionsAndRecordsFailureTerminal(t *testing.T) {
 	store, _, projectID := setupRunCoordinatorProject(t)
 	ctx := context.Background()
-	coordinator := NewRunCoordinator(store)
+	coordinator := runs.NewCoordinator(store, domain.StableProjectRunID)
 
-	run, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	run, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceScheduler,
@@ -90,10 +92,10 @@ func TestRunCoordinatorRejectsInvalidTransitionsAndRecordsFailureTerminal(t *tes
 	if err != nil {
 		t.Fatalf("BeginRun returned error: %v", err)
 	}
-	if _, err := coordinator.MarkSucceeded(ctx, ProjectRunTransitionRequest{RunID: run.RunID}); err == nil || !strings.Contains(err.Error(), "pending -> succeeded") {
+	if _, err := coordinator.MarkSucceeded(ctx, runs.TransitionRequest{RunID: run.RunID}); err == nil || !strings.Contains(err.Error(), "pending -> succeeded") {
 		t.Fatalf("pending run accepted direct success: %v", err)
 	}
-	failed, err := coordinator.MarkFailed(ctx, ProjectRunTransitionRequest{
+	failed, err := coordinator.MarkFailed(ctx, runs.TransitionRequest{
 		RunID: run.RunID,
 		Error: "workspace prepare failed",
 	})
@@ -106,7 +108,7 @@ func TestRunCoordinatorRejectsInvalidTransitionsAndRecordsFailureTerminal(t *tes
 	if failed.Source != ProjectRunSourceScheduler || failed.SchedulerID != "scheduler-1" || failed.TriggerID != "trigger-1" {
 		t.Fatalf("failed terminal source fields = %#v", failed)
 	}
-	if _, err := coordinator.MarkCanceled(ctx, ProjectRunTransitionRequest{RunID: run.RunID}); err == nil || !strings.Contains(err.Error(), "already terminal") {
+	if _, err := coordinator.MarkCanceled(ctx, runs.TransitionRequest{RunID: run.RunID}); err == nil || !strings.Contains(err.Error(), "already terminal") {
 		t.Fatalf("failed terminal run accepted cancel: %v", err)
 	}
 }
@@ -626,7 +628,7 @@ func TestRunAgentSessionEnvProviderUsesAgentDefinitionModelAfterSessionReload(t 
 		t.Fatalf("GetSession returned error: %v", err)
 	}
 	for _, item := range session.EnvItems {
-		if llmProviderKeyName(item.Name) || strings.Contains(item.Value, "session-provider-key") {
+		if llms.ProviderKeyName(item.Name) || strings.Contains(item.Value, "session-provider-key") {
 			t.Fatalf("provider key leaked into persisted session env: %#v", session.EnvItems)
 		}
 	}
@@ -810,8 +812,8 @@ func testManagedSchedulerAgentUsesProjectRunPipeline(t *testing.T) {
 func TestRunServiceStopRunCancelsPendingRun(t *testing.T) {
 	store, service, projectID := setupRunCoordinatorProject(t)
 	ctx := context.Background()
-	coordinator := NewRunCoordinator(store)
-	run, err := coordinator.BeginRun(ctx, ProjectRunStartRequest{
+	coordinator := runs.NewCoordinator(store, domain.StableProjectRunID)
+	run, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,
@@ -1065,7 +1067,7 @@ func TestRunPreparationMapsGitWorkspace(t *testing.T) {
 	if prepared.WorkspaceConfig == nil || prepared.WorkspaceConfig.Type != "git" || prepared.Workspace == nil {
 		t.Fatalf("prepared git workspace = %#v / %#v", prepared.WorkspaceConfig, prepared.Workspace)
 	}
-	var cfg gitWorkspaceConfig
+	var cfg workspaces.GitWorkspaceConfig
 	if err := json.Unmarshal([]byte(prepared.WorkspaceConfig.ConfigJSON), &cfg); err != nil {
 		t.Fatalf("decode git workspace config: %v", err)
 	}
@@ -1220,7 +1222,7 @@ func loaderEventsContain(events []LoaderEvent, eventType string) bool {
 
 func beginRunPreparationTestRun(t *testing.T, store *ConfigStore, projectID, requestID string) ProjectRunRecord {
 	t.Helper()
-	run, err := NewRunCoordinator(store).BeginRun(context.Background(), ProjectRunStartRequest{
+	run, err := runs.NewCoordinator(store, domain.StableProjectRunID).BeginRun(context.Background(), runs.StartRequest{
 		ProjectID:       projectID,
 		AgentName:       "reviewer",
 		Source:          ProjectRunSourceManual,

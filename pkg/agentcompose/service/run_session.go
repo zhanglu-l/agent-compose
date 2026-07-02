@@ -17,11 +17,9 @@ import (
 	"github.com/google/uuid"
 )
 
-type ProjectRunSessionResult = runs.SessionResult
-
-func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRecord, prepared ProjectRunPreparation, requestedSessionID string) (ProjectRunSessionResult, error) {
+func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRecord, prepared runs.Preparation, requestedSessionID string) (runs.SessionResult, error) {
 	if s == nil || s.config == nil || s.store == nil || s.driver == nil {
-		return ProjectRunSessionResult{}, fmt.Errorf("session runtime dependencies are required")
+		return runs.SessionResult{}, fmt.Errorf("session runtime dependencies are required")
 	}
 	tags := runs.SessionTags(run)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(s.cap), prepared.CapsetIDs)
@@ -29,12 +27,12 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 	if sessionID := strings.TrimSpace(requestedSessionID); sessionID != "" {
 		session, err := s.store.GetSession(ctx, sessionID)
 		if err != nil {
-			return ProjectRunSessionResult{}, fmt.Errorf("load session %s: %w", sessionID, err)
+			return runs.SessionResult{}, fmt.Errorf("load session %s: %w", sessionID, err)
 		}
 		if session.Summary.VMStatus != VMStatusRunning {
 			driver, err := driverpkg.ResolveSessionRuntimeDriver(session.Summary.Driver, s.config.RuntimeDriver)
 			if err != nil {
-				return ProjectRunSessionResult{}, err
+				return runs.SessionResult{}, err
 			}
 			guestImage := driverpkg.ResolveSessionGuestImage(session.Summary.GuestImage, driverpkg.DefaultGuestImageForDriver(s.config, driver))
 			if err := images.EnsureDriverImage(ctx, s.config, s.images, images.EnsureRequest{
@@ -43,15 +41,15 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 				ProjectName: run.ProjectName,
 				AgentName:   run.AgentName,
 			}); err != nil {
-				return ProjectRunSessionResult{Session: session}, err
+				return runs.SessionResult{Session: session}, err
 			}
 		}
 		session.EnvItems = domain.MergeEnvItems(session.EnvItems, capabilityVars)
 		session.Summary.Tags = runs.MergeSessionTags(session.Summary.Tags, tags)
 		if err := s.startProjectRunSession(ctx, session, "session.resumed", "session resumed for project run"); err != nil {
-			return ProjectRunSessionResult{Session: session}, err
+			return runs.SessionResult{Session: session}, err
 		}
-		return ProjectRunSessionResult{Session: session}, nil
+		return runs.SessionResult{Session: session}, nil
 	}
 
 	workspaceID := ""
@@ -60,7 +58,7 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 	}
 	driver, err := driverpkg.ResolveSessionRuntimeDriver(run.Driver, s.config.RuntimeDriver)
 	if err != nil {
-		return ProjectRunSessionResult{}, err
+		return runs.SessionResult{}, err
 	}
 	guestImage := driverpkg.ResolveSessionGuestImage(run.ImageRef, driverpkg.DefaultGuestImageForDriver(s.config, driver))
 	if err := images.EnsureDriverImage(ctx, s.config, s.images, images.EnsureRequest{
@@ -69,7 +67,7 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 		ProjectName: run.ProjectName,
 		AgentName:   run.AgentName,
 	}); err != nil {
-		return ProjectRunSessionResult{}, err
+		return runs.SessionResult{}, err
 	}
 	session, err := s.store.CreateSession(ctx,
 		runs.SessionTitle(run),
@@ -83,13 +81,13 @@ func (s *Service) ensureProjectRunSession(ctx context.Context, run ProjectRunRec
 		tags,
 	)
 	if err != nil {
-		return ProjectRunSessionResult{}, err
+		return runs.SessionResult{}, err
 	}
 	session.ProviderEnvItems = prepared.ProviderEnvItems
 	if err := s.startProjectRunSession(ctx, session, "session.created", "session started for project run"); err != nil {
-		return ProjectRunSessionResult{Session: session, Created: true}, err
+		return runs.SessionResult{Session: session, Created: true}, err
 	}
-	return ProjectRunSessionResult{Session: session, Created: true}, nil
+	return runs.SessionResult{Session: session, Created: true}, nil
 }
 
 func (s *Service) startProjectRunSession(ctx context.Context, session *Session, eventType, eventMessage string) error {

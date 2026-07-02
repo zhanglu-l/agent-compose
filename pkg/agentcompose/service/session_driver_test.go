@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -51,7 +52,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeProxyState(t *testing.T) {
 	}
 	driver := &SessionDriver{config: config, store: store}
 
-	if err := driver.saveSessionStartInfo(session, vmState, proxyState, SessionVMInfo{
+	if err := driver.saveSessionStartInfo(session, vmState, proxyState, domain.SessionVMInfo{
 		BoxID:      "container-1",
 		JupyterURL: updatedProxyState.JupyterURL,
 		ProxyState: &updatedProxyState,

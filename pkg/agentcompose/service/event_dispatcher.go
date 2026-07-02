@@ -4,10 +4,9 @@ import (
 	"context"
 
 	"agent-compose/pkg/agentcompose/events"
+	"agent-compose/pkg/agentcompose/loaders"
 )
 
-type EventDispatcher = events.Dispatcher
-
-func NewEventDispatcher(rootCtx context.Context, configDB *ConfigStore, bus *LoaderBus) *EventDispatcher {
+func NewEventDispatcher(rootCtx context.Context, configDB *ConfigStore, bus *loaders.Bus) *events.Dispatcher {
 	return events.NewDispatcher(rootCtx, configDB, bus)
 }

@@ -2,6 +2,7 @@ package agentcompose
 
 import (
 	"agent-compose/pkg/agentcompose/api"
+	"agent-compose/pkg/agentcompose/loaders"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -251,7 +252,7 @@ func testServiceSessionKernelAgentAndLLMAPIs(t *testing.T) {
 	assertNextLoaderTopic(t, service.bus, "agent-compose.session.stopped")
 }
 
-func assertNextLoaderTopic(t *testing.T, bus *LoaderBus, want string) {
+func assertNextLoaderTopic(t *testing.T, bus *loaders.Bus, want string) {
 	t.Helper()
 	select {
 	case event := <-bus.Events():

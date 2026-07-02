@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
@@ -17,15 +18,15 @@ import (
 // fixedGatewaySource is a capabilities.GatewaySource backed by static settings,
 // so provider tests can point at a mock OctoBus without a real ConfigStore.
 type fixedGatewaySource struct {
-	settings CapabilityGatewaySettings
+	settings domain.CapabilityGatewaySettings
 }
 
-func (f fixedGatewaySource) GetCapabilityGateway(context.Context) (CapabilityGatewaySettings, error) {
+func (f fixedGatewaySource) GetCapabilityGateway(context.Context) (domain.CapabilityGatewaySettings, error) {
 	return f.settings, nil
 }
 
-func newTestCapabilityProvider(addr, proxyTarget string) CapabilityProvider {
-	return capabilities.NewDynamicProvider(fixedGatewaySource{settings: CapabilityGatewaySettings{Addr: addr}}, proxyTarget)
+func newTestCapabilityProvider(addr, proxyTarget string) capabilities.Provider {
+	return capabilities.NewDynamicProvider(fixedGatewaySource{settings: domain.CapabilityGatewaySettings{Addr: addr}}, proxyTarget)
 }
 
 func TestCapabilityServiceStatusDoesNotExposeAddr(t *testing.T) {

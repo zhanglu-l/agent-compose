@@ -73,7 +73,7 @@ func (s *Service) handleRuntimeLLM(c echo.Context, inboundProtocol protocolbridg
 	if token.SessionID != sessionID || !token.RevokedAt.IsZero() || (!token.ExpiresAt.IsZero() && now.After(token.ExpiresAt)) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "llm facade token is not valid for this session"})
 	}
-	if token.WireAPI != "" && normalizeLLMWireAPI(token.WireAPI) != normalizeLLMWireAPI(facadeWireAPI) {
+	if token.WireAPI != "" && llms.NormalizeWireAPI(token.WireAPI) != llms.NormalizeWireAPI(facadeWireAPI) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "llm facade token wire api mismatch"})
 	}
 	session, err := s.store.GetSession(c.Request().Context(), sessionID)
@@ -147,7 +147,7 @@ func (s *Service) handleRuntimeLLM(c echo.Context, inboundProtocol protocolbridg
 		return nil
 	}
 	if llms.RuntimeResponseShouldFlush(resp.Header) {
-		return bridgeRuntimeLLMStreamResponse(c, resp, inboundProtocol, upstreamProtocol, normalizeLLMProviderType(target.Provider.ProviderType), target.Model.Name)
+		return bridgeRuntimeLLMStreamResponse(c, resp, inboundProtocol, upstreamProtocol, llms.NormalizeProviderType(target.Provider.ProviderType), target.Model.Name)
 	}
 	upstreamRespBody, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
@@ -353,7 +353,7 @@ func encodeRuntimeLLMUpstreamRequest(inboundProtocol, upstreamProtocol protocolb
 		}
 		return adapter.EncodeRequest(normalizeRuntimeLLMRequestForUpstream(req, upstreamProtocol), protocolbridge.EncodeRequestOptions{Model: target.Model.Name})
 	}
-	bridge, ok := protocolbridge.NewCrossFamilyBridge(inboundProtocol, normalizeLLMProviderType(target.Provider.ProviderType))
+	bridge, ok := protocolbridge.NewCrossFamilyBridge(inboundProtocol, llms.NormalizeProviderType(target.Provider.ProviderType))
 	if !ok || bridge.UpstreamProtocol() != upstreamProtocol {
 		return nil, fmt.Errorf("unsupported llm protocol bridge from %q to %q", inboundProtocol, upstreamProtocol)
 	}
@@ -407,7 +407,7 @@ func encodeRuntimeLLMClientResponse(inboundProtocol, upstreamProtocol protocolbr
 				return nil, err
 			}
 		} else {
-			bridge, ok := protocolbridge.NewCrossFamilyBridge(inboundProtocol, normalizeLLMProviderType(target.Provider.ProviderType))
+			bridge, ok := protocolbridge.NewCrossFamilyBridge(inboundProtocol, llms.NormalizeProviderType(target.Provider.ProviderType))
 			if !ok || bridge.UpstreamProtocol() != upstreamProtocol {
 				return nil, fmt.Errorf("unsupported llm protocol bridge from %q to %q", inboundProtocol, upstreamProtocol)
 			}

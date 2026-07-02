@@ -11,10 +11,8 @@ import (
 	"github.com/samber/do/v2"
 )
 
-type SessionVMInfo = domain.SessionVMInfo
-
 type BoxRuntime interface {
-	EnsureSession(context.Context, *Session, VMState, ProxyState) (SessionVMInfo, error)
+	EnsureSession(context.Context, *Session, VMState, ProxyState) (domain.SessionVMInfo, error)
 	StopSession(context.Context, *Session, VMState) (bool, error)
 	Exec(context.Context, *Session, VMState, ExecSpec) (ExecResult, error)
 	ExecStream(context.Context, *Session, VMState, ExecSpec, ExecStreamWriter) (ExecResult, error)
@@ -85,10 +83,10 @@ func (p *runtimeProvider) ForSession(session *Session) (BoxRuntime, error) {
 	return p.ForDriver(driver)
 }
 
-func (r driverRuntimeAdapter) EnsureSession(ctx context.Context, session *Session, vmState VMState, proxyState ProxyState) (SessionVMInfo, error) {
+func (r driverRuntimeAdapter) EnsureSession(ctx context.Context, session *Session, vmState VMState, proxyState ProxyState) (domain.SessionVMInfo, error) {
 	info, err := r.runtime.EnsureSession(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState), execution.ToDriverProxyState(proxyState))
 	if err != nil {
-		return SessionVMInfo{}, err
+		return domain.SessionVMInfo{}, err
 	}
 	return execution.FromDriverSessionVMInfo(info), nil
 }

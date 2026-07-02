@@ -21,7 +21,7 @@ import (
 // is best-effort: failures are logged and recorded as warning events, but never
 // block session/loader startup. Must be called after the session directory
 // exists and before the runtime mounts it.
-func writeCapabilityGuide(ctx context.Context, provider CapabilityProvider, store *Store, streams *SessionStreamBroker, session *Session, capsetIDs []string) {
+func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store *Store, streams *SessionStreamBroker, session *Session, capsetIDs []string) {
 	ids := capabilities.NormalizeCapsetIDs(capsetIDs)
 	if len(ids) == 0 || provider == nil || session == nil {
 		return

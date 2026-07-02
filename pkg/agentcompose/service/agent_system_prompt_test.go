@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/domain"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	"context"
@@ -241,8 +242,8 @@ type conventionSystemPromptRuntime struct {
 	commands []string
 }
 
-func (r *conventionSystemPromptRuntime) EnsureSession(context.Context, *Session, VMState, ProxyState) (SessionVMInfo, error) {
-	return SessionVMInfo{}, nil
+func (r *conventionSystemPromptRuntime) EnsureSession(context.Context, *Session, VMState, ProxyState) (domain.SessionVMInfo, error) {
+	return domain.SessionVMInfo{}, nil
 }
 
 func (r *conventionSystemPromptRuntime) StopSession(context.Context, *Session, VMState) (bool, error) {

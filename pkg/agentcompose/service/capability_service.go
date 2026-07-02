@@ -11,14 +11,13 @@ import (
 
 	"agent-compose/pkg/agentcompose/api"
 	"agent-compose/pkg/agentcompose/capabilities"
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/capability"
 	appconfig "agent-compose/pkg/config"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
 
-type CapabilityProvider = capabilities.Provider
-
-type capabilityIntegration interface{ CapabilityProvider }
+type capabilityIntegration interface{ capabilities.Provider }
 
 func NewCapabilityProvider(di do.Injector) (capabilityIntegration, error) {
 	conf := do.MustInvoke[*appconfig.Config](di)
@@ -82,7 +81,7 @@ func (s *Service) GetCapabilityGatewayConfig(ctx context.Context, req *connect.R
 
 func (s *Service) UpdateCapabilityGatewayConfig(ctx context.Context, req *connect.Request[agentcomposev1.UpdateCapabilityGatewayConfigRequest]) (*connect.Response[agentcomposev1.CapabilityGatewayConfig], error) {
 	token := strings.TrimSpace(req.Msg.GetToken())
-	saved, err := s.configDB.SaveCapabilityGateway(ctx, CapabilityGatewaySettings{
+	saved, err := s.configDB.SaveCapabilityGateway(ctx, domain.CapabilityGatewaySettings{
 		Addr:  req.Msg.GetAddr(),
 		Token: token,
 	})

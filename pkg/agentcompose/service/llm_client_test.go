@@ -74,19 +74,19 @@ func TestLLMEndpointForProviderBaseURLAppendsProtocolPath(t *testing.T) {
 		ProviderType: llmProviderFamilyOpenAI,
 		BaseURL:      "https://openai-compatible.example.invalid/api",
 	}
-	if got := llmEndpointForProvider(provider, llmAPIProtocolChatCompletions); got != "https://openai-compatible.example.invalid/api/v1/chat/completions" {
-		t.Fatalf("llmEndpointForProvider chat = %q, want provider base URL plus chat path", got)
+	if got := llms.EndpointForProvider(provider, llmAPIProtocolChatCompletions); got != "https://openai-compatible.example.invalid/api/v1/chat/completions" {
+		t.Fatalf("llms.EndpointForProvider chat = %q, want provider base URL plus chat path", got)
 	}
-	if got := llmEndpointForProvider(provider, llmAPIProtocolResponses); got != "https://openai-compatible.example.invalid/api/v1/responses" {
-		t.Fatalf("llmEndpointForProvider responses = %q, want provider base URL plus responses path", got)
+	if got := llms.EndpointForProvider(provider, llmAPIProtocolResponses); got != "https://openai-compatible.example.invalid/api/v1/responses" {
+		t.Fatalf("llms.EndpointForProvider responses = %q, want provider base URL plus responses path", got)
 	}
 	provider.BaseURL = "https://openai-compatible.example.invalid/api/v1"
-	if got := llmEndpointForProvider(provider, llmAPIProtocolResponses); got != "https://openai-compatible.example.invalid/api/v1/responses" {
-		t.Fatalf("llmEndpointForProvider v1 responses = %q, want provider v1 base URL plus responses path", got)
+	if got := llms.EndpointForProvider(provider, llmAPIProtocolResponses); got != "https://openai-compatible.example.invalid/api/v1/responses" {
+		t.Fatalf("llms.EndpointForProvider v1 responses = %q, want provider v1 base URL plus responses path", got)
 	}
 	provider.BaseURL = "https://openai-compatible.example.invalid"
-	if got := llmEndpointForProvider(provider, llmAPIProtocolChatCompletions); got != "https://openai-compatible.example.invalid/v1/chat/completions" {
-		t.Fatalf("llmEndpointForProvider root chat = %q, want provider root base URL plus chat path", got)
+	if got := llms.EndpointForProvider(provider, llmAPIProtocolChatCompletions); got != "https://openai-compatible.example.invalid/v1/chat/completions" {
+		t.Fatalf("llms.EndpointForProvider root chat = %q, want provider root base URL plus chat path", got)
 	}
 }
 

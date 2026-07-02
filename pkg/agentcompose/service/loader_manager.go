@@ -1,6 +1,7 @@
 package agentcompose
 
 import (
+	"agent-compose/pkg/agentcompose/capabilities"
 	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/images"
 	"agent-compose/pkg/agentcompose/loaders"
@@ -30,8 +31,8 @@ type LoaderManager struct {
 	executor   *Executor
 	images     ImageBackend
 	llm        *LLMClient
-	cap        CapabilityProvider
-	bus        *LoaderBus
+	cap        capabilities.Provider
+	bus        *loaders.Bus
 	streams    *SessionStreamBroker
 	engine     LoaderEngine
 	sessions   *SessionRPCBridge
@@ -101,7 +102,7 @@ func NewLoaderManager(di do.Injector) (*LoaderManager, error) {
 		images:       images.NewDockerBackend(),
 		llm:          do.MustInvoke[*LLMClient](di),
 		cap:          do.MustInvoke[capabilityIntegration](di),
-		bus:          do.MustInvoke[*LoaderBus](di),
+		bus:          do.MustInvoke[*loaders.Bus](di),
 		streams:      do.MustInvoke[*SessionStreamBroker](di),
 		engine:       do.MustInvoke[LoaderEngine](di),
 		sessions:     do.MustInvoke[*SessionRPCBridge](di),

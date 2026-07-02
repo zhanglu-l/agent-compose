@@ -1,13 +1,15 @@
 package agentcompose
 
 import (
+	"context"
+	"time"
+
+	"agent-compose/pkg/agentcompose/domain"
 	"agent-compose/pkg/agentcompose/execution"
 	"agent-compose/pkg/agentcompose/llms"
 	"agent-compose/pkg/agentcompose/sessions"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
-	"context"
-	"time"
 
 	"github.com/samber/do/v2"
 )
@@ -75,7 +77,7 @@ func (d *SessionDriver) StartSessionVM(ctx context.Context, session *Session) er
 	return d.saveSessionStartInfo(session, vmState, proxyState, info)
 }
 
-func (d *SessionDriver) saveSessionStartInfo(session *Session, vmState VMState, proxyState ProxyState, info SessionVMInfo) error {
+func (d *SessionDriver) saveSessionStartInfo(session *Session, vmState VMState, proxyState ProxyState, info domain.SessionVMInfo) error {
 	vmState, proxyState = sessions.ApplySessionStartInfo(vmState, proxyState, info, time.Now())
 	if err := d.store.SaveVMState(session.Summary.ID, vmState); err != nil {
 		return err

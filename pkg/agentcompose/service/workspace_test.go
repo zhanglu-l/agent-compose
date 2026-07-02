@@ -64,7 +64,7 @@ func TestHostWorkspaceInitializedIgnoresInternalEntries(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(workspaceRoot, ".agent-compose"), 0o755); err != nil {
 		t.Fatalf("mkdir .agent-compose: %v", err)
 	}
-	if err := os.Mkdir(filepath.Join(workspaceRoot, gitWorkspaceTempDirName), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(workspaceRoot, workspaces.GitWorkspaceTempDirName), 0o755); err != nil {
 		t.Fatalf("mkdir temp dir: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestHostWorkspaceInitializedIgnoresInternalEntries(t *testing.T) {
 }
 
 func TestGitCloneArgsUsesDepthOne(t *testing.T) {
-	got := workspaces.GitCloneArgs("https://example.test/repo.git", gitWorkspaceConfig{Branch: "main"}, "/tmp/workspace")
+	got := workspaces.GitCloneArgs("https://example.test/repo.git", workspaces.GitWorkspaceConfig{Branch: "main"}, "/tmp/workspace")
 	want := []string{"clone", "--depth", "1", "--branch", "main", "https://example.test/repo.git", "/tmp/workspace"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("gitCloneArgs = %#v, want %#v", got, want)
@@ -166,7 +166,7 @@ func TestPrepareFileWorkspaceCopiesContent(t *testing.T) {
 func testPrepareFileWorkspaceCopiesContent(t *testing.T) {
 	t.Helper()
 	config := &appconfig.Config{DataRoot: t.TempDir()}
-	contentRoot := filepath.Join(config.DataRoot, "workspaces", "ws-file", fileWorkspaceContentDirName)
+	contentRoot := filepath.Join(config.DataRoot, "workspaces", "ws-file", workspaces.FileWorkspaceContentDirName)
 	if err := os.MkdirAll(contentRoot, 0o755); err != nil {
 		t.Fatalf("mkdir content root: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestStoreUploadedWorkspaceFileRejectsSymlinkParent(t *testing.T) {
 
 func TestPrepareFileWorkspaceRejectsSymlinkContent(t *testing.T) {
 	config := &appconfig.Config{DataRoot: t.TempDir()}
-	contentRoot := filepath.Join(config.DataRoot, "workspaces", "ws-file", fileWorkspaceContentDirName)
+	contentRoot := filepath.Join(config.DataRoot, "workspaces", "ws-file", workspaces.FileWorkspaceContentDirName)
 	if err := os.MkdirAll(contentRoot, 0o755); err != nil {
 		t.Fatalf("mkdir content root: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestCreateFileWorkspaceConfigDefaultRootFromEmptyObject(t *testing.T) {
 	if workspace.GetId() == "" {
 		t.Fatalf("expected generated workspace id")
 	}
-	var cfg fileWorkspaceConfig
+	var cfg workspaces.FileWorkspaceConfig
 	if err := json.Unmarshal([]byte(workspace.GetConfigJson()), &cfg); err != nil {
 		t.Fatalf("decode config json: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestCreateFileWorkspaceConfigDefaultRootFromRelativeDataRoot(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CreateWorkspaceConfig returned error: %v", err)
 	}
-	var cfg fileWorkspaceConfig
+	var cfg workspaces.FileWorkspaceConfig
 	if err := json.Unmarshal([]byte(resp.Msg.GetWorkspace().GetConfigJson()), &cfg); err != nil {
 		t.Fatalf("decode config json: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestCreateFileWorkspaceConfigOverridesClientRoot(t *testing.T) {
 		t.Fatalf("CreateWorkspaceConfig returned error: %v", err)
 	}
 	workspace := resp.Msg.GetWorkspace()
-	var cfg fileWorkspaceConfig
+	var cfg workspaces.FileWorkspaceConfig
 	if err := json.Unmarshal([]byte(workspace.GetConfigJson()), &cfg); err != nil {
 		t.Fatalf("decode config json: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestCreateFileWorkspaceConfigOverridesOtherWorkspaceRoot(t *testing.T) {
 		t.Fatalf("CreateWorkspaceConfig returned error: %v", err)
 	}
 	workspace := resp.Msg.GetWorkspace()
-	var cfg fileWorkspaceConfig
+	var cfg workspaces.FileWorkspaceConfig
 	if err := json.Unmarshal([]byte(workspace.GetConfigJson()), &cfg); err != nil {
 		t.Fatalf("decode config json: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestUpdateFileWorkspaceConfigOverridesClientRoot(t *testing.T) {
 	if loaded.ConfigJSON != updated.Msg.GetWorkspace().GetConfigJson() {
 		t.Fatalf("stored config %q differs from response config %q", loaded.ConfigJSON, updated.Msg.GetWorkspace().GetConfigJson())
 	}
-	var cfg fileWorkspaceConfig
+	var cfg workspaces.FileWorkspaceConfig
 	if err := json.Unmarshal([]byte(loaded.ConfigJSON), &cfg); err != nil {
 		t.Fatalf("decode config json: %v", err)
 	}
@@ -892,7 +892,7 @@ func TestWorkspaceRoutesRejectSymlinkContentRoot(t *testing.T) {
 		t.Fatalf("mkdir workspace root: %v", err)
 	}
 	outsideRoot := t.TempDir()
-	if err := os.Symlink(outsideRoot, filepath.Join(workspaceRoot, fileWorkspaceContentDirName)); err != nil {
+	if err := os.Symlink(outsideRoot, filepath.Join(workspaceRoot, workspaces.FileWorkspaceContentDirName)); err != nil {
 		t.Fatalf("create content symlink: %v", err)
 	}
 	_, err := configDB.CreateWorkspaceConfig(ctx, WorkspaceConfig{
@@ -965,7 +965,7 @@ func testPrepareGitWorkspaceClonesRootAndTarget(t *testing.T) {
 	}
 	assertFileContent(t, filepath.Join(rootSession.Summary.WorkspacePath, "README.md"), "root\n")
 	assertFileContent(t, filepath.Join(rootSession.Summary.WorkspacePath, "nested", "data.txt"), "nested\n")
-	if _, err := os.Stat(filepath.Join(rootSession.Summary.WorkspacePath, gitWorkspaceTempDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(rootSession.Summary.WorkspacePath, workspaces.GitWorkspaceTempDirName)); !os.IsNotExist(err) {
 		t.Fatalf("expected temp git clone dir to be removed, stat err=%v", err)
 	}
 	if err := os.WriteFile(filepath.Join(rootSession.Summary.WorkspacePath, "local.txt"), []byte("local\n"), 0o644); err != nil {
@@ -988,13 +988,13 @@ func testPrepareGitWorkspaceClonesRootAndTarget(t *testing.T) {
 	}
 	assertFileContent(t, filepath.Join(targetSession.Summary.WorkspacePath, "vendor", "repo", "README.md"), "root\n")
 
-	if got := workspaces.ApplyGitCredentials("https://example.test/repo.git", gitWorkspaceConfig{Username: "user name", Password: "p@ss"}); got != "https://user+name:p%40ss@example.test/repo.git" {
+	if got := workspaces.ApplyGitCredentials("https://example.test/repo.git", workspaces.GitWorkspaceConfig{Username: "user name", Password: "p@ss"}); got != "https://user+name:p%40ss@example.test/repo.git" {
 		t.Fatalf("applyGitCredentials username/password = %q", got)
 	}
-	if got := workspaces.ApplyGitCredentials("https://example.test/repo.git", gitWorkspaceConfig{Credential: "token"}); got != "https://token@example.test/repo.git" {
+	if got := workspaces.ApplyGitCredentials("https://example.test/repo.git", workspaces.GitWorkspaceConfig{Credential: "token"}); got != "https://token@example.test/repo.git" {
 		t.Fatalf("applyGitCredentials token = %q", got)
 	}
-	if got := workspaces.ApplyGitCredentials("ssh://example.test/repo.git", gitWorkspaceConfig{Credential: "token"}); got != "ssh://example.test/repo.git" {
+	if got := workspaces.ApplyGitCredentials("ssh://example.test/repo.git", workspaces.GitWorkspaceConfig{Credential: "token"}); got != "ssh://example.test/repo.git" {
 		t.Fatalf("applyGitCredentials ssh = %q", got)
 	}
 }
@@ -1114,7 +1114,7 @@ func newWorkspaceRouteTestConfigStore(t *testing.T) *ConfigStore {
 
 func encodeFileWorkspaceConfigForTest(t *testing.T, root string) string {
 	t.Helper()
-	payload, err := json.Marshal(fileWorkspaceConfig{Root: root})
+	payload, err := json.Marshal(workspaces.FileWorkspaceConfig{Root: root})
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}

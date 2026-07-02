@@ -191,7 +191,7 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 	if err != nil || bus.Events() == nil {
 		t.Fatalf("NewLoaderBus = %#v/%v", bus, err)
 	}
-	if (&LoaderBus{}).Publish(LoaderTopicEvent{Topic: "runtime.test"}) {
+	if (&loaders.Bus{}).Publish(LoaderTopicEvent{Topic: "runtime.test"}) {
 		t.Fatalf("Publish on bus without channel succeeded")
 	}
 	if bus.Publish(LoaderTopicEvent{}) {
@@ -208,7 +208,7 @@ func TestModelSessionConfigAndBusBranchCoverage(t *testing.T) {
 	default:
 		t.Fatalf("expected published event")
 	}
-	if (*LoaderBus)(nil).Events() != nil || (*LoaderBus)(nil).Publish(LoaderTopicEvent{Topic: "runtime.test"}) {
+	if (*loaders.Bus)(nil).Events() != nil || (*loaders.Bus)(nil).Publish(LoaderTopicEvent{Topic: "runtime.test"}) {
 		t.Fatalf("nil loader bus helpers returned unexpected values")
 	}
 

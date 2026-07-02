@@ -80,7 +80,7 @@ func (s *Service) ApplyProject(ctx context.Context, req *connect.Request[agentco
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("apply project %s: config store is required", normalized.spec.Name))
 	}
 
-	project, err := NewProjectRecordFromSpec(normalized.spec, normalized.sourcePath)
+	project, err := projects.NewRecordFromSpec(normalized.spec, normalized.sourcePath)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("apply project %s: %w", normalized.spec.Name, err))
 	}
@@ -334,7 +334,7 @@ func (s *Service) resolveProjectRef(ctx context.Context, ref *agentcomposev2.Pro
 	name := strings.TrimSpace(ref.GetName())
 	sourcePath := strings.TrimSpace(ref.GetSourcePath())
 	if name != "" && sourcePath != "" {
-		projectID, err := StableProjectID(name, sourcePath)
+		projectID, err := domain.StableProjectID(name, sourcePath)
 		if err != nil {
 			return ProjectRecord{}, err
 		}
@@ -479,7 +479,7 @@ func (s *Service) projectManagedSchedulerBuildsFromSpec(ctx context.Context, pro
 }
 
 func (s *Service) validateProjectManagedSchedulers(ctx context.Context, normalized normalizedV2Project) []*agentcomposev2.ProjectValidationIssue {
-	project, err := NewProjectRecordFromSpec(normalized.spec, normalized.sourcePath)
+	project, err := projects.NewRecordFromSpec(normalized.spec, normalized.sourcePath)
 	if err != nil {
 		return []*agentcomposev2.ProjectValidationIssue{api.ProjectValidationIssue("spec", err.Error())}
 	}
@@ -537,7 +537,7 @@ func projectManagedSchedulerBuildIssue(err error) *agentcomposev2.ProjectValidat
 }
 
 func (s *Service) validateProjectManagedAgentDefinitions(normalized normalizedV2Project) []*agentcomposev2.ProjectValidationIssue {
-	project, err := NewProjectRecordFromSpec(normalized.spec, normalized.sourcePath)
+	project, err := projects.NewRecordFromSpec(normalized.spec, normalized.sourcePath)
 	if err != nil {
 		return []*agentcomposev2.ProjectValidationIssue{api.ProjectValidationIssue("spec", err.Error())}
 	}
