@@ -319,6 +319,9 @@ func copyEmbeddedHomeFile(assetPath, target string, mode fs.FileMode) error {
 	if perm == 0 {
 		perm = 0o644
 	}
+	if perm&0o200 == 0 {
+		perm |= 0o200
+	}
 	if err := os.WriteFile(target, data, perm); err != nil {
 		return fmt.Errorf("write default home file %s: %w", target, err)
 	}

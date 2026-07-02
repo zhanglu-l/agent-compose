@@ -341,6 +341,25 @@ func testRuntimeMountManifestDriverSpecificStartPreparationWorkflow(t *testing.T
 	}
 }
 
+func TestInitializeSessionHomeDefaultsCreatesWritableCodexConfig(t *testing.T) {
+	root := t.TempDir()
+	session := testRuntimeMountSession(root)
+	if err := initializeSessionHomeDefaults(session); err != nil {
+		t.Fatalf("initializeSessionHomeDefaults returned error: %v", err)
+	}
+	codexConfig := filepath.Join(root, "home", ".codex", "config.toml")
+	info, err := os.Stat(codexConfig)
+	if err != nil {
+		t.Fatalf("Stat(%s) returned error: %v", codexConfig, err)
+	}
+	if info.Mode().Perm()&0o200 == 0 {
+		t.Fatalf("codex config mode = %v, want owner-writable", info.Mode().Perm())
+	}
+	if err := os.WriteFile(codexConfig, []byte("model = \"test\"\n"), 0o644); err != nil {
+		t.Fatalf("codex config should be writable after defaults initialization: %v", err)
+	}
+}
+
 func TestInitializeSessionHomeDefaultsDoesNotOverwriteExistingTargets(t *testing.T) {
 	root := t.TempDir()
 	session := testRuntimeMountSession(root)
