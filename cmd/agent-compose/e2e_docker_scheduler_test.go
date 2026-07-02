@@ -15,7 +15,7 @@ import (
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"agent-compose/pkg/agentcompose"
+	agentcompose "agent-compose/pkg/agentcompose/service"
 	"agent-compose/pkg/config"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	"agent-compose/proto/agentcompose/v1/agentcomposev1connect"

@@ -33,7 +33,8 @@ import (
 	"agent-compose/pkg/fxgo/restful"
 	"agent-compose/pkg/fxgo/utils"
 
-	"agent-compose/pkg/agentcompose"
+	"agent-compose/pkg/agentcompose/projects"
+	agentcompose "agent-compose/pkg/agentcompose/service"
 	"agent-compose/pkg/auth"
 	"agent-compose/pkg/compose"
 	"agent-compose/pkg/config"
@@ -1173,7 +1174,7 @@ func resolveComposeProject(cli cliOptions) (string, *compose.NormalizedProjectSp
 	if err != nil {
 		return "", nil, "", err
 	}
-	project, err := agentcompose.NewProjectRecordFromSpec(normalized, composePath)
+	project, err := projects.NewRecordFromSpec(normalized, composePath)
 	if err != nil {
 		return "", nil, "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("%s: resolve project %s: %w", composePath, normalized.Name, err)}
 	}
