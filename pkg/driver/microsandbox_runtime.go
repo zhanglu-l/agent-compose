@@ -466,12 +466,18 @@ func (r *microsandboxRuntime) ensureDockerDisk(sessionID string) (string, error)
 		// Disk already exists; reuse it (idempotent for session reconnects).
 		return path, nil
 	}
-	// Create a sparse 8 GiB raw file then format it as ext4.
+	// Create a sparse raw file then format it as ext4. Sized by
+	// BOX_DISK_SIZE_GB (shared with the boxlite driver; config default 6 GiB).
+	// Existing .raw files are reused as-is (see os.Stat check above).
+	sizeGB := r.config.BoxDiskSizeGB
+	if sizeGB <= 0 {
+		sizeGB = 6 // defensive: config normally guarantees a positive value
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return "", fmt.Errorf("create docker disk image %s: %w", path, err)
 	}
-	if err := f.Truncate(8 << 30); err != nil {
+	if err := f.Truncate(int64(sizeGB) << 30); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)
 		return "", fmt.Errorf("size docker disk image %s: %w", path, err)

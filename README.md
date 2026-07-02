@@ -271,8 +271,10 @@ Important variables include:
   images.
 - `IMAGE_STORE_MODE`, `IMAGE_CACHE_ROOT`, `IMAGE_REGISTRY`,
   `IMAGE_INSECURE_REGISTRIES`: image store and OCI cache settings.
-- `BOXLITE_HOME`, `BOXLITE_RUNTIME_DIR`, `BOX_ROOTFS_PATH`, `BOX_DISK_SIZE_GB`,
-  `BOX_CACHE_TTL`: BoxLite settings.
+- `BOXLITE_HOME`, `BOXLITE_RUNTIME_DIR`, `BOX_ROOTFS_PATH`, `BOX_CACHE_TTL`:
+  BoxLite settings.
+- `BOX_DISK_SIZE_GB`: shared guest disk size for VM-type drivers (the boxlite
+  box disk and the microsandbox docker disk). Default 6 GiB.
 - `DOCKER_HOME`, `DOCKER_HOST_SESSION_ROOT`: Docker runtime settings.
 - `MICROSANDBOX_HOME`, `MICROSANDBOX_MSB_PATH`, `MICROSANDBOX_LIB_PATH`,
   `MICROSANDBOX_INSECURE_REGISTRIES`: Microsandbox settings.

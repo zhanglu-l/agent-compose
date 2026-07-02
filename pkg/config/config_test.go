@@ -504,3 +504,49 @@ func testDefaultDataRootFallsBackToHome(t *testing.T) {
 		t.Fatalf("defaultDataRoot = %q, want %q", got, want)
 	}
 }
+
+func TestBoxDiskSizeGB(t *testing.T) {
+	newCfg := func(t *testing.T) *Config {
+		t.Helper()
+		root := t.TempDir()
+		t.Setenv("DATA_ROOT", filepath.Join(root, "data"))
+		di := do.New()
+		do.ProvideValue(di, slog.Default())
+		cfg, err := NewConfig(di)
+		if err != nil {
+			t.Fatalf("NewConfig returned error: %v", err)
+		}
+		return cfg
+	}
+
+	t.Run("default is 6 for all VM-type drivers", func(t *testing.T) {
+		cfg := newCfg(t)
+		if cfg.BoxDiskSizeGB != 6 {
+			t.Fatalf("BoxDiskSizeGB = %d, want 6 (default)", cfg.BoxDiskSizeGB)
+		}
+	})
+
+	t.Run("BOX_DISK_SIZE_GB sets the value", func(t *testing.T) {
+		t.Setenv("BOX_DISK_SIZE_GB", "11")
+		cfg := newCfg(t)
+		if cfg.BoxDiskSizeGB != 11 {
+			t.Fatalf("BoxDiskSizeGB = %d, want 11", cfg.BoxDiskSizeGB)
+		}
+	})
+
+	t.Run("invalid value keeps the default", func(t *testing.T) {
+		t.Setenv("BOX_DISK_SIZE_GB", "abc")
+		cfg := newCfg(t)
+		if cfg.BoxDiskSizeGB != 6 {
+			t.Fatalf("BoxDiskSizeGB = %d, want 6", cfg.BoxDiskSizeGB)
+		}
+	})
+
+	t.Run("non-positive value keeps the default", func(t *testing.T) {
+		t.Setenv("BOX_DISK_SIZE_GB", "-3")
+		cfg := newCfg(t)
+		if cfg.BoxDiskSizeGB != 6 {
+			t.Fatalf("BoxDiskSizeGB = %d, want 6", cfg.BoxDiskSizeGB)
+		}
+	})
+}
