@@ -1361,6 +1361,89 @@ func TestIntegrationCLIResumeSandboxesJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIRemoveSandboxes(t *testing.T) {
+	type removedRequest struct {
+		sandbox string
+		force   bool
+	}
+	var removed []removedRequest
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+				removed = append(removed, removedRequest{sandbox: req.Msg.GetSandboxId(), force: req.Msg.GetForce()})
+				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{
+					SandboxId: req.Msg.GetSandboxId(),
+					Removed:   true,
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("rm", "--host", server.URL, "--force", "sandbox-a")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("rm --force code/stderr = %d / %q", exitCode, stderr)
+	}
+	if stdout != "removed sandbox sandbox-a\n" {
+		t.Fatalf("rm --force stdout = %q", stdout)
+	}
+	if len(removed) != 1 || removed[0].sandbox != "sandbox-a" || !removed[0].force {
+		t.Fatalf("removed requests = %#v", removed)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("rm", "--host", server.URL, "--json", "sandbox-b", "sandbox-c")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("rm --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeSandboxActionOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("rm JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if len(decoded.Results) != 2 || decoded.Results[0].Sandbox != "sandbox-b" || decoded.Results[0].Status != "removed" || decoded.Results[1].Sandbox != "sandbox-c" {
+		t.Fatalf("rm JSON = %#v", decoded)
+	}
+	if len(removed) != 3 || removed[1].force || removed[2].force {
+		t.Fatalf("removed requests after json = %#v", removed)
+	}
+}
+
+func TestCLIRemoveSandboxRunningRequiresForce(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+				return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("sandbox %s is running", req.Msg.GetSandboxId()))
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("rm", "--host", server.URL, "sandbox-running")
+	if exitCode == 0 {
+		t.Fatalf("rm running exit code = %d, want non-zero", exitCode)
+	}
+	if stdout != "" || !strings.Contains(stderr, "is running") {
+		t.Fatalf("rm running stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
+func TestCLIRemoveSandboxUsageErrors(t *testing.T) {
+	stdout, stderr, _, exitCode := executeCLICommand("rm")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("rm without args exit code = %d, want %d", exitCode, exitCodeUsage)
+	}
+	if stdout != "" || !strings.Contains(stderr, "requires at least 1 sandbox") {
+		t.Fatalf("rm without args stdout/stderr = %q / %q", stdout, stderr)
+	}
+
+	stdout, stderr, _, exitCode = executeCLICommand("rm", " ")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("rm empty sandbox exit code = %d, want %d", exitCode, exitCodeUsage)
+	}
+	if stdout != "" || !strings.Contains(stderr, "requires non-empty sandbox") {
+		t.Fatalf("rm empty stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
 func TestCLIStopRequiresSandboxUsageError(t *testing.T) {
 	stdout, stderr, _, exitCode := executeCLICommand("stop")
 	if exitCode != exitCodeUsage {
@@ -2647,6 +2730,7 @@ type composeServiceStubs struct {
 	run     runServiceStub
 	exec    execServiceStub
 	image   imageServiceStub
+	sandbox sandboxServiceStub
 	session sessionServiceStub
 }
 
@@ -2737,6 +2821,19 @@ func (s imageServiceStub) RemoveImage(ctx context.Context, req *connect.Request[
 	return s.removeImage(ctx, req)
 }
 
+type sandboxServiceStub struct {
+	removeSandbox func(context.Context, *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error)
+
+	agentcomposev2connect.UnimplementedSandboxServiceHandler
+}
+
+func (s sandboxServiceStub) RemoveSandbox(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+	if s.removeSandbox == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("RemoveSandbox stub is not configured"))
+	}
+	return s.removeSandbox(ctx, req)
+}
+
 type sessionServiceStub struct {
 	getSession    func(context.Context, *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error)
 	listSessions  func(context.Context, *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error)
@@ -2791,6 +2888,10 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 	}
 	if stubs.image.listImages != nil || stubs.image.pullImage != nil || stubs.image.inspectImage != nil || stubs.image.removeImage != nil {
 		path, handler := agentcomposev2connect.NewImageServiceHandler(stubs.image)
+		mux.Handle(path, handler)
+	}
+	if stubs.sandbox.removeSandbox != nil {
+		path, handler := agentcomposev2connect.NewSandboxServiceHandler(stubs.sandbox)
 		mux.Handle(path, handler)
 	}
 	if stubs.session.getSession != nil || stubs.session.listSessions != nil || stubs.session.resumeSession != nil || stubs.session.stopSession != nil {
