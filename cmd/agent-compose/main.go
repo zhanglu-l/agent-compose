@@ -629,11 +629,11 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 
 	pullOptions := composeImagePullOptions{}
 	pullCmd := &cobra.Command{
-		Use:   "pull <image>",
-		Short: "Pull an image",
-		Args:  cobra.ExactArgs(1),
+		Use:   "pull [image]",
+		Short: "Pull an image or all project images",
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeImagePullCommand(cmd, options, pullOptions, args[0])
+			return runComposePullCommand(cmd, options, pullOptions, args)
 		},
 	}
 	addImagePullFlags(pullCmd, &pullOptions)
@@ -1385,6 +1385,76 @@ func runComposeImageListCommand(cmd *cobra.Command, cli cliOptions, options comp
 	return writeImagesText(cmd.OutOrStdout(), output.Images)
 }
 
+func runComposePullCommand(cmd *cobra.Command, cli cliOptions, options composeImagePullOptions, args []string) error {
+	if len(args) == 1 {
+		return runComposeImagePullCommand(cmd, cli, options, args[0])
+	}
+	_, normalized, err := loadNormalizedCompose(cli)
+	if err != nil {
+		return err
+	}
+	imageRefs := projectImageRefs(normalized)
+	if len(imageRefs) == 0 {
+		if cli.JSON {
+			data, err := json.MarshalIndent(composeProjectImagePullOutput{Images: []composeImagePullOutput{}}, "", "  ")
+			if err != nil {
+				return err
+			}
+			return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "No project images configured")
+		return err
+	}
+	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	platform, err := parseImagePlatform(options.Platform)
+	if err != nil {
+		return commandExitError{Code: exitCodeUsage, Err: err}
+	}
+	output := composeProjectImagePullOutput{
+		Images: make([]composeImagePullOutput, 0, len(imageRefs)),
+	}
+	for _, imageRef := range imageRefs {
+		item, err := pullImage(cmd.Context(), clients.image, imageRef, platform)
+		if err != nil {
+			return commandExitErrorForConnect(fmt.Errorf("pull image %s: %w", imageRef, err))
+		}
+		output.Images = append(output.Images, item)
+		if !cli.JSON {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s\nResolved: %s\n", item.ImageRef, firstNonEmptyString(item.ResolvedRef, "-")); err != nil {
+				return err
+			}
+		}
+	}
+	if cli.JSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	return nil
+}
+
+func projectImageRefs(project *compose.NormalizedProjectSpec) []string {
+	seen := make(map[string]struct{}, len(project.Agents))
+	refs := make([]string, 0, len(project.Agents))
+	for _, agent := range project.Agents {
+		imageRef := strings.TrimSpace(agent.Image)
+		if imageRef == "" {
+			continue
+		}
+		if _, ok := seen[imageRef]; ok {
+			continue
+		}
+		seen[imageRef] = struct{}{}
+		refs = append(refs, imageRef)
+	}
+	return refs
+}
+
 func runComposeImagePullCommand(cmd *cobra.Command, cli cliOptions, options composeImagePullOptions, imageRef string) error {
 	clients, err := newCLIServiceClients(cli)
 	if err != nil {
@@ -1394,14 +1464,10 @@ func runComposeImagePullCommand(cmd *cobra.Command, cli cliOptions, options comp
 	if err != nil {
 		return commandExitError{Code: exitCodeUsage, Err: err}
 	}
-	resp, err := clients.image.PullImage(cmd.Context(), connect.NewRequest(&agentcomposev2.PullImageRequest{
-		ImageRef: strings.TrimSpace(imageRef),
-		Platform: platform,
-	}))
+	output, err := pullImage(cmd.Context(), clients.image, strings.TrimSpace(imageRef), platform)
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("pull image %s: %w", strings.TrimSpace(imageRef), err))
 	}
-	output := composeImagePullOutputFromResponse(resp.Msg)
 	if cli.JSON {
 		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
@@ -1411,6 +1477,17 @@ func runComposeImagePullCommand(cmd *cobra.Command, cli cliOptions, options comp
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s\nResolved: %s\n", output.ImageRef, firstNonEmptyString(output.ResolvedRef, "-"))
 	return err
+}
+
+func pullImage(ctx context.Context, client agentcomposev2connect.ImageServiceClient, imageRef string, platform *agentcomposev2.ImagePlatform) (composeImagePullOutput, error) {
+	resp, err := client.PullImage(ctx, connect.NewRequest(&agentcomposev2.PullImageRequest{
+		ImageRef: imageRef,
+		Platform: platform,
+	}))
+	if err != nil {
+		return composeImagePullOutput{}, err
+	}
+	return composeImagePullOutputFromResponse(resp.Msg), nil
 }
 
 func runComposeImageRemoveCommand(cmd *cobra.Command, cli cliOptions, options composeImageRemoveOptions, imageRef string) error {
@@ -1862,6 +1939,10 @@ type composeImagePullOutput struct {
 	Image       composeImageOutput         `json:"image"`
 	Progress    []composeImageProgressItem `json:"progress,omitempty"`
 	Warnings    []string                   `json:"warnings,omitempty"`
+}
+
+type composeProjectImagePullOutput struct {
+	Images []composeImagePullOutput `json:"images"`
 }
 
 type composeImageRemoveOutput struct {

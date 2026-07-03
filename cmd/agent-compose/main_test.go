@@ -2119,6 +2119,91 @@ func TestIntegrationCLIImagePullAliasesAndJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIPullProjectImages(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-pull-project
+agents:
+  reviewer:
+    provider: codex
+    image: agent:v1
+  tester:
+    provider: codex
+    image: agent:v1
+  builder:
+    provider: codex
+    image: agent:v2
+`)
+	var pulled []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		image: imageServiceStub{
+			pullImage: func(ctx context.Context, req *connect.Request[agentcomposev2.PullImageRequest]) (*connect.Response[agentcomposev2.PullImageResponse], error) {
+				if req.Msg.GetPlatform().GetOs() != "linux" || req.Msg.GetPlatform().GetArchitecture() != "amd64" {
+					t.Fatalf("PullImage platform = %#v", req.Msg.GetPlatform())
+				}
+				imageRef := req.Msg.GetImageRef()
+				pulled = append(pulled, imageRef)
+				return connect.NewResponse(&agentcomposev2.PullImageResponse{
+					Image:       testCLIImage("sha256:"+strings.TrimPrefix(imageRef, "agent:"), imageRef),
+					Status:      agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED,
+					ResolvedRef: imageRef + "@sha256:def",
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("pull", "--host", server.URL, "--file", composePath, "--platform", "linux/amd64")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("pull project code/stderr = %d / %q", exitCode, stderr)
+	}
+	for _, want := range []string{"Pulled agent:v2", "agent:v2@sha256:def", "Pulled agent:v1", "agent:v1@sha256:def"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("pull project stdout %q does not contain %q", stdout, want)
+		}
+	}
+	if len(pulled) != 2 || pulled[0] != "agent:v2" || pulled[1] != "agent:v1" {
+		t.Fatalf("pulled images = %#v", pulled)
+	}
+}
+
+func TestIntegrationCLIPullProjectImagesJSON(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-pull-project-json
+agents:
+  reviewer:
+    provider: codex
+    image: agent:v1
+  builder:
+    provider: codex
+    image: agent:v2
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		image: imageServiceStub{
+			pullImage: func(ctx context.Context, req *connect.Request[agentcomposev2.PullImageRequest]) (*connect.Response[agentcomposev2.PullImageResponse], error) {
+				imageRef := req.Msg.GetImageRef()
+				return connect.NewResponse(&agentcomposev2.PullImageResponse{
+					Image:       testCLIImage("sha256:"+strings.TrimPrefix(imageRef, "agent:"), imageRef),
+					Status:      agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED,
+					ResolvedRef: imageRef + "@sha256:def",
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("pull", "--host", server.URL, "--file", composePath, "--json")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("pull project --json code/stderr = %d / %q", exitCode, stderr)
+	}
+	var decoded composeProjectImagePullOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("pull project JSON decode failed: %v\n%s", err, stdout)
+	}
+	if len(decoded.Images) != 2 || decoded.Images[0].ImageRef != "agent:v2" || decoded.Images[1].ImageRef != "agent:v1" {
+		t.Fatalf("pull project JSON = %#v", decoded)
+	}
+}
+
 func TestIntegrationCLIImageRemoveAliasesAndJSON(t *testing.T) {
 	calls := 0
 	server := newComposeServiceStubServer(t, composeServiceStubs{
