@@ -32,6 +32,14 @@ agent-compose -f /path/to/project/agent-compose.yaml ps --all
 agent-compose --host http://10.0.0.12:7410 ls --json
 ```
 
+远程 daemon 认证示例：
+
+```bash
+export AUTH_USERNAME=admin
+export AUTH_PASSWORD=change-me
+agent-compose --host http://10.0.0.12:7410 ls
+```
+
 使用规则：
 
 - 未指定 `-f` 时，CLI 在当前目录查找 `agent-compose.yml` 或 `agent-compose.yaml`。
@@ -155,6 +163,7 @@ agent-compose run <agent> --sandbox <sandbox> --prompt "..."
 | --- | --- |
 | `--keep-running` | 运行结束后保留 sandbox runtime。 |
 | `--sandbox <sandbox>` | 指定已有 sandbox。 |
+| `--session-id <session-id>` | 兼容旧参数，等价于 `--sandbox`，会输出 deprecated warning。 |
 | `--rm` | 运行结束后删除 sandbox。 |
 
 示例：
@@ -171,6 +180,7 @@ agent-compose run reviewer --sandbox sandbox_123 --prompt "Continue the review"
 
 - trigger、prompt、command 一次只能选择一种。
 - 使用 `--prompt`、`--trigger` 或 `--command` 时，不能再传 legacy positional prompt 参数。
+- `run -d/--detach`、`run -i/--interactive`、`--jupyter` 和 `--jupyter-expose` 暂未作为稳定 CLI 能力发布。
 
 ## `ps`：查看 sandbox
 
@@ -284,6 +294,9 @@ agent-compose exec <sandbox> --command "..."
 | --- | --- |
 | `--command "..."` | 以 flag 形式传入 shell 命令，等价于在 sandbox 中执行 `bash -lc "..."`。 |
 | `--cwd <path>` | 指定 sandbox 内工作目录。 |
+| `--session-id <sandbox>` | 兼容旧参数，等价于 positional `<sandbox>`，会输出 deprecated warning。 |
+| `--agent <agent>` | 兼容旧目标选择参数，会输出 deprecated warning；新命令应使用 `exec <sandbox>`。 |
+| `--run-id <run-id>` | 兼容旧目标选择参数，会输出 deprecated warning；新命令应使用 `exec <sandbox>`。 |
 
 示例：
 
@@ -322,6 +335,7 @@ agent-compose logs -t
 | `--agent <agent>` | 按 agent 过滤。 |
 | `--run-id <run-id>` | 按 run 过滤。 |
 | `--sandbox <sandbox>` | 按 sandbox 过滤。 |
+| `--session-id <sandbox>` | 兼容旧参数，等价于 `--sandbox`，会输出 deprecated warning。 |
 
 示例：
 
@@ -342,6 +356,7 @@ agent-compose inspect project
 agent-compose inspect agent <agent>
 agent-compose inspect run <run-id>
 agent-compose inspect sandbox <sandbox>
+agent-compose inspect session <sandbox>
 agent-compose inspect image <image>
 ```
 
@@ -351,6 +366,7 @@ agent-compose inspect image <image>
 - `inspect agent <agent>` 查看 agent 配置和运行摘要。
 - `inspect run <run-id>` 查看一次 run 的详情。
 - `inspect sandbox <sandbox>` 查看 sandbox/runtime 详情。
+- `inspect session <sandbox>` 是兼容旧入口，会输出 deprecated warning；新命令应使用 `inspect sandbox`。
 - `inspect image <image>` 查看镜像详情。
 
 ## 镜像命令
@@ -359,6 +375,7 @@ agent-compose inspect image <image>
 
 ```bash
 agent-compose images
+agent-compose pull
 agent-compose pull <image>
 agent-compose rmi <image>
 agent-compose inspect image <image>
@@ -367,7 +384,8 @@ agent-compose inspect image <image>
 命令说明：
 
 - `images`：列出镜像。
-- `pull <image>`：拉取镜像。
+- `pull`：拉取当前 project 中所有 agent 引用的镜像。
+- `pull <image>`：拉取指定镜像。
 - `rmi <image>`：删除镜像。
 - `inspect image <image>`：查看镜像详情。
 
@@ -380,6 +398,14 @@ agent-compose inspect image <image>
 | `pull` | `--platform <os/arch[/variant]>` | 指定拉取平台。 |
 | `rmi` | `--force` | 强制删除镜像。 |
 | `rmi` | `--prune-children` | 删除无 tag 的 child images。 |
+
+兼容说明：
+
+- `agent-compose image ls` 已废弃，请使用 `agent-compose images`。
+- `agent-compose image pull <image>` 已废弃，请使用 `agent-compose pull <image>`。
+- `agent-compose image rm <image>` 已废弃，请使用 `agent-compose rmi <image>`。
+- `agent-compose image inspect <image>` 已废弃，请使用 `agent-compose inspect image <image>`。
+- 旧 `image` 命令树仍可用，但会在 stderr 输出 deprecated warning，后续版本会评估删除。
 
 ## 其他命令
 
@@ -396,6 +422,16 @@ agent-compose config --quiet
 - `version`：输出 CLI 构建版本。
 - `config`：解析、校验并输出 normalized project 配置。
 - `config --quiet`：只校验配置，不输出 normalized config。
+
+## 暂缓命令
+
+以下命令或能力尚未作为稳定 CLI 发布：
+
+- `stats`：sandbox 资源统计需要统一 runtime 指标 API，本轮暂缓。
+- `build`：project image build 暂缓。
+- `push`：image push 暂缓。
+- `up -d/--detach`：当前 `up` 本身就是 apply project 后返回，不提供 detach 参数。
+- `up` 前台 attach 和 Ctrl+C 停止整个 project：暂缓。
 
 ## 使用建议
 

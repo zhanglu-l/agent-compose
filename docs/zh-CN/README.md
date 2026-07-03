@@ -8,6 +8,8 @@ agent-compose 是一个 daemon + CLI 形态的 agent/session 控制面。daemon 
 
 ## 快速开始
 
+完整 CLI 说明见 [agent-compose 命令行使用手册](command-line-manual.md)。
+
 构建：
 
 ```bash
