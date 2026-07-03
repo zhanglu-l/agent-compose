@@ -563,6 +563,17 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 
+	removeSandboxOptions := composeSandboxRemoveOptions{}
+	rmCmd := &cobra.Command{
+		Use:   "rm <sandbox> [<sandbox N>]",
+		Short: "Remove one or more sandboxes",
+		Args:  sandboxActionArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runComposeSandboxRemoveCommand(cmd, options, removeSandboxOptions, args)
+		},
+	}
+	rmCmd.Flags().BoolVar(&removeSandboxOptions.Force, "force", false, "Force remove running sandboxes")
+
 	execOptions := composeExecOptions{}
 	execCmd := &cobra.Command{
 		Use:   "exec <sandbox> [command] [args...]",
@@ -687,7 +698,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 
-	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, stopCmd, resumeCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
+	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
 	return root
 }
 
@@ -741,6 +752,10 @@ type composeSandboxActionOutput struct {
 type composeSandboxActionResult struct {
 	Sandbox string `json:"sandbox"`
 	Status  string `json:"status"`
+}
+
+type composeSandboxRemoveOptions struct {
+	Force bool
 }
 
 type composeImageListOptions struct {
@@ -951,6 +966,46 @@ func runComposeSandboxActionCommand(cmd *cobra.Command, cli cliOptions, action, 
 		output.Results = append(output.Results, composeSandboxActionResult{
 			Sandbox: sandbox,
 			Status:  status,
+		})
+	}
+	if cli.JSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	for _, result := range output.Results {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s sandbox %s\n", result.Status, result.Sandbox); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runComposeSandboxRemoveCommand(cmd *cobra.Command, cli cliOptions, options composeSandboxRemoveOptions, sandboxes []string) error {
+	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	output := composeSandboxActionOutput{
+		Results: make([]composeSandboxActionResult, 0, len(sandboxes)),
+	}
+	for _, sandbox := range sandboxes {
+		sandbox = strings.TrimSpace(sandbox)
+		if sandbox == "" {
+			return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("rm requires non-empty sandbox")}
+		}
+		_, err := clients.sandbox.RemoveSandbox(cmd.Context(), connect.NewRequest(&agentcomposev2.RemoveSandboxRequest{
+			SandboxId: sandbox,
+			Force:     options.Force,
+		}))
+		if err != nil {
+			return commandExitErrorForConnect(fmt.Errorf("rm sandbox %s: %w", sandbox, err))
+		}
+		output.Results = append(output.Results, composeSandboxActionResult{
+			Sandbox: sandbox,
+			Status:  "removed",
 		})
 	}
 	if cli.JSON {
@@ -1659,6 +1714,7 @@ type cliServiceClients struct {
 	run     agentcomposev2connect.RunServiceClient
 	exec    agentcomposev2connect.ExecServiceClient
 	image   agentcomposev2connect.ImageServiceClient
+	sandbox agentcomposev2connect.SandboxServiceClient
 	session agentcomposev1connect.SessionServiceClient
 }
 
@@ -2064,6 +2120,7 @@ func newCLIServiceClients(cli cliOptions) (cliServiceClients, error) {
 		run:     agentcomposev2connect.NewRunServiceClient(httpClient, clientConfig.BaseURL),
 		exec:    agentcomposev2connect.NewExecServiceClient(httpClient, clientConfig.BaseURL),
 		image:   agentcomposev2connect.NewImageServiceClient(httpClient, clientConfig.BaseURL),
+		sandbox: agentcomposev2connect.NewSandboxServiceClient(httpClient, clientConfig.BaseURL),
 		session: agentcomposev1connect.NewSessionServiceClient(httpClient, clientConfig.BaseURL),
 	}, nil
 }
