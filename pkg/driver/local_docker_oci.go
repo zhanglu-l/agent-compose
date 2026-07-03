@@ -36,17 +36,13 @@ type localDockerImageLayout struct {
 	RootfsPath  string
 }
 
-var (
+func init() {
 	_ = localDockerImageLayout{}
 	_ = materializeLocalDockerImageLayout
-	_ = materializeLocalDockerImageLayoutWithClient
-	_ = ociManifest{}
 	_ = ociImageConfig{}
-	_ = buildOCILayoutFromLocalImage
 	_ = buildOCIConfigPayload
 	_ = addOCIBlobFromFile
-	_ = addOCIBlobFromBytes
-)
+}
 
 func materializeLocalDockerImageRootfs(ctx context.Context, dataRoot, imageRef string) (localDockerImageRootfs, bool, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

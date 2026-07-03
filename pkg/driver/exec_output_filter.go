@@ -2,12 +2,12 @@ package driver
 
 import "strings"
 
-const maxInitialExecStderrBuffer = 1024
+const (
+	maxInitialExecStderrBuffer = 1024
 
-var ignoredExecStderrMessages = []string{
-	"seccomp not available, unable to set seccomp privileges!",
-	"seccomp not available, unable to enforce no_new_privileges!",
-}
+	ignoredSeccompUnavailableMessage         = "seccomp not available, unable to set seccomp privileges!"
+	ignoredNoNewPrivilegesUnavailableMessage = "seccomp not available, unable to enforce no_new_privileges!"
+)
 
 type execOutputFilter struct {
 	pendingStderr   strings.Builder
@@ -83,10 +83,6 @@ func isIgnoredExecStderrLine(line string) bool {
 	if !strings.Contains(line, "libcontainer::process::init::process") {
 		return false
 	}
-	for _, message := range ignoredExecStderrMessages {
-		if strings.Contains(line, message) {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(line, ignoredSeccompUnavailableMessage) ||
+		strings.Contains(line, ignoredNoNewPrivilegesUnavailableMessage)
 }

@@ -56,8 +56,6 @@ func NewSessionRPCBridge(config *appconfig.Config, store *sessionstore.Store, co
 	}
 }
 
-var sessionProtoJSONMarshal = protojson.MarshalOptions{}
-
 func (b *SessionRPCBridge) CallJSON(ctx context.Context, method, requestJSON string) (string, error) {
 	return b.CallJSONWithSource(ctx, method, requestJSON, domain.SessionTypeScript)
 }
@@ -145,7 +143,7 @@ func marshalSessionProtoJSON(msg proto.Message) (string, error) {
 	if msg == nil {
 		return "", nil
 	}
-	data, err := sessionProtoJSONMarshal.Marshal(msg)
+	data, err := protojson.MarshalOptions{}.Marshal(msg)
 	if err != nil {
 		return "", fmt.Errorf("encode session rpc response: %w", err)
 	}
