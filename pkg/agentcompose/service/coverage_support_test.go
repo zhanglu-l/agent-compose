@@ -72,6 +72,7 @@ func testSupportSetupRegistersServiceGraph(t *testing.T) {
 		{method: http.MethodPost, path: "/agentcompose.v2.RunService/*"},
 		{method: http.MethodPost, path: "/agentcompose.v2.ExecService/*"},
 		{method: http.MethodPost, path: "/agentcompose.v2.ImageService/*"},
+		{method: http.MethodPost, path: "/agentcompose.v2.SandboxService/*"},
 		{method: http.MethodGet, path: "/agent-compose/jupyter/:sessionID"},
 		{method: http.MethodPost, path: "/agent-compose/jupyter/:sessionID/*"},
 	} {
