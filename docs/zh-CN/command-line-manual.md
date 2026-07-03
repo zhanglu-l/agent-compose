@@ -275,7 +275,6 @@ agent-compose rm --force sandbox_789
 ```bash
 agent-compose exec <sandbox>
 agent-compose exec <sandbox> <command> [args...]
-agent-compose exec <sandbox> --prompt "..."
 agent-compose exec <sandbox> --command "..."
 ```
 
@@ -283,10 +282,8 @@ agent-compose exec <sandbox> --command "..."
 
 | 参数 | 说明 |
 | --- | --- |
-| `-d, --detach` | 后台执行。 |
-| `-i, --interactive` | 交互执行。 |
-| `--prompt "..."` | 在该 sandbox 中向 provider 发送 prompt。 |
 | `--command "..."` | 以 flag 形式传入 shell 命令，等价于在 sandbox 中执行 `bash -lc "..."`。 |
+| `--cwd <path>` | 指定 sandbox 内工作目录。 |
 
 示例：
 
@@ -294,8 +291,8 @@ agent-compose exec <sandbox> --command "..."
 agent-compose exec sandbox_123
 agent-compose exec sandbox_123 pwd
 agent-compose exec sandbox_123 bash -lc "task test"
-agent-compose exec sandbox_123 --prompt "Summarize current workspace state"
 agent-compose exec sandbox_123 --command "git status --short"
+agent-compose exec sandbox_123 --cwd /workspace --command "pwd"
 ```
 
 ## `logs`：查看日志
