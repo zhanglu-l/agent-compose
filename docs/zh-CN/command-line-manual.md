@@ -27,7 +27,7 @@ agent-compose [global options] <command> [command options] [arguments]
 示例：
 
 ```bash
-agent-compose -f /path/to/project/agent-compose.yml up -d
+agent-compose -f /path/to/project/agent-compose.yml up
 agent-compose -f /path/to/project/agent-compose.yaml ps --all
 agent-compose --host http://10.0.0.12:7410 ls --json
 ```
@@ -37,6 +37,7 @@ agent-compose --host http://10.0.0.12:7410 ls --json
 - 未指定 `-f` 时，CLI 在当前目录查找 `agent-compose.yml` 或 `agent-compose.yaml`。
 - 使用 `-f` 时，不需要切换到 project root。
 - `--host` 只决定 CLI 连接哪个 daemon；sandbox 实际运行在 daemon 所在环境中。
+- 使用 `--host` 或 `AGENT_COMPOSE_HOST` 连接 HTTP(S) daemon 时，CLI 会从 `AUTH_USERNAME` 和 `AUTH_PASSWORD` 读取 Basic Auth 凭据；Unix socket 本地连接不使用该认证。
 - 自动化场景应使用 `--json`，不要解析人类可读表格。
 
 ## 常见工作流
@@ -54,7 +55,7 @@ agent-compose down
 后台部署：
 
 ```bash
-agent-compose -f /path/to/project/agent-compose.yml up -d
+agent-compose -f /path/to/project/agent-compose.yml up
 agent-compose -f /path/to/project/agent-compose.yml ps --all
 agent-compose -f /path/to/project/agent-compose.yml logs -f
 ```
@@ -63,7 +64,7 @@ agent-compose -f /path/to/project/agent-compose.yml logs -f
 
 ```bash
 agent-compose --host http://10.0.0.12:7410 ls
-agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml up -d
+agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml up
 agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml stats --watch
 ```
 
@@ -73,6 +74,7 @@ agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml
 
 ```bash
 agent-compose ls
+agent-compose ls --limit 20 --offset 40
 agent-compose ls --verbose
 agent-compose ls --json
 ```
@@ -84,9 +86,17 @@ agent-compose ls --json
 - `REVISION`：当前 project revision。
 - `AGENTS`：agent 数量。
 - `SCHEDULERS`：scheduler 数量。
-- `SERVICES`：project 关联服务数量。
+- `SERVICES`：project 关联服务数量。当前 project spec 尚未定义 service 模型，因此该列显示为 `-`。
 
 `--verbose` 显示更多 daemon 已记录的信息，包括 project id、project root、spec hash、创建时间、更新时间和状态摘要。
+
+选项：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--limit <n>` | 最多返回 n 个 project。未指定时 CLI 会自动翻页并读取完整列表。 |
+| `--offset <n>` | 从指定 offset 开始读取 project。通常与 `--limit` 一起用于分页。 |
+| `--verbose` | 显示更多列。 |
 
 ## `up`：启动或更新 project
 
@@ -94,18 +104,10 @@ agent-compose ls --json
 
 ```bash
 agent-compose up
-agent-compose up -d
-agent-compose up --detach
-agent-compose -f /path/to/project/agent-compose.yml up -d
+agent-compose -f /path/to/project/agent-compose.yml up
 ```
 
-默认情况下，`up` 在前台运行并输出 project 下 agent 的 stdout/stderr。按 `Ctrl+C` 会停止整个 project。
-
-选项：
-
-| 参数 | 说明 |
-| --- | --- |
-| `-d, --detach` | 后台运行。命令应用 project 后返回，project 继续由 daemon 管理。 |
+当前 `up` 的行为是将 project 应用到 daemon 后返回，project 后续由 daemon 管理。它不会 attach project 日志，也不提供 `-d/--detach` 参数。
 
 ## `down`：关闭 project
 
@@ -433,8 +435,7 @@ agent-compose config --quiet
 
 ## 使用建议
 
-- 本地开发使用 `up` 前台模式，便于直接观察输出并通过 `Ctrl+C` 清理 project。
-- 服务器部署使用 `up -d`，再通过 `ps`、`logs`、`stats` 观察状态。
+- 使用 `up` 将 project 应用到 daemon 后，通过 `ps`、`logs`、`stats` 观察状态。
 - 跨目录操作 project 时使用 `-f /path/to/project/agent-compose.yml` 或 `-f /path/to/project/agent-compose.yaml`。
 - 操作远程 daemon 时显式传入 `--host`，并确认目标 daemon 上的 project 名称和配置文件路径符合预期。
 - 脚本和自动化系统使用 `--json`，避免依赖表格列宽或文本排版。

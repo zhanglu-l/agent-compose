@@ -84,6 +84,8 @@ type cliClientConfig struct {
 	Source        string
 	SourceValue   string
 	UseUnixSocket bool
+	AuthUsername  string
+	AuthPassword  string
 }
 
 func NewEcho(di do.Injector) (*echo.Echo, error) {
@@ -482,6 +484,8 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 	listCmd.Flags().BoolVar(&listOptions.Verbose, "verbose", false, "Show more project details")
+	listCmd.Flags().Uint32Var(&listOptions.Limit, "limit", 0, "Maximum number of projects to return")
+	listCmd.Flags().Uint32Var(&listOptions.Offset, "offset", 0, "Project list offset")
 
 	upCmd := &cobra.Command{
 		Use:   "up",
@@ -606,9 +610,13 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 
 	imageCmd := &cobra.Command{
 		Use:   "image",
-		Short: "Manage daemon images",
+		Short: "Deprecated: use images, pull, rmi, or inspect image",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Deprecated: use top-level image commands instead.
+			if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose image", "agent-compose images, agent-compose pull, agent-compose rmi, or agent-compose inspect image"); err != nil {
+				return err
+			}
 			return cmd.Help()
 		},
 	}
@@ -717,6 +725,8 @@ type composeConfigOptions struct {
 
 type composeListProjectsOptions struct {
 	Verbose bool
+	Limit   uint32
+	Offset  uint32
 }
 
 type composeRunOptions struct {
@@ -816,7 +826,7 @@ func runComposeListProjectsCommand(cmd *cobra.Command, cli cliOptions, options c
 	if err != nil {
 		return err
 	}
-	output, err := listAllProjects(cmd.Context(), clients.project)
+	output, err := listProjects(cmd.Context(), clients.project, options)
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("list projects: %w", err))
 	}
@@ -828,6 +838,34 @@ func runComposeListProjectsCommand(cmd *cobra.Command, cli cliOptions, options c
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
 	return writeProjectListText(cmd.OutOrStdout(), output.Projects, options.Verbose)
+}
+
+func listProjects(ctx context.Context, client agentcomposev2connect.ProjectServiceClient, options composeListProjectsOptions) (composeProjectListOutput, error) {
+	if options.Limit > 0 || options.Offset > 0 {
+		return listProjectsPage(ctx, client, options.Offset, options.Limit)
+	}
+	return listAllProjects(ctx, client)
+}
+
+func listProjectsPage(ctx context.Context, client agentcomposev2connect.ProjectServiceClient, offset, limit uint32) (composeProjectListOutput, error) {
+	resp, err := client.ListProjects(ctx, connect.NewRequest(&agentcomposev2.ListProjectsRequest{
+		Offset: offset,
+		Limit:  limit,
+	}))
+	if err != nil {
+		return composeProjectListOutput{}, err
+	}
+	msg := resp.Msg
+	output := composeProjectListOutput{
+		Projects:   make([]composeProjectListItem, 0, len(msg.GetProjects())),
+		TotalCount: msg.GetTotalCount(),
+		HasMore:    msg.GetHasMore(),
+		NextOffset: msg.GetNextOffset(),
+	}
+	for _, project := range msg.GetProjects() {
+		output.Projects = append(output.Projects, composeProjectListItemFromSummary(project))
+	}
+	return output, nil
 }
 
 func listAllProjects(ctx context.Context, client agentcomposev2connect.ProjectServiceClient) (composeProjectListOutput, error) {
@@ -3104,11 +3142,13 @@ func resolveCLIClientConfig(hostFlag string) (cliClientConfig, error) {
 		if err != nil {
 			return cliClientConfig{}, commandExitError{Code: exitCodeUsage, Err: err}
 		}
-		return cliClientConfig{
+		config := cliClientConfig{
 			BaseURL:     baseURL,
 			Source:      "--host",
 			SourceValue: hostFlag,
-		}, nil
+		}
+		applyCLIAuthFromEnv(&config)
+		return config, nil
 	}
 
 	if envHost := strings.TrimSpace(os.Getenv("AGENT_COMPOSE_HOST")); envHost != "" {
@@ -3116,11 +3156,13 @@ func resolveCLIClientConfig(hostFlag string) (cliClientConfig, error) {
 		if err != nil {
 			return cliClientConfig{}, commandExitError{Code: exitCodeUsage, Err: err}
 		}
-		return cliClientConfig{
+		config := cliClientConfig{
 			BaseURL:     baseURL,
 			Source:      "AGENT_COMPOSE_HOST",
 			SourceValue: envHost,
-		}, nil
+		}
+		applyCLIAuthFromEnv(&config)
+		return config, nil
 	}
 
 	socketPath, err := resolveAgentComposeSocketForCLI(os.Getenv("AGENT_COMPOSE_SOCKET"))
@@ -3134,6 +3176,11 @@ func resolveCLIClientConfig(hostFlag string) (cliClientConfig, error) {
 		SourceValue:   socketPath,
 		UseUnixSocket: true,
 	}, nil
+}
+
+func applyCLIAuthFromEnv(config *cliClientConfig) {
+	config.AuthUsername = os.Getenv("AUTH_USERNAME")
+	config.AuthPassword = os.Getenv("AUTH_PASSWORD")
 }
 
 func normalizeCLIHost(name, value string) (string, error) {
@@ -3205,8 +3252,28 @@ func newDaemonHTTPClient(clientConfig cliClientConfig) *http.Client {
 			return dialer.DialContext(ctx, "unix", socketPath)
 		}
 	}
+	var roundTripper http.RoundTripper = transport
+	if !clientConfig.UseUnixSocket && (clientConfig.AuthUsername != "" || clientConfig.AuthPassword != "") {
+		roundTripper = basicAuthRoundTripper{
+			username: clientConfig.AuthUsername,
+			password: clientConfig.AuthPassword,
+			next:     roundTripper,
+		}
+	}
 	return &http.Client{
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   10 * time.Minute,
 	}
+}
+
+type basicAuthRoundTripper struct {
+	username string
+	password string
+	next     http.RoundTripper
+}
+
+func (t basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.SetBasicAuth(t.username, t.password)
+	return t.next.RoundTrip(cloned)
 }
