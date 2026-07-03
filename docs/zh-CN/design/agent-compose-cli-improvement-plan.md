@@ -87,6 +87,8 @@
 仍未完成且不建议在小补丁中强行落地：
 
 - `run -d/--detach`、`run -i/--interactive`、`--jupyter`、`--jupyter-expose`：需要明确后台运行、交互和 runtime/session 创建参数。
+- `run -d/--detach` 当前不能只在 CLI 或现有 `RunAgentStream` 上包装实现。现有执行生命周期绑定 RPC request context，`StopRun` 也只更新 DB 状态，不取消内存执行；真正实现需要 v2 后台 run 提交 API、daemon 级 run supervisor、cancel map，并明确 daemon 重启后的语义。
+- `--jupyter`、`--jupyter-expose` 当前不能只在 CLI 加 flag。Jupyter proxy state 和 runtime port mapping 在 session 创建和 driver 启动时决定，guest port 来自全局配置，host bind 当前固定为内部随机地址；真正实现需要 per-session Jupyter/network options、store/proxy state 扩展和 driver 映射支持。
 - 默认前台 attach/Ctrl+C down：需要 project 级日志 attach 和中断处理；当前 `up` 已是 apply 后返回语义，不再新增 `-d/--detach`。
 - `push`：需要扩展 v2 ImageService。
 - `stats` / `stats -w`：需要统一 sandbox stats API 和 runtime driver 指标接入，放在最后阶段。
@@ -377,6 +379,25 @@ rmi
 - `--jupyter`/`--jupyter-expose` 需要 runtime/session 创建参数支持。
 - trigger、prompt、command 必须互斥。
 
+`run -d/--detach` 后续设计边界：
+
+- 不要用 CLI 后台 goroutine 包装 `RunAgentStream`，客户端退出会取消 RPC，无法形成 daemon 后台任务。
+- 不要在现有 `RunAgent` 上简单增加 `detach=true` 后继续使用 request context；客户端断开仍可能取消执行。
+- 建议新增 v2 `StartRun` 或同等后台提交 API，返回 run id 或 run summary；CLI `run -d` 调用该 API 后返回。
+- 服务端需要新增 daemon 生命周期内的 run supervisor，持有 root context、运行中的 cancel map 和并发控制。
+- `StopRun` 需要接入 supervisor cancel，再落 DB 状态；当前仅标记 canceled 不足以停止正在执行的 runtime command/agent。
+- detached run 的 stdout/stderr 需要持久化到 artifacts/logs 或 run event 表，不能只依赖 RPC stream。
+- 如果短期只实现 daemon 内存后台任务，文档必须明确 daemon 重启后 pending/running run 会按现有 reconcile 语义标记失败，不承诺 durable 恢复。
+
+`--jupyter` / `--jupyter-expose` 后续设计边界：
+
+- 不能在 CLI 层做本地端口转发来伪装能力；daemon、store、driver 和 `GetSessionProxy` 不知道该状态，会导致重启、复用、停止和远程访问失真。
+- v2 run API 和 session 创建 API 需要承载 Jupyter options，例如 enabled、guest port、host bind address、host port、expose policy。
+- `ProxyState` / driver proxy state 需要记录实际 host address、host port、guest port 和是否暴露。
+- session 创建需要支持指定端口并处理端口冲突；复用已有 sandbox 时，如果 Jupyter options 不兼容，应报错而不是静默复用。
+- Docker、BoxLite、Microsandbox driver 需要分别确认是否支持 bind address；不支持时 API/CLI 应明确拒绝 `[addr:]port` 中的 addr 部分。
+- Jupyter launch command、proxy readiness 和 `GetSessionProxy` 应使用 session 级端口配置，而不是只读取全局 `JUPYTER_GUEST_PORT`。
+
 兼容策略：
 
 1. 先新增 `--sandbox` alias，保留 `--session-id` warning。
@@ -547,11 +568,12 @@ rmi
 已完成的基础迁移不再重复拆分。后续建议按以下顺序继续：
 
 1. 如需支持 provider 原生日志或逐 chunk 时间戳，需要新增独立日志来源/API 设计；当前 `logs` 保持基于 agent-compose run output/artifacts。
-2. `run -d/--detach`：需要后台 run 语义，不能复用当前同步 `RunAgent` 或 streaming API 伪装。
-3. `run -i/--interactive`、`--jupyter`、`--jupyter-expose`：需要 runtime/session 创建参数支持，建议与 run API 扩展一起设计。
-4. 如确需 project 前台模式：先实现 project 级日志 attach 和中断处理，再开放对应命令/参数。
-5. `push`：扩展 v2 ImageService，再新增 CLI。
-6. `stats` 和 `stats -w/--watch`：最后实现统一 stats API、runtime driver 指标接入和 watch UI。
+2. `run -d/--detach`：先实现 v2 后台 run 提交 API 和 daemon run supervisor，不能复用当前同步 `RunAgent` 或 streaming API 伪装。
+3. `--jupyter`、`--jupyter-expose`：先实现 per-session Jupyter/network options、proxy state 和 driver port mapping，再开放 CLI flag。
+4. `run -i/--interactive`：需要 runtime/session 的双向 stdin/TTY 流式能力，单独设计。
+5. 如确需 project 前台模式：先实现 project 级日志 attach 和中断处理，再开放对应命令/参数。
+6. `push`：扩展 v2 ImageService，再新增 CLI。
+7. `stats` 和 `stats -w/--watch`：最后实现统一 stats API、runtime driver 指标接入和 watch UI。
 
 ## 仍需确认
 
