@@ -938,7 +938,7 @@ agents:
 	server := newRunServiceStubServer(t, runServiceStub{
 		runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
 			sawRequest = true
-			if req.Msg.GetAgentName() != "reviewer" || req.Msg.GetPrompt() != "check this" || req.Msg.GetSessionId() != "session-reuse" {
+			if req.Msg.GetAgentName() != "reviewer" || req.Msg.GetPrompt() != "check this" || req.Msg.GetSessionId() != "session-reuse" || req.Msg.GetTriggerId() != "" {
 				t.Fatalf("RunAgentStream request = %#v", req.Msg)
 			}
 			if req.Msg.GetSource() != agentcomposev2.RunSource_RUN_SOURCE_MANUAL || req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING {
@@ -979,7 +979,7 @@ agents:
 	if exitCode != 0 {
 		t.Fatalf("run success exit code = %d, stderr=%q", exitCode, stderr)
 	}
-	if stdout != "live output\n" || stderr != "" {
+	if stdout != "live output\n" || !strings.Contains(stderr, "agent-compose run <agent> [prompt...] is deprecated") || strings.Contains(stdout, "deprecated") {
 		t.Fatalf("run success stdout/stderr = %q / %q", stdout, stderr)
 	}
 	if runCount != 0 {
@@ -993,8 +993,101 @@ agents:
 	if legacyCode != 0 {
 		t.Fatalf("run --session-id exit code = %d, stderr=%q", legacyCode, legacyErr)
 	}
-	if legacyOut != "live output\n" || !strings.Contains(legacyErr, "agent-compose run --session-id is deprecated") || strings.Contains(legacyOut, "deprecated") {
+	if legacyOut != "live output\n" || !strings.Contains(legacyErr, "agent-compose run --session-id is deprecated") || !strings.Contains(legacyErr, "agent-compose run <agent> [prompt...] is deprecated") || strings.Contains(legacyOut, "deprecated") {
 		t.Fatalf("run --session-id stdout/stderr = %q / %q", legacyOut, legacyErr)
+	}
+}
+
+func TestIntegrationCLIRunTrigger(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-trigger
+agents:
+  reviewer:
+    provider: codex
+`)
+	var sawRequest bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				sawRequest = true
+				if req.Msg.GetAgentName() != "reviewer" || req.Msg.GetTriggerId() != "nightly-review" || req.Msg.GetPrompt() != "" {
+					t.Fatalf("RunAgentStream trigger request = %#v", req.Msg)
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-trigger",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-trigger",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-trigger",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-trigger", "reviewer", "sandbox-trigger", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "nightly-review")
+	if exitCode != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("run --trigger code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	if !sawRequest {
+		t.Fatal("RunAgentStream was not called")
+	}
+}
+
+func TestCLIRunInputModeUsageErrors(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-input-errors
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				t.Fatalf("RunAgentStream should not be called for invalid input mode")
+				return nil
+			},
+		},
+	})
+	defer server.Close()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "trigger and prompt flags",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "nightly", "--prompt", "check"},
+			want: "only one of --trigger or --prompt",
+		},
+		{
+			name: "trigger and positional prompt",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "nightly", "legacy"},
+			want: "does not accept legacy positional prompt",
+		},
+		{
+			name: "prompt flag and positional prompt",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--prompt", "check", "legacy"},
+			want: "does not accept legacy positional prompt",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, _, exitCode := executeCLICommand(tc.args...)
+			if exitCode != exitCodeUsage {
+				t.Fatalf("exit code = %d, want %d; stderr=%q", exitCode, exitCodeUsage, stderr)
+			}
+			if stdout != "" || !strings.Contains(stderr, tc.want) {
+				t.Fatalf("stdout/stderr = %q / %q, want stderr containing %q", stdout, stderr, tc.want)
+			}
+		})
 	}
 }
 

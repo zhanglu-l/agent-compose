@@ -511,6 +511,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 	runCmd.Flags().StringVar(&runOptions.Prompt, "prompt", "", "Prompt to send to the agent")
+	runCmd.Flags().StringVar(&runOptions.Trigger, "trigger", "", "Trigger to run for the agent")
 	runCmd.Flags().StringVar(&runOptions.SandboxID, "sandbox", "", "Reuse an existing sandbox")
 	// Deprecated: use --sandbox instead.
 	runCmd.Flags().StringVar(&runOptions.SessionID, "session-id", "", "Reuse an existing session")
@@ -720,6 +721,7 @@ type composeListProjectsOptions struct {
 
 type composeRunOptions struct {
 	Prompt      string
+	Trigger     string
 	SessionID   string
 	SandboxID   string
 	KeepRunning bool
@@ -1040,7 +1042,21 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	}
 	agentName := strings.TrimSpace(args[0])
 	prompt := strings.TrimSpace(normalizedOptions.Prompt)
+	triggerID := strings.TrimSpace(normalizedOptions.Trigger)
+	if triggerID != "" && prompt != "" {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run requires only one of --trigger or --prompt")}
+	}
+	if triggerID != "" && len(args) > 1 {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run with --trigger does not accept legacy positional prompt arguments")}
+	}
+	if prompt != "" && len(args) > 1 {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run with --prompt does not accept legacy positional prompt arguments")}
+	}
 	if prompt == "" && len(args) > 1 {
+		// Deprecated: positional prompt arguments will become the trigger position in a future release.
+		if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose run <agent> [prompt...]", "agent-compose run <agent> --prompt"); err != nil {
+			return err
+		}
 		prompt = strings.Join(args[1:], " ")
 	}
 	clientConfig, err := resolveCLIClientConfig(cli.Host)
@@ -1058,8 +1074,9 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		Prompt:          prompt,
 		Source:          agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
 		SessionId:       strings.TrimSpace(normalizedOptions.SessionID),
+		TriggerId:       triggerID,
 		CleanupPolicy:   cleanupPolicy,
-		ClientRequestId: manualRunClientRequestID(normalized.Name, agentName, prompt),
+		ClientRequestId: manualRunClientRequestID(normalized.Name, agentName, firstNonEmptyString(prompt, triggerID)),
 	}))
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", normalized.Name, agentName, err))
