@@ -1072,7 +1072,7 @@ agents:
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--agent", "reviewer", "--session-id", "session-logs", "--json")
+	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "reviewer", "--sandbox", "session-logs", "--json")
 	if exitCode != 0 {
 		t.Fatalf("logs exit code = %d, stderr=%q", exitCode, stderr)
 	}
@@ -1090,9 +1090,37 @@ agents:
 		t.Fatal("ListRuns was not called")
 	}
 
+	legacyOut, legacyErr, _, legacyCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--agent", "reviewer", "--session-id", "session-logs", "--json")
+	if legacyCode != 0 {
+		t.Fatalf("logs --session-id exit code = %d, stderr=%q", legacyCode, legacyErr)
+	}
+	if !strings.Contains(legacyErr, "agent-compose logs --session-id is deprecated") || !strings.Contains(legacyErr, "agent-compose logs --sandbox") {
+		t.Fatalf("logs --session-id stderr = %q, want deprecated warning", legacyErr)
+	}
+	var legacyDecoded composeLogsOutput
+	if err := json.Unmarshal([]byte(legacyOut), &legacyDecoded); err != nil {
+		t.Fatalf("logs --session-id JSON decode failed: %v\n%s", err, legacyOut)
+	}
+	if len(legacyDecoded.Runs) != 1 || legacyDecoded.Runs[0].RunID != "run-logs" {
+		t.Fatalf("logs --session-id JSON = %#v", legacyDecoded)
+	}
+
 	runOut, runErr, _, runCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--run-id", "run-logs")
 	if runCode != 0 || runErr != "" || runOut != "stored log output\n" {
 		t.Fatalf("logs --run-id code/stdout/stderr = %d / %q / %q", runCode, runOut, runErr)
+	}
+}
+
+func TestLogsAgentFlagAndPositionalIsUsageError(t *testing.T) {
+	stdout, stderr, _, exitCode := executeCLICommand("logs", "reviewer", "--agent", "writer")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("logs positional and --agent exit code = %d, want %d", exitCode, exitCodeUsage)
+	}
+	if stdout != "" {
+		t.Fatalf("logs positional and --agent stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "positionally or with --agent") {
+		t.Fatalf("logs positional and --agent stderr = %q", stderr)
 	}
 }
 

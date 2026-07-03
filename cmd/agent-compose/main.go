@@ -516,15 +516,17 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 
 	logsOptions := composeLogsOptions{}
 	logsCmd := &cobra.Command{
-		Use:   "logs",
+		Use:   "logs [agent]",
 		Short: "Print project run logs",
-		Args:  cobra.NoArgs,
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeLogsCommand(cmd, options, logsOptions)
+			return runComposeLogsCommand(cmd, options, logsOptions, args)
 		},
 	}
 	logsCmd.Flags().StringVar(&logsOptions.AgentName, "agent", "", "Filter logs by agent name")
 	logsCmd.Flags().StringVar(&logsOptions.RunID, "run-id", "", "Filter logs by run id")
+	logsCmd.Flags().StringVar(&logsOptions.SandboxID, "sandbox", "", "Filter logs by sandbox id")
+	// Deprecated: use --sandbox instead.
 	logsCmd.Flags().StringVar(&logsOptions.SessionID, "session-id", "", "Filter logs by session id")
 	logsCmd.Flags().BoolVar(&logsOptions.Follow, "follow", false, "Follow running run output")
 
@@ -687,6 +689,7 @@ type composeLogsOptions struct {
 	AgentName string
 	RunID     string
 	SessionID string
+	SandboxID string
 	Follow    bool
 }
 
@@ -945,9 +948,13 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	return nil
 }
 
-func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLogsOptions) error {
+func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLogsOptions, args []string) error {
 	if cli.JSON && options.Follow {
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("logs --json cannot be combined with --follow")}
+	}
+	normalizedOptions, err := normalizeComposeLogsOptions(cmd, options, args)
+	if err != nil {
+		return err
 	}
 	_, normalized, projectID, err := resolveComposeProject(cli)
 	if err != nil {
@@ -965,7 +972,28 @@ func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLo
 		}
 		return writeLogsForRun(cmd.OutOrStdout(), run.Msg.GetRun(), cli.JSON)
 	}
-	return followOrPrintProjectLogs(cmd, cli, client, projectID, normalized.Name, options)
+	return followOrPrintProjectLogs(cmd, cli, client, projectID, normalized.Name, normalizedOptions)
+}
+
+func normalizeComposeLogsOptions(cmd *cobra.Command, options composeLogsOptions, args []string) (composeLogsOptions, error) {
+	if len(args) > 0 {
+		if cmd.Flags().Changed("agent") {
+			return options, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("logs agent can be specified either positionally or with --agent, not both")}
+		}
+		options.AgentName = args[0]
+	}
+	if cmd.Flags().Changed("session-id") {
+		if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose logs --session-id", "agent-compose logs --sandbox"); err != nil {
+			return options, err
+		}
+		if strings.TrimSpace(options.SandboxID) == "" {
+			options.SandboxID = options.SessionID
+		}
+	}
+	if strings.TrimSpace(options.SandboxID) != "" {
+		options.SessionID = options.SandboxID
+	}
+	return options, nil
 }
 
 func runComposePSCommand(cmd *cobra.Command, cli cliOptions) error {
