@@ -167,6 +167,29 @@ func testCLIClientConfigPriority(t *testing.T) {
 	}
 }
 
+func TestCLIClientConfigRemoteAuthFromEnvironment(t *testing.T) {
+	t.Setenv("AUTH_USERNAME", "reviewer")
+	t.Setenv("AUTH_PASSWORD", "secret")
+	clientConfig, err := resolveCLIClientConfig("https://flag.example")
+	if err != nil {
+		t.Fatalf("resolveCLIClientConfig returned error: %v", err)
+	}
+	if clientConfig.AuthUsername != "reviewer" || clientConfig.AuthPassword != "secret" {
+		t.Fatalf("remote auth config = %#v", clientConfig)
+	}
+
+	t.Setenv("AGENT_COMPOSE_HOST", "")
+	socketPath := filepath.Join(t.TempDir(), "agent-compose.sock")
+	t.Setenv("AGENT_COMPOSE_SOCKET", socketPath)
+	clientConfig, err = resolveCLIClientConfig("")
+	if err != nil {
+		t.Fatalf("resolveCLIClientConfig returned error: %v", err)
+	}
+	if clientConfig.AuthUsername != "" || clientConfig.AuthPassword != "" {
+		t.Fatalf("unix socket auth config = %#v, want empty auth", clientConfig)
+	}
+}
+
 func TestCLIClientConfigRejectsInvalidHost(t *testing.T) {
 	testCLIClientConfigRejectsInvalidHost(t)
 }
@@ -219,6 +242,30 @@ func testStatusCommandUsesHostFlagBeforeEnvironment(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("status stderr = %q, want empty", stderr)
+	}
+	if runCount != 0 {
+		t.Fatalf("daemon runner called %d times, want 0", runCount)
+	}
+}
+
+func TestStatusCommandUsesRemoteAuthFromEnvironment(t *testing.T) {
+	t.Setenv("AUTH_USERNAME", "reviewer")
+	t.Setenv("AUTH_PASSWORD", "secret")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "reviewer" || password != "secret" {
+			t.Fatalf("BasicAuth = %q/%q/%v", username, password, ok)
+		}
+		_, _ = w.Write([]byte(`{"version":"test"}`))
+	}))
+	defer server.Close()
+
+	stdout, stderr, runCount, exitCode := executeCLICommand("status", "--host", server.URL)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("status auth code/stderr = %d / %q", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, `"version":"test"`) {
+		t.Fatalf("status auth stdout = %q", stdout)
 	}
 	if runCount != 0 {
 		t.Fatalf("daemon runner called %d times, want 0", runCount)
@@ -2537,6 +2584,55 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 	}
 	if requests != 6 {
 		t.Fatalf("ListProjects requests = %d, want 6", requests)
+	}
+}
+
+func TestIntegrationCLIListProjectsPaginationFlags(t *testing.T) {
+	requests := 0
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			listProjects: func(ctx context.Context, req *connect.Request[agentcomposev2.ListProjectsRequest]) (*connect.Response[agentcomposev2.ListProjectsResponse], error) {
+				requests++
+				if req.Msg.GetOffset() != 20 || req.Msg.GetLimit() != 10 {
+					t.Fatalf("ListProjects pagination request = offset %d limit %d", req.Msg.GetOffset(), req.Msg.GetLimit())
+				}
+				return connect.NewResponse(&agentcomposev2.ListProjectsResponse{
+					Projects: []*agentcomposev2.ProjectSummary{{
+						ProjectId:       "proj_page",
+						Name:            "page",
+						SourcePath:      "/path/to/page/agent-compose.yml",
+						CurrentRevision: 7,
+					}},
+					TotalCount: 31,
+					HasMore:    true,
+					NextOffset: 30,
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("ls", "--host", server.URL, "--limit", "10", "--offset", "20", "--json")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("ls pagination code/stderr = %d / %q", exitCode, stderr)
+	}
+	var decoded composeProjectListOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("ls pagination JSON decode failed: %v\n%s", err, stdout)
+	}
+	if requests != 1 || decoded.TotalCount != 31 || !decoded.HasMore || decoded.NextOffset != 30 || len(decoded.Projects) != 1 {
+		t.Fatalf("ls pagination requests/output = %d / %#v", requests, decoded)
+	}
+}
+
+func TestCLIImageRootCommandWarnsDeprecated(t *testing.T) {
+	stdout, stderr, _, exitCode := executeCLICommand("image")
+	if exitCode != 0 {
+		t.Fatalf("image root exit code = %d, stderr=%q", exitCode, stderr)
+	}
+	assertDeprecatedWarning(t, stderr, "agent-compose images")
+	if !strings.Contains(stdout, "Deprecated") {
+		t.Fatalf("image root help output = %q", stdout)
 	}
 }
 

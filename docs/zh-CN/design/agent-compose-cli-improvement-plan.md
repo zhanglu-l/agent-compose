@@ -13,6 +13,11 @@
 - `--project-name`
 - `--json`
 
+远程 daemon 认证：
+
+- 使用 `--host` 或 `AGENT_COMPOSE_HOST` 连接 HTTP(S) daemon 时，CLI 从 `AUTH_USERNAME` 和 `AUTH_PASSWORD` 读取 Basic Auth 凭据并注入请求。
+- 使用 Unix socket 本地连接时不注入 Basic Auth。
+
 当前 project 解析逻辑：
 
 - `resolveComposePath` 在未指定 `-f` 时读取当前目录下的 `agent-compose.yml` 或 `agent-compose.yaml`。
@@ -28,7 +33,7 @@
 | `version` | `agent-compose version` | 输出 build version。 |
 | `status` | `agent-compose status` | 请求 daemon version/status。 |
 | `config` | `agent-compose config [--quiet]` | 解析并输出 normalized config。 |
-| `up` | `agent-compose up` | 调用 v2 `ProjectService.ApplyProject`；无 `-d/--detach`，无前台 attach。 |
+| `up` | `agent-compose up` | 调用 v2 `ProjectService.ApplyProject`；当前行为是 apply 后返回，由 daemon 管理 project；无 `-d/--detach`，无前台 attach。 |
 | `down` | `agent-compose down` | 调用 v2 `ProjectService.RemoveProject`。 |
 | `run` | `agent-compose run <agent> [prompt...]` | 调用 v2 `RunService.RunAgentStream`；支持 `--prompt`、`--trigger`、`--sandbox`、`--session-id` deprecated alias、`--keep-running`、`--rm`；旧 positional prompt 保留并输出 deprecated warning。 |
 | `logs` | `agent-compose logs [agent]` | 支持 `--agent`、`--run-id`、`--sandbox`、`--session-id` deprecated alias、`--follow`。 |
@@ -66,10 +71,21 @@
 - Run 增强：新增 `--sandbox`、`--trigger`、`--rm`；旧 `--session-id` 和 positional prompt 保留并输出 deprecated warning。
 - 镜像命令：旧 `image` 命令树已 deprecated；`pull [image]` 支持无参数时拉取当前 project 下所有 agent image。
 
+## Project Service 概念调查
+
+当前代码中没有发现 project spec 层面的 `services` 定义，也没有发现 project service 生命周期、store 记录、v2 `ProjectSummary` 字段或 CLI/API 的真实使用路径。现有 `agent-compose.yml` 的主体仍是 `agents`、`workspace`、`variables`、`network` 等配置。
+
+因此，`ls` 中的 `SERVICES` 列应视为早期 CLI 设计中借鉴 compose 语义留下的占位概念，而不是当前可用的功能。当前实现只在文本表格中显示 `-`，JSON 输出不提供虚假的 service count。后续如果确实需要 service 概念，应先补齐以下设计，再扩展 CLI：
+
+- project spec 中 service 的定义、字段和生命周期。
+- daemon store/API 中 service 的持久化和 `ProjectSummary` 计数字段。
+- `up/down/ls/inspect/logs/stats` 如何展示和管理 service。
+- service 与 agent/sandbox/runtime driver 的边界关系。
+
 仍未完成且不建议在小补丁中强行落地：
 
 - `run --command`、`run -d/--detach`、`run -i/--interactive`、`--jupyter`、`--jupyter-expose`：需要明确 v2 Run API、后台运行、交互和 runtime/session 创建参数。
-- `up -d` 与默认前台 attach/Ctrl+C down：需要 project 级日志 attach 和中断处理，不应只增加一个无真实语义的 flag。
+- 默认前台 attach/Ctrl+C down：需要 project 级日志 attach 和中断处理；当前 `up` 已是 apply 后返回语义，不再新增 `-d/--detach`。
 - `logs -n/--tail`、`logs -t/--timestamp`：需要先明确日志来源、服务端过滤还是 CLI 截断，以及 follow 模式的时间戳语义。
 - `push`：需要扩展 v2 ImageService。
 - `stats` / `stats -w`：需要统一 sandbox stats API 和 runtime driver 指标接入，放在最后阶段。
@@ -145,7 +161,7 @@ rmi
 4. sandbox 删除 API -> `rm --force` -> `run --rm`。
 5. `ps` sandbox 化 -> `stop/resume/rm` 批量操作体验。
 6. `run` 新输入模式 API 支持 -> `run --trigger/--command/--detach` -> positional prompt deprecated warning。
-7. `up -d` 语义固化 -> `up` 前台 attach -> `Ctrl+C` project shutdown。
+7. 保持当前 `up` apply 后返回语义 -> 如未来需要前台 attach，单独设计 attach/Ctrl+C project shutdown。
 8. `inspect image` 发布 -> 旧 `image` 命令树 deprecated warning。
 9. sandbox 输出模型稳定 -> stats API -> `stats` CLI。
 
@@ -157,7 +173,7 @@ rmi
 | --- | --- | --- |
 | `logs --tail`、`--timestamp` | 日志来源和截断/时间戳语义明确 | `logs [agent]` 和 `--sandbox` 已完成；tail/timestamp 暂缓。 |
 | image `push` | ImageService 扩展方案确定 | 与 project/sandbox 命令正交。 |
-| `up -d`/attach | project 级 attach 和中断语义明确 | 不建议只加 flag，需要真实语义。 |
+| `up` attach | project 级 attach 和中断语义明确 | 当前 `up` 已是 apply 后返回语义；不新增 `-d/--detach`。 |
 
 ### 命令级开发矩阵
 
@@ -165,7 +181,7 @@ rmi
 | --- | --- | --- | --- | --- | --- |
 | `config` | 已实现，已支持 `.yml/.yaml` | 保持现状 | 无 | 无 | 已完成 |
 | `ls` | 已实现 | 后续如需展示 services，需要扩展 API/store | services 字段来源未定义 | project list API | 主体已完成 |
-| `up` | 已实现 apply | 新增 `-d`，默认前台 attach，Ctrl+C down | 可能复用 `WatchProject`/logs；无需先改 proto | project logs/stop 语义 | `-d` 可先做，attach 顺序推进 |
+| `up` | 已实现 apply 后返回 | 保持现状；未来如需前台模式需新增 attach 语义 | 可能复用 `WatchProject`/logs；无需先改 proto | project logs/stop 语义 | attach 需单独设计 |
 | `down` | 已实现 | 文案和输出对齐 sandbox | 无 | sandbox 输出术语 | 可随输出模型调整 |
 | `run` | 已支持 prompt stream、`--sandbox`、`--trigger`、`--rm` | `--command`、`-d/--detach`、`-i/--interactive`、jupyter 参数 | 需要扩展 Run API 或定义后台/交互/runtime 映射 | run API | 剩余需拆设计 |
 | `ps` | 已实现 sandbox 视图 | 后续按需要补更多 verbose 字段 | 可能需要补查询 | sandbox 输出模型 | 主体已完成 |
@@ -190,7 +206,7 @@ rmi
 3. **sandbox 可观测性**：`ps` sandbox 视图、`logs --tail/--timestamp`、JSON 输出模型稳定。
 4. **sandbox 生命周期**：`stop`、`resume`、删除 API、`rm --force`。
 5. **执行和运行语义**：`exec <sandbox>`、`run --sandbox`、`run --trigger/--command`、`run -d`、`run --rm`。
-6. **project 前台运行**：`up -d`、`up` attach、Ctrl+C shutdown。
+6. **project 前台运行**：如确有需要，单独设计 `up` attach 或新命令的 Ctrl+C shutdown 语义。
 7. **镜像扩展和旧入口兼容**：`push`、旧 `image` 命令树 deprecated warning。
 8. **资源统计**：最后实现 `stats` 和 `stats -w/--watch`。
 
@@ -224,6 +240,7 @@ rmi
 
 - 新增 `agent-compose ls`，列出 daemon 上所有 project。
 - 支持 `--verbose`。
+- 支持 `--limit` 和 `--offset` 分页。
 - 支持 `--json`。
 
 代码依据：
@@ -235,17 +252,19 @@ rmi
 实现要点：
 
 - 在 `newRootCommand` 注册 `ls`。
-- CLI 端处理分页，至少拉取到 `has_more=false`。
+- 未指定 `--limit/--offset` 时，CLI 端自动翻页，至少拉取到 `has_more=false`。
+- 指定 `--limit` 或 `--offset` 时，只请求对应页，并保留 `total_count`、`has_more`、`next_offset` 方便自动化继续翻页。
 - 默认列建议使用 `PROJECT`、`CONFIG FILE`、`REVISION`、`AGENTS`、`SCHEDULERS`、`SERVICES`。
 - `CONFIG FILE` 可先使用 `ProjectSummary.source_path`。如果需要严格区分 compose path 和 project dir，需要检查 `ProjectRecord.Source` 的存储和 `ProjectServiceSourcePath`。
 - 修复 `ProjectService.ListProjects` 中 agent/scheduler 数量为 0 的问题，或在 CLI 中避免展示不准确字段。
-- 当前 API 没有 `services` 字段；若必须展示，需要先扩展 proto/store 或在本期将 services 显示为 `-` 并在 JSON 中清晰表达不可用。
+- 当前 project spec 和 v2 ProjectSummary 均没有真实 service 模型或 `services` 字段；该概念应视为早期 CLI 设想，当前 `ls` 文本列显示 `-`，JSON 中不输出虚假的 service count。
 
 测试点：
 
 - 空 project 列表。
 - 多 project 按更新时间排序。
 - `--json` 输出包含分页后的完整列表。
+- `--limit/--offset --json` 只返回一页，并保留 `has_more` 和 `next_offset`。
 - `--verbose` 包含 project id、source path、spec hash、created/updated/removed。
 
 ### 3. `inspect` 迁移
@@ -432,29 +451,27 @@ rmi
 - stopped sandbox 可直接删除。
 - 批量删除部分失败时退出码非零，JSON 包含逐项结果。
 
-### 9. `up` 前台/后台语义
+### 9. `up` 语义
 
 目标：
 
-- `up` 默认前台 attach project 输出。
-- `up -d/--detach` apply 后返回。
-- 前台 `Ctrl+C` 停止整个 project。
+- 保持当前 `up` apply 后返回语义。
+- 如未来需要前台模式，应单独设计 project attach 输出和 `Ctrl+C` 停止整个 project 的行为。
 
 当前差异：
 
-- 当前 `up` 只是 `ApplyProject` 后输出 apply 结果，行为更接近目标 `up -d`。
+- 当前 `up` 只是 `ApplyProject` 后输出 apply 结果，这已经是本轮保留的真实语义。
 
 实现要点：
 
-- 第一阶段新增 `--detach`，并让当前行为成为 detach 语义。
-- 第二阶段实现 project 级日志 attach。
-- 第三阶段处理 signal，调用 project down/stop 逻辑。
+- 本轮不新增 `-d/--detach`，避免出现没有实际差异的参数。
+- 如果后续实现前台 attach，应先实现 project 级日志 attach。
+- 前台 attach 模式需要处理 signal，并调用 project down/stop 逻辑。
 
 测试点：
 
-- `up -d` 返回 project/revision/change summary。
-- `up` attach 输出。
-- 中断前台 `up` 后 project 被停止。
+- `up` 返回 project/revision/change summary。
+- 如新增前台 attach，再测试 attach 输出和中断后 project 停止。
 
 ### 10. 镜像命令整理
 
@@ -526,7 +543,7 @@ rmi
 2. `run --command`：先设计 v2 Run API 或 command 到现有 run 模型的可靠映射，再实现 CLI。
 3. `run -d/--detach`：需要后台 run 语义，不能复用当前同步 `RunAgent` 或 streaming API 伪装。
 4. `run -i/--interactive`、`--jupyter`、`--jupyter-expose`：需要 runtime/session 创建参数支持，建议与 run API 扩展一起设计。
-5. `up -d` 与默认前台 attach/Ctrl+C down：先实现 project 级日志 attach 和中断处理，再开放 flag。
+5. 如确需 project 前台模式：先实现 project 级日志 attach 和中断处理，再开放对应命令/参数。
 6. `push`：扩展 v2 ImageService，再新增 CLI。
 7. `stats` 和 `stats -w/--watch`：最后实现统一 stats API、runtime driver 指标接入和 watch UI。
 
