@@ -54,6 +54,9 @@ agents:
     workspace:
       provider: local
       path: ./repo
+    jupyter:
+      enabled: true
+      guest_port: 8888
     scheduler:
       enabled: true
       triggers:
@@ -80,6 +83,9 @@ network:
 	}
 	if got := agent.Env["REVIEW_MODE"].Value; got != "strict" {
 		t.Fatalf("REVIEW_MODE = %q, want strict", got)
+	}
+	if agent.Jupyter == nil || !agent.Jupyter.Enabled || agent.Jupyter.GuestPort != 8888 {
+		t.Fatalf("jupyter = %#v, want enabled guest port 8888", agent.Jupyter)
 	}
 	if agent.Scheduler == nil || agent.Scheduler.Enabled == nil || !*agent.Scheduler.Enabled {
 		t.Fatalf("scheduler enabled = %#v", agent.Scheduler)
@@ -182,6 +188,39 @@ agents:
 	}
 	if got := err.Error(); !strings.Contains(got, "agents.reviewer.scheduler.script") {
 		t.Fatalf("error = %q, want field path", got)
+	}
+}
+
+func TestParseRejectsUnsupportedJupyterExposeFields(t *testing.T) {
+	_, err := Parse([]byte(`
+name: invalid-jupyter
+agents:
+  reviewer:
+    jupyter:
+      enabled: true
+      host_port: 18088
+`))
+	if err == nil {
+		t.Fatalf("expected Parse to fail")
+	}
+	if got := err.Error(); !strings.Contains(got, "agents.reviewer.jupyter.host_port") || !strings.Contains(got, "unknown field") {
+		t.Fatalf("error = %q, want unsupported jupyter field path", got)
+	}
+}
+
+func TestParseRejectsInvalidJupyterGuestPortType(t *testing.T) {
+	_, err := Parse([]byte(`
+name: invalid-jupyter
+agents:
+  reviewer:
+    jupyter:
+      guest_port: soon
+`))
+	if err == nil {
+		t.Fatalf("expected Parse to fail")
+	}
+	if got := err.Error(); !strings.Contains(got, "agents.reviewer.jupyter.guest_port") || !strings.Contains(got, "expected int") {
+		t.Fatalf("error = %q, want jupyter guest_port type path", got)
 	}
 }
 

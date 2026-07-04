@@ -387,7 +387,7 @@
 
 ## 阶段 6：Jupyter CLI/YAML 和 proxy expose
 
-- [ ] 6.1 增加 agent YAML Jupyter schema、解析和 validation
+- [x] 6.1 增加 agent YAML Jupyter schema、解析和 validation
 
   依赖：0.1。
 
@@ -415,10 +415,24 @@
   - YAML 不允许隐式 host expose。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - v2 `AgentSpec` 追加 `JupyterSpec jupyter = 11`，新增 `JupyterSpec.enabled` 和 `JupyterSpec.guest_port`，并重新生成 Go proto 产物与 `proto-client` TS 产物。
+    - compose YAML 支持 `agents.<name>.jupyter.enabled` 和 `guest_port`；`guest_port == 0` 保留为 daemon 默认含义，非 0 端口必须在 `1..65535` TCP 端口范围内。
+    - `jupyter` nested schema 只允许 `enabled`、`guest_port`；`host_port` 等 host bind/expose 类字段由 strict YAML validator 以 unknown field 拒绝。
+    - normalized/canonical project spec、redacted output、spec hash、API proto mapping 和 proto-origin YAML shape 均保留非默认 Jupyter 配置。
+    - `project_agent.spec_json` 通过 normalized agent JSON 保留 Jupyter 配置；project-managed `agent_definition.config_json` 通过现有 JSON object 写入 `jupyter` 配置，不新增 DB 列。
+    - 补充 compose parser/normalizer/canonical output/hash、API mapping、project record 和 project controller dry-run 覆盖。
+  - 验证：
+    - `protoc -I . --go_out=. --go_opt=module=agent-compose --connect-go_out=. --connect-go_opt=module=agent-compose proto/agentcompose/v2/agentcompose.proto`：通过。
+    - `cd proto-client && npm ci && npm run gen && npm run build`：通过。
+    - `go test ./pkg/compose ./pkg/agentcompose/api ./pkg/projects`：通过。
+    - `go test ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/compose ./pkg/projects ./pkg/storage/configstore ./pkg/config`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - 本阶段只实现 schema、解析、validation、canonical/API mapping 和 spec JSON preservation；未接入 runtime/session/proxy resolved config，未新增 CLI `--jupyter`、`--jupyter-expose` 或 host port mapping。
+    - 默认/空 `jupyter: {}` 归一化为未设置，保持默认 disabled 且避免既有 spec hash churn；显式启用或设置非 0 `guest_port` 才进入 canonical spec。
+    - YAML 和 proto API 均不提供 host bind、host port 或 expose 字段；后续 6.2 的访问路径仍必须走 agent-compose proxy。
   - 下一目标：6.2。
 
 - [ ] 6.2 将 Jupyter resolved config 接入 run/session/proxy 和 CLI expose intent

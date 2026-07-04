@@ -291,6 +291,7 @@ message AgentSpec {
   WorkspaceSpec workspace = 8;
   SchedulerSpec scheduler = 9;
   repeated string capset_ids = 10;
+  JupyterSpec jupyter = 11;
 }
 
 message EnvVarSpec {
@@ -674,4 +675,9 @@ message ImagePullProgress {
   string progress = 3;
   uint64 current_bytes = 4;
   uint64 total_bytes = 5;
+}
+
+message JupyterSpec {
+  bool enabled = 1;
+  uint32 guest_port = 2;
 }

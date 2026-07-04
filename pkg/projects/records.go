@@ -91,6 +91,10 @@ func NewAgentDefinitionFromSpec(project domain.ProjectRecord, revision int64, ag
 	if err != nil {
 		return domain.AgentDefinition{}, err
 	}
+	configJSON, err := agentDefinitionConfigJSON(agent)
+	if err != nil {
+		return domain.AgentDefinition{}, fmt.Errorf("marshal managed agent %s config: %w", agent.Name, err)
+	}
 	driver := ""
 	if agent.Driver != nil {
 		driver = agent.Driver.Name
@@ -105,12 +109,27 @@ func NewAgentDefinitionFromSpec(project domain.ProjectRecord, revision int64, ag
 		Driver:                 driver,
 		GuestImage:             agent.Image,
 		EnvItems:               SessionEnvItemsFromCompose(agent.Env),
-		ConfigJSON:             "{}",
+		ConfigJSON:             configJSON,
 		CapsetIDs:              capabilities.NormalizeCapsetIDs(agent.CapsetIDs),
 		ManagedProjectID:       project.ID,
 		ManagedProjectRevision: revision,
 		ManagedAgentName:       agent.Name,
 	}, nil
+}
+
+func agentDefinitionConfigJSON(agent compose.NormalizedAgentSpec) (string, error) {
+	if agent.Jupyter == nil {
+		return "{}", nil
+	}
+	data, err := MarshalCanonicalJSON(struct {
+		Jupyter *compose.JupyterSpec `json:"jupyter,omitempty"`
+	}{
+		Jupyter: agent.Jupyter,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func NewManagedLoaderFromScheduler(project domain.ProjectRecord, scheduler domain.ProjectSchedulerRecord, agent compose.NormalizedAgentSpec) (domain.Loader, error) {
