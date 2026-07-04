@@ -157,13 +157,12 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 	}
 
 	streamWriter := func(chunk domain.ExecChunk) {
+		if !chunk.IsStderr {
+			return
+		}
 		cellMu.Lock()
 		streamed.WriteChunk(chunk)
-		if chunk.IsStderr {
-			cell.Stderr += chunk.Text
-		} else {
-			cell.Stdout += chunk.Text
-		}
+		cell.Stderr += chunk.Text
 		cell.Output += chunk.Text
 		snapshot := cell
 		cellMu.Unlock()

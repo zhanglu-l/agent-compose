@@ -24,7 +24,9 @@ func (s fakeAgentDefinitionStore) GetAgentDefinition(context.Context, string) (d
 }
 
 type fakeAgentRuntime struct {
-	specs []domain.ExecSpec
+	specs        []domain.ExecSpec
+	streamChunks []domain.ExecChunk
+	result       domain.ExecResult
 }
 
 func (r *fakeAgentRuntime) EnsureSession(context.Context, *domain.Session, domain.VMState, domain.ProxyState) (domain.SessionVMInfo, error) {
@@ -39,8 +41,16 @@ func (r *fakeAgentRuntime) Exec(context.Context, *domain.Session, domain.VMState
 	return domain.ExecResult{}, nil
 }
 
-func (r *fakeAgentRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, _ domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r *fakeAgentRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
 	r.specs = append(r.specs, spec)
+	for _, chunk := range r.streamChunks {
+		if stream != nil {
+			stream(chunk)
+		}
+	}
+	if r.result.Stdout != "" || r.result.Stderr != "" || r.result.Output != "" || r.result.ExitCode != 0 || r.result.Success {
+		return r.result, nil
+	}
 	payload := execution.AgentResultPrefix + `{"provider":"codex","sessionId":"agent-session-1","finalText":"done","transcript":"trace","stopReason":"completed"}`
 	return domain.ExecResult{Stdout: payload, Output: payload, ExitCode: 0, Success: true}, nil
 }
