@@ -163,6 +163,7 @@ async function runProcess(
 
   const command = request.mode === "shell" ? "bash" : request.command ?? "";
   const args = request.mode === "shell" ? ["-lc", request.script ?? ""] : request.args ?? [];
+  process.stdout.write(`$ ${formatCommandForTranscript(command, args)}\n`);
   const child = spawn(command, args, {
     cwd: request.cwd,
     env: {
@@ -205,6 +206,9 @@ async function runProcess(
     if (timedOut) {
       throw new Error(`command timed out after ${request.timeoutMs}ms`);
     }
+    if (exitCode !== 0) {
+      process.stderr.write(`command exited with code ${exitCode}\n`);
+    }
     return {
       stdout: finalizeCapture(stdoutCapture),
       stderr: finalizeCapture(stderrCapture),
@@ -228,6 +232,20 @@ function waitForProcess(child: ReturnType<typeof spawn>): Promise<number> {
     child.once("error", reject);
     child.once("close", (code) => resolve(code ?? 1));
   });
+}
+
+function formatCommandForTranscript(command: string, args: string[]): string {
+  return [command, ...args].map(shellQuote).join(" ");
+}
+
+function shellQuote(value: string): string {
+  if (value === "") {
+    return "''";
+  }
+  if (!/[\s'"\\$`!*?[\]{}();&|<>#]/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function createStreamCapture(limit: number) {

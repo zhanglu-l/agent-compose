@@ -593,7 +593,7 @@
 
 ## 阶段 8：command transcript 基础与 `exec <sandbox>`
 
-- [ ] 8.1 定义统一 `TranscriptEvent` 并实现 JS runtime command transcript/artifacts
+- [x] 8.1 定义统一 `TranscriptEvent` 并实现 JS runtime command transcript/artifacts
 
   依赖：0.1、4.1。
 
@@ -621,10 +621,23 @@
   - 不新增 `ExecInteractive`、WebSocket、TTY、PTY、resize 或运行中 stdin。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - v2 新增 `TranscriptEvent{kind,text,is_stderr,name,payload_json,created_at}`，并为 `RunAgentStreamResponse` 与 `ExecStreamResponse` 增加 `transcript` 字段；Go proto/Connect Go 与 `proto-client` TS 已重新生成。
+    - run stream 和 exec stream 的 output event 现在填充统一 `TranscriptEvent`；CLI `run` 与 `exec` 优先读取 `transcript`，并保留 legacy `chunk/is_stderr` fallback。
+    - JS runtime command 在启动前向 runtime stdout 输出 `$ <command>` transcript，非零退出时向 runtime stderr 输出简短 exit 摘要。
+    - JS runtime command 的 child stdout/stderr 仍原样写入 `stdout.txt`、`stderr.txt`、`output.txt` 和进程 stdout/stderr；`command-result.json` 继续保存结构化结果。
+    - 补充 CLI transcript-only stream 测试，以及 JS runtime transcript header、非零 exit 摘要和 raw artifact 不污染测试。
+  - 验证：
+    - `protoc -I . --go_out=. --go_opt=module=agent-compose --connect-go_out=. --connect-go_opt=module=agent-compose proto/agentcompose/v2/agentcompose.proto`：通过。
+    - `cd proto-client && npm ci && npm run gen && npm run build`：通过。
+    - `cd runtime/javascript && TEST_SHAPE=unit npm run test:unit`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - 为降低仓库内同步切换风险，本阶段没有移除 legacy `chunk/is_stderr` 字段；所有新服务端 output event 已填充 `transcript`，CLI 已切换为优先使用统一 transcript。
+    - 本阶段没有把 `run --command` 或 `ExecStream` 切到 guest `agent-compose-runtime exec`；该执行路径切换按 8.2 完成。
+    - 没有新增 `ExecInteractive`、WebSocket、TTY、PTY、resize 或运行中 stdin。
   - 下一目标：8.2。
 
 - [ ] 8.2 让 `run --command` 和 `ExecStream` 通过 guest `agent-compose-runtime exec` 执行

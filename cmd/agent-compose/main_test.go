@@ -1109,9 +1109,9 @@ agents:
 				return err
 			}
 			if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
-				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
-				RunId:     "run-success",
-				Chunk:     "live output\n",
+				EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+				RunId:      "run-success",
+				Transcript: &agentcomposev2.TranscriptEvent{Kind: "stdout", Text: "live output\n"},
 			}); err != nil {
 				return err
 			}
@@ -2443,21 +2443,20 @@ agents:
 					}
 				}
 				if err := stream.Send(&agentcomposev2.ExecStreamResponse{
-					EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-					ExecId:    "exec-cli",
-					SessionId: "session-exec",
-					RunId:     "run-exec",
-					Chunk:     "exec stdout\n",
+					EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+					ExecId:     "exec-cli",
+					SessionId:  "session-exec",
+					RunId:      "run-exec",
+					Transcript: &agentcomposev2.TranscriptEvent{Kind: "stdout", Text: "exec stdout\n"},
 				}); err != nil {
 					return err
 				}
 				if err := stream.Send(&agentcomposev2.ExecStreamResponse{
-					EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-					ExecId:    "exec-cli",
-					SessionId: "session-exec",
-					RunId:     "run-exec",
-					Chunk:     "exec stderr\n",
-					IsStderr:  true,
+					EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+					ExecId:     "exec-cli",
+					SessionId:  "session-exec",
+					RunId:      "run-exec",
+					Transcript: &agentcomposev2.TranscriptEvent{Kind: "stderr", Text: "exec stderr\n", IsStderr: true},
 				}); err != nil {
 					return err
 				}

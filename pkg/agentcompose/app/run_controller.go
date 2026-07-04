@@ -96,11 +96,12 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 		},
 		SendChunk: func(runID string, chunk domain.ExecChunk, createdAt time.Time) error {
 			if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
-				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
-				RunId:     runID,
-				Chunk:     chunk.Text,
-				IsStderr:  chunk.IsStderr,
-				CreatedAt: api.FormatProjectTime(createdAt),
+				EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+				RunId:      runID,
+				Chunk:      chunk.Text,
+				IsStderr:   chunk.IsStderr,
+				CreatedAt:  api.FormatProjectTime(createdAt),
+				Transcript: api.TranscriptEventFromExecChunk(chunk, createdAt),
 			}); err != nil {
 				return fmt.Errorf("%w: %w", runs.ErrRunAgentStreamSend, err)
 			}

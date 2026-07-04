@@ -50,6 +50,30 @@ describe("runtime command execution", () => {
     });
   });
 
+  it("emits a command transcript without polluting raw artifacts", async () => {
+    await withTempSession(async (root) => {
+      const artifactDir = path.join(root, "artifacts");
+      const requestFile = await writeRequest(root, {
+        mode: "exec",
+        command: "node",
+        args: ["-e", "process.stdout.write('raw-out')"],
+        artifactDir,
+      });
+      const stdio = captureStdio();
+      try {
+        const result = await runExecCommand({ requestFile, workspace: root });
+        expect(result.stdout).toBe("raw-out");
+        expect(result.output).toBe("raw-out");
+        expect(stdio.stdout).toContain("$ node -e");
+        expect(stdio.stdout).toContain("raw-out");
+        expect(await fs.readFile(result.artifacts.stdout, "utf8")).toBe("raw-out");
+        expect(await fs.readFile(result.artifacts.output, "utf8")).toBe("raw-out");
+      } finally {
+        stdio.restore();
+      }
+    });
+  });
+
   it("injects runtime path environment into user commands", async () => {
     await withTempSession(async (root) => {
       const previousEnv = {
@@ -191,10 +215,16 @@ describe("runtime command execution", () => {
         artifactDir: path.join(root, "artifacts"),
       });
 
-      const result = await runExecCommand({ requestFile, workspace: root });
-
-      expect(result.success).toBe(false);
-      expect(result.exitCode).toBe(7);
+      const stdio = captureStdio();
+      try {
+        const result = await runExecCommand({ requestFile, workspace: root });
+        expect(result.success).toBe(false);
+        expect(result.exitCode).toBe(7);
+        expect(result.stderr).toBe("");
+        expect(stdio.stderr).toContain("command exited with code 7");
+      } finally {
+        stdio.restore();
+      }
     });
   });
 

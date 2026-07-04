@@ -1213,11 +1213,7 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 			if cli.JSON {
 				continue
 			}
-			target := cmd.OutOrStdout()
-			if event.GetIsStderr() {
-				target = cmd.ErrOrStderr()
-			}
-			if _, err := io.WriteString(target, event.GetChunk()); err != nil {
+			if err := writeTranscriptOrChunk(cmd.OutOrStdout(), cmd.ErrOrStderr(), event.GetTranscript(), event.GetChunk(), event.GetIsStderr()); err != nil {
 				return err
 			}
 		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED:
@@ -1305,6 +1301,23 @@ func writeRunWarnings(out io.Writer, warnings []string) error {
 		}
 	}
 	return nil
+}
+
+func writeTranscriptOrChunk(stdout, stderr io.Writer, transcript *agentcomposev2.TranscriptEvent, chunk string, isStderr bool) error {
+	text := chunk
+	if transcript != nil {
+		text = transcript.GetText()
+		isStderr = transcript.GetIsStderr()
+	}
+	if text == "" {
+		return nil
+	}
+	target := stdout
+	if isStderr {
+		target = stderr
+	}
+	_, err := io.WriteString(target, text)
+	return err
 }
 
 func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCommand string) error {
@@ -1449,11 +1462,7 @@ func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeEx
 			if cli.JSON {
 				continue
 			}
-			target := cmd.OutOrStdout()
-			if event.GetIsStderr() {
-				target = cmd.ErrOrStderr()
-			}
-			if _, err := io.WriteString(target, event.GetChunk()); err != nil {
+			if err := writeTranscriptOrChunk(cmd.OutOrStdout(), cmd.ErrOrStderr(), event.GetTranscript(), event.GetChunk(), event.GetIsStderr()); err != nil {
 				return err
 			}
 		case agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_COMPLETED:

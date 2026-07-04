@@ -381,6 +381,16 @@ message RunAgentStreamResponse {
   bool is_stderr = 5;
   string created_at = 6;
   repeated string warnings = 7;
+  TranscriptEvent transcript = 8;
+}
+
+message TranscriptEvent {
+  string kind = 1;
+  string text = 2;
+  bool is_stderr = 3;
+  string name = 4;
+  string payload_json = 5;
+  string created_at = 6;
 }
 
 message GetRunRequest {
@@ -547,6 +557,7 @@ message ExecStreamResponse {
   string chunk = 5;
   bool is_stderr = 6;
   ExecResult result = 7;
+  TranscriptEvent transcript = 8;
 }
 
 message ExecResult {

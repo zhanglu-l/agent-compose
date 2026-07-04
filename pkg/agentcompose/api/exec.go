@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -118,13 +119,15 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 		}
 		accumulator.WriteChunk(chunk)
 		if send != nil {
+			createdAt := time.Now().UTC()
 			sendErr = send(&agentcomposev2.ExecStreamResponse{
-				EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-				ExecId:    execID,
-				SessionId: session.Summary.ID,
-				RunId:     runID,
-				Chunk:     chunk.Text,
-				IsStderr:  chunk.IsStderr,
+				EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+				ExecId:     execID,
+				SessionId:  session.Summary.ID,
+				RunId:      runID,
+				Chunk:      chunk.Text,
+				IsStderr:   chunk.IsStderr,
+				Transcript: TranscriptEventFromExecChunk(chunk, createdAt),
 			})
 		}
 	}
