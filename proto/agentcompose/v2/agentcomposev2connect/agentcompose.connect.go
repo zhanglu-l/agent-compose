@@ -68,6 +68,9 @@ const (
 	RunServiceGetRunProcedure = "/agentcompose.v2.RunService/GetRun"
 	// RunServiceListRunsProcedure is the fully-qualified name of the RunService's ListRuns RPC.
 	RunServiceListRunsProcedure = "/agentcompose.v2.RunService/ListRuns"
+	// RunServiceFollowRunLogsProcedure is the fully-qualified name of the RunService's FollowRunLogs
+	// RPC.
+	RunServiceFollowRunLogsProcedure = "/agentcompose.v2.RunService/FollowRunLogs"
 	// RunServiceStopRunProcedure is the fully-qualified name of the RunService's StopRun RPC.
 	RunServiceStopRunProcedure = "/agentcompose.v2.RunService/StopRun"
 	// ExecServiceExecProcedure is the fully-qualified name of the ExecService's Exec RPC.
@@ -295,6 +298,7 @@ type RunServiceClient interface {
 	RunAgentStream(context.Context, *connect.Request[v2.RunAgentRequest]) (*connect.ServerStreamForClient[v2.RunAgentStreamResponse], error)
 	GetRun(context.Context, *connect.Request[v2.GetRunRequest]) (*connect.Response[v2.GetRunResponse], error)
 	ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error)
+	FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest]) (*connect.ServerStreamForClient[v2.RunLogChunk], error)
 	StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error)
 }
 
@@ -333,6 +337,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("ListRuns")),
 			connect.WithClientOptions(opts...),
 		),
+		followRunLogs: connect.NewClient[v2.FollowRunLogsRequest, v2.RunLogChunk](
+			httpClient,
+			baseURL+RunServiceFollowRunLogsProcedure,
+			connect.WithSchema(runServiceMethods.ByName("FollowRunLogs")),
+			connect.WithClientOptions(opts...),
+		),
 		stopRun: connect.NewClient[v2.StopRunRequest, v2.StopRunResponse](
 			httpClient,
 			baseURL+RunServiceStopRunProcedure,
@@ -348,6 +358,7 @@ type runServiceClient struct {
 	runAgentStream *connect.Client[v2.RunAgentRequest, v2.RunAgentStreamResponse]
 	getRun         *connect.Client[v2.GetRunRequest, v2.GetRunResponse]
 	listRuns       *connect.Client[v2.ListRunsRequest, v2.ListRunsResponse]
+	followRunLogs  *connect.Client[v2.FollowRunLogsRequest, v2.RunLogChunk]
 	stopRun        *connect.Client[v2.StopRunRequest, v2.StopRunResponse]
 }
 
@@ -371,6 +382,11 @@ func (c *runServiceClient) ListRuns(ctx context.Context, req *connect.Request[v2
 	return c.listRuns.CallUnary(ctx, req)
 }
 
+// FollowRunLogs calls agentcompose.v2.RunService.FollowRunLogs.
+func (c *runServiceClient) FollowRunLogs(ctx context.Context, req *connect.Request[v2.FollowRunLogsRequest]) (*connect.ServerStreamForClient[v2.RunLogChunk], error) {
+	return c.followRunLogs.CallServerStream(ctx, req)
+}
+
 // StopRun calls agentcompose.v2.RunService.StopRun.
 func (c *runServiceClient) StopRun(ctx context.Context, req *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error) {
 	return c.stopRun.CallUnary(ctx, req)
@@ -382,6 +398,7 @@ type RunServiceHandler interface {
 	RunAgentStream(context.Context, *connect.Request[v2.RunAgentRequest], *connect.ServerStream[v2.RunAgentStreamResponse]) error
 	GetRun(context.Context, *connect.Request[v2.GetRunRequest]) (*connect.Response[v2.GetRunResponse], error)
 	ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error)
+	FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest], *connect.ServerStream[v2.RunLogChunk]) error
 	StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error)
 }
 
@@ -416,6 +433,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(runServiceMethods.ByName("ListRuns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	runServiceFollowRunLogsHandler := connect.NewServerStreamHandler(
+		RunServiceFollowRunLogsProcedure,
+		svc.FollowRunLogs,
+		connect.WithSchema(runServiceMethods.ByName("FollowRunLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	runServiceStopRunHandler := connect.NewUnaryHandler(
 		RunServiceStopRunProcedure,
 		svc.StopRun,
@@ -432,6 +455,8 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 			runServiceGetRunHandler.ServeHTTP(w, r)
 		case RunServiceListRunsProcedure:
 			runServiceListRunsHandler.ServeHTTP(w, r)
+		case RunServiceFollowRunLogsProcedure:
+			runServiceFollowRunLogsHandler.ServeHTTP(w, r)
 		case RunServiceStopRunProcedure:
 			runServiceStopRunHandler.ServeHTTP(w, r)
 		default:
@@ -457,6 +482,10 @@ func (UnimplementedRunServiceHandler) GetRun(context.Context, *connect.Request[v
 
 func (UnimplementedRunServiceHandler) ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.ListRuns is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest], *connect.ServerStream[v2.RunLogChunk]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.FollowRunLogs is not implemented"))
 }
 
 func (UnimplementedRunServiceHandler) StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error) {

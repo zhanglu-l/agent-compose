@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -84,6 +87,137 @@ func (h *RunHandler) ListRuns(ctx context.Context, req *connect.Request[agentcom
 		items = append(items, ProjectRunSummaryToProto(run))
 	}
 	return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: items}), nil
+}
+
+func (h *RunHandler) FollowRunLogs(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+	if h.store == nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("config store is required"))
+	}
+	runID := strings.TrimSpace(req.Msg.GetRunId())
+	if runID == "" {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("run id is required"))
+	}
+	run, err := h.projectRunForLogRequest(ctx, req.Msg.GetProjectId(), runID)
+	if err != nil {
+		return err
+	}
+	offset, err := initialRunLogOffset(run.LogsPath, int(req.Msg.GetTailLines()), req.Msg.GetStartOffset(), req.Msg.GetFollow())
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		run, err = h.projectRunForLogRequest(ctx, req.Msg.GetProjectId(), runID)
+		if err != nil {
+			return err
+		}
+		data, nextOffset, err := readRunLogFromOffset(run.LogsPath, offset)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return connect.NewError(connect.CodeInternal, err)
+		}
+		if data != "" {
+			offset = nextOffset
+			if err := stream.Send(&agentcomposev2.RunLogChunk{
+				Data:      data,
+				Offset:    offset,
+				RunStatus: ProjectRunStatusToProto(run.Status),
+				CreatedAt: FormatProjectTime(time.Now().UTC()),
+			}); err != nil {
+				return connect.NewError(connect.CodeUnknown, err)
+			}
+		}
+		if !req.Msg.GetFollow() || runs.StatusIsTerminal(run.Status) {
+			return stream.Send(&agentcomposev2.RunLogChunk{
+				Offset:    offset,
+				IsFinal:   true,
+				RunStatus: ProjectRunStatusToProto(run.Status),
+				CreatedAt: FormatProjectTime(time.Now().UTC()),
+			})
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (h *RunHandler) projectRunForLogRequest(ctx context.Context, projectID, runID string) (domain.ProjectRunRecord, error) {
+	run, err := h.store.GetProjectRun(ctx, runID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ProjectRunRecord{}, connect.NewError(connect.CodeNotFound, err)
+		}
+		return domain.ProjectRunRecord{}, connect.NewError(connect.CodeInternal, err)
+	}
+	if projectID := strings.TrimSpace(projectID); projectID != "" && run.ProjectID != projectID {
+		return domain.ProjectRunRecord{}, connect.NewError(connect.CodeNotFound, fmt.Errorf("project run %s not found in project %s", runID, projectID))
+	}
+	return run, nil
+}
+
+func initialRunLogOffset(path string, tailLines int, startOffset uint64, follow bool) (uint64, error) {
+	if tailLines > 0 {
+		return tailRunLogOffset(path, tailLines)
+	}
+	if startOffset > 0 {
+		return startOffset, nil
+	}
+	if follow {
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return 0, nil
+			}
+			return 0, err
+		}
+		return uint64(info.Size()), nil
+	}
+	return 0, nil
+}
+
+func readRunLogFromOffset(path string, offset uint64) (string, uint64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", offset, err
+	}
+	defer func() { _ = file.Close() }()
+	if _, err := file.Seek(int64(offset), io.SeekStart); err != nil {
+		return "", offset, err
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", offset, err
+	}
+	return string(data), offset + uint64(len(data)), nil
+}
+
+func tailRunLogOffset(path string, lines int) (uint64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if lines <= 0 || len(data) == 0 {
+		return uint64(len(data)), nil
+	}
+	seen := 0
+	for index := len(data) - 1; index >= 0; index-- {
+		if data[index] != '\n' {
+			continue
+		}
+		if index == len(data)-1 {
+			continue
+		}
+		seen++
+		if seen == lines {
+			return uint64(index + 1), nil
+		}
+	}
+	return 0, nil
 }
 
 func (h *RunHandler) StopRun(ctx context.Context, req *connect.Request[agentcomposev2.StopRunRequest]) (*connect.Response[agentcomposev2.StopRunResponse], error) {

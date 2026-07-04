@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"agent-compose/pkg/runs"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
+	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
 
 func TestPrepareStreamingHeadersPreservesNoTransform(t *testing.T) {
@@ -299,6 +301,91 @@ func TestProjectAndRunHandlersStoreBackedWorkflows(t *testing.T) {
 	if _, err := runHandler.GetRun(ctx, connect.NewRequest(&agentcomposev2.GetRunRequest{})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("expected run id error, got %v", err)
 	}
+}
+
+func TestFollowRunLogsStreamsOffsetsTailAndFinal(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := tempDir + "/output.txt"
+	if err := os.WriteFile(logPath, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write log fixture: %v", err)
+	}
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusSucceeded, LogsPath: logPath},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	all := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1"})
+	if len(all) != 2 || all[0].GetData() != "one\ntwo\nthree\n" || all[0].GetOffset() != 14 || !all[1].GetIsFinal() {
+		t.Fatalf("all chunks = %#v", all)
+	}
+
+	tail := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", TailLines: 2, Follow: true})
+	if len(tail) != 2 || tail[0].GetData() != "two\nthree\n" || tail[0].GetOffset() != 14 || !tail[1].GetIsFinal() {
+		t.Fatalf("tail chunks = %#v", tail)
+	}
+
+	offset := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", StartOffset: 4})
+	if len(offset) != 2 || offset[0].GetData() != "two\nthree\n" || offset[0].GetOffset() != 14 || !offset[1].GetIsFinal() {
+		t.Fatalf("offset chunks = %#v", offset)
+	}
+}
+
+func TestFollowRunLogsMissingLogFileReturnsEmptyFinalForTerminalRun(t *testing.T) {
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusFailed, LogsPath: t.TempDir() + "/missing.txt"},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	chunks := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", Follow: true})
+	if len(chunks) != 1 || !chunks[0].GetIsFinal() || chunks[0].GetData() != "" || chunks[0].GetRunStatus() != agentcomposev2.RunStatus_RUN_STATUS_FAILED {
+		t.Fatalf("missing log chunks = %#v", chunks)
+	}
+}
+
+func TestFollowRunLogsRejectsProjectMismatch(t *testing.T) {
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", Status: domain.ProjectRunStatusSucceeded},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	stream, err := client.FollowRunLogs(context.Background(), connect.NewRequest(&agentcomposev2.FollowRunLogsRequest{ProjectId: "project-2", RunId: "run-1"}))
+	if err != nil {
+		t.Fatalf("FollowRunLogs returned setup error: %v", err)
+	}
+	for stream.Receive() {
+		t.Fatalf("unexpected chunk: %#v", stream.Msg())
+	}
+	if code := connect.CodeOf(stream.Err()); code != connect.CodeNotFound {
+		t.Fatalf("FollowRunLogs code = %s, want %s (err=%v)", code, connect.CodeNotFound, stream.Err())
+	}
+}
+
+func newRunHandlerTestClient(t *testing.T, handler *RunHandler) (agentcomposev2connect.RunServiceClient, func()) {
+	t.Helper()
+	mux := http.NewServeMux()
+	path, serviceHandler := agentcomposev2connect.NewRunServiceHandler(handler)
+	mux.Handle(path, serviceHandler)
+	server := httptest.NewServer(mux)
+	return agentcomposev2connect.NewRunServiceClient(server.Client(), server.URL), server.Close
+}
+
+func collectRunLogChunks(t *testing.T, client agentcomposev2connect.RunServiceClient, req *agentcomposev2.FollowRunLogsRequest) []*agentcomposev2.RunLogChunk {
+	t.Helper()
+	stream, err := client.FollowRunLogs(context.Background(), connect.NewRequest(req))
+	if err != nil {
+		t.Fatalf("FollowRunLogs setup error: %v", err)
+	}
+	var chunks []*agentcomposev2.RunLogChunk
+	for stream.Receive() {
+		chunks = append(chunks, stream.Msg())
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatalf("FollowRunLogs stream error: %v", err)
+	}
+	return chunks
 }
 
 type apiHandlerSessionStore struct {

@@ -272,7 +272,7 @@
     - 本阶段未新增 DB output chunk 表，也未实现 follow API；`logs --follow` 的服务端 tail 语义留到 4.2。
   - 下一目标：4.2。
 
-- [ ] 4.2 实现 `FollowRunLogs` API 和 CLI `logs --follow`
+- [x] 4.2 实现 `FollowRunLogs` API 和 CLI `logs --follow`
 
   依赖：4.1。
 
@@ -302,10 +302,24 @@
   - 缺失日志文件有清晰错误或按 run 状态返回空 final。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - v2 `RunService` 新增 server streaming `FollowRunLogs`，请求包含 `project_id`、`run_id`、`tail_lines`、`start_offset`、`follow`，响应包含 `data`、`offset`、`is_final`、`run_status`、`created_at`，并重新生成 Go proto/Connect Go 产物。
+    - `pkg/agentcompose/api.RunHandler` 按 `project_run.logs_path` 从 byte offset 读取日志；`tail_lines` 由服务端计算起始 offset，terminal run 会 flush 剩余内容并发送 `is_final` chunk。
+    - missing log file 对 terminal run 返回空 final chunk；project mismatch/not found 返回 Connect not found。
+    - CLI `logs --follow --run-id <id>` 改为调用 `FollowRunLogs`；project-level `logs --follow` 首版按当前匹配 run 列表串行 follow；`logs --json --follow` 保持互斥 usage error。
+    - CLI `--tail N --follow` 通过 `FollowRunLogsRequest.tail_lines` 交给 daemon 处理，不直接读取 daemon 本地文件。
+    - 补充 API streaming 测试覆盖 full read、`start_offset`、`tail_lines`、terminal final、missing log file 和 project mismatch；补充 CLI follow 测试，断言不再轮询 `RunDetail.output`。
+  - 验证：
+    - `protoc -I . --go_out=. --go_opt=module=agent-compose --connect-go_out=. --connect-go_opt=module=agent-compose proto/agentcompose/v2/agentcompose.proto`：通过。
+    - `cd proto-client && npm ci && npm run gen && npm run build`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs ./pkg/storage/configstore ./pkg/storage/sessionstore`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - 本阶段没有新增 run output chunk DB 表；follow 权威来源仍是 4.1 建立的 `logs_path/output.txt` 文件。
+    - `logs --follow` 不再轮询 `RunDetail.output`；非 follow 的 `logs` 输出仍沿用既有 detail/list 路径。
+    - 多 run follow 首版为串行处理，后续 CLI 手册集中校准时需记录该行为。
   - 下一目标：5.1。
 
 ## 阶段 5：`stats` driver optional interface

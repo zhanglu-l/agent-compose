@@ -18,6 +18,7 @@ service RunService {
   rpc RunAgentStream(RunAgentRequest) returns (stream RunAgentStreamResponse);
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc FollowRunLogs(FollowRunLogsRequest) returns (stream RunLogChunk);
   rpc StopRun(StopRunRequest) returns (StopRunResponse);
 }
 
@@ -395,6 +396,22 @@ message ListRunsRequest {
 
 message ListRunsResponse {
   repeated RunSummary runs = 1;
+}
+
+message FollowRunLogsRequest {
+  string project_id = 1;
+  string run_id = 2;
+  uint32 tail_lines = 3;
+  uint64 start_offset = 4;
+  bool follow = 5;
+}
+
+message RunLogChunk {
+  string data = 1;
+  uint64 offset = 2;
+  bool is_final = 3;
+  RunStatus run_status = 4;
+  string created_at = 5;
 }
 
 message StopRunRequest {

@@ -1769,7 +1769,7 @@ func TestLogsAgentFlagAndPositionalIsUsageError(t *testing.T) {
 	}
 }
 
-func TestIntegrationCLILogsFollowPollsUntilTerminal(t *testing.T) {
+func TestIntegrationCLILogsFollowUsesServerStream(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-logs-follow
 agents:
@@ -1777,34 +1777,32 @@ agents:
     provider: codex
 `)
 	var listCalls int
+	var followCalls int
 	server := newRunServiceStubServer(t, runServiceStub{
 		listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
 			listCalls++
-			status := agentcomposev2.RunStatus_RUN_STATUS_RUNNING
-			if listCalls > 1 {
-				status = agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED
-			}
 			return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{{
 				RunId:     "run-follow",
 				ProjectId: req.Msg.GetProjectId(),
 				AgentName: "reviewer",
-				Status:    status,
+				Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
 				SessionId: "session-follow",
 			}}}), nil
 		},
-		getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
-			status := agentcomposev2.RunStatus_RUN_STATUS_RUNNING
-			output := "first\n"
-			if listCalls > 1 {
-				status = agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED
-				output = "first\nsecond\n"
+		followRunLogs: func(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+			followCalls++
+			if req.Msg.GetRunId() != "run-follow" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 2 {
+				t.Fatalf("FollowRunLogs request = %#v", req.Msg)
 			}
-			return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-follow", "reviewer", "session-follow", status, 0, output)}), nil
+			if err := stream.Send(&agentcomposev2.RunLogChunk{Data: "first\n", Offset: 6, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_RUNNING}); err != nil {
+				return err
+			}
+			return stream.Send(&agentcomposev2.RunLogChunk{Data: "second\n", Offset: 13, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, IsFinal: true})
 		},
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--follow")
+	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--follow", "--tail", "2")
 	if exitCode != 0 {
 		t.Fatalf("logs follow exit code = %d, stderr=%q", exitCode, stderr)
 	}
@@ -1814,8 +1812,8 @@ agents:
 	if stdout != "reviewer | first\nreviewer | second\n" {
 		t.Fatalf("logs follow stdout = %q", stdout)
 	}
-	if listCalls < 2 {
-		t.Fatalf("logs follow list calls = %d, want at least 2", listCalls)
+	if listCalls != 1 || followCalls != 1 {
+		t.Fatalf("logs follow list/follow calls = %d/%d, want 1/1", listCalls, followCalls)
 	}
 }
 
@@ -3543,6 +3541,7 @@ type runServiceStub struct {
 	runAgentStream func(context.Context, *connect.Request[agentcomposev2.RunAgentRequest], *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error
 	getRun         func(context.Context, *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error)
 	listRuns       func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error)
+	followRunLogs  func(context.Context, *connect.Request[agentcomposev2.FollowRunLogsRequest], *connect.ServerStream[agentcomposev2.RunLogChunk]) error
 
 	agentcomposev2connect.UnimplementedRunServiceHandler
 }
@@ -3566,6 +3565,13 @@ func (s runServiceStub) ListRuns(ctx context.Context, req *connect.Request[agent
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListRuns stub is not configured"))
 	}
 	return s.listRuns(ctx, req)
+}
+
+func (s runServiceStub) FollowRunLogs(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+	if s.followRunLogs == nil {
+		return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("FollowRunLogs stub is not configured"))
+	}
+	return s.followRunLogs(ctx, req, stream)
 }
 
 func newRunServiceStubServer(t *testing.T, stub runServiceStub) *httptest.Server {
