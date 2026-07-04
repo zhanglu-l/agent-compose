@@ -29,12 +29,16 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 		dashboardHub = hub
 	}
 	imageBackends := do.MustInvoke[*adapters.ImageBackends](di)
+	runtimeProvider := do.MustInvoke[adapters.RuntimeProvider](di)
 	return runs.NewController(runs.ControllerDependencies{
-		Config:    do.MustInvoke[*appconfig.Config](di),
-		Store:     do.MustInvoke[*sessionstore.Store](di),
-		ConfigDB:  do.MustInvoke[*configstore.ConfigStore](di),
-		Driver:    do.MustInvoke[*adapters.SessionDriver](di),
-		Executor:  do.MustInvoke[*adapters.AgentExecutor](di),
+		Config:   do.MustInvoke[*appconfig.Config](di),
+		Store:    do.MustInvoke[*sessionstore.Store](di),
+		ConfigDB: do.MustInvoke[*configstore.ConfigStore](di),
+		Driver:   do.MustInvoke[*adapters.SessionDriver](di),
+		Executor: do.MustInvoke[*adapters.AgentExecutor](di),
+		Runtime: func(session *domain.Session) (runs.Runtime, error) {
+			return runtimeProvider.ForSession(session)
+		},
 		Images:    imageBackends.Auto,
 		Cap:       do.MustInvoke[capabilities.Provider](di),
 		Streams:   do.MustInvoke[*sessions.StreamBroker](di),
@@ -107,6 +111,7 @@ func runAgentRequestFromProto(msg *agentcomposev2.RunAgentRequest) runs.RunAgent
 		ProjectID:        msg.GetProjectId(),
 		AgentName:        msg.GetAgentName(),
 		Prompt:           msg.GetPrompt(),
+		Command:          msg.GetCommand(),
 		Source:           api.ProjectRunSourceFromProto(msg.GetSource()),
 		SchedulerID:      msg.GetSchedulerId(),
 		TriggerID:        msg.GetTriggerId(),

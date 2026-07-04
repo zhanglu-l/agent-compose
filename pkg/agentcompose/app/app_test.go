@@ -14,6 +14,7 @@ import (
 
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
+	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
 func TestSetupRegistersServiceGraph(t *testing.T) {
@@ -48,6 +49,7 @@ func TestSetupRegistersServiceGraph(t *testing.T) {
 		{method: http.MethodPost, path: "/agentcompose.v2.RunService/*"},
 		{method: http.MethodPost, path: "/agentcompose.v2.ExecService/*"},
 		{method: http.MethodPost, path: "/agentcompose.v2.ImageService/*"},
+		{method: http.MethodPost, path: "/agentcompose.v2.SandboxService/*"},
 		{method: http.MethodGet, path: "/agent-compose/jupyter/:sessionID"},
 		{method: http.MethodPost, path: "/agent-compose/jupyter/:sessionID/*"},
 	} {
@@ -61,6 +63,19 @@ func TestSetupRegistersServiceGraph(t *testing.T) {
 	app.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("proxy route status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+}
+
+func TestRunAgentRequestFromProtoPreservesCommand(t *testing.T) {
+	req := runAgentRequestFromProto(&agentcomposev2.RunAgentRequest{
+		ProjectId: "project-1",
+		AgentName: "worker",
+		Prompt:    "prompt",
+		Command:   "echo hi",
+		TriggerId: "trigger-1",
+	})
+	if req.ProjectID != "project-1" || req.AgentName != "worker" || req.Prompt != "prompt" || req.Command != "echo hi" || req.TriggerID != "trigger-1" {
+		t.Fatalf("mapped request = %#v", req)
 	}
 }
 

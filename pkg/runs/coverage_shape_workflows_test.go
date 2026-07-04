@@ -218,16 +218,19 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 		global: []domain.SessionEnvVar{{Name: "GLOBAL_VAR", Value: "global"}},
 		runs:   map[string]domain.ProjectRunRecord{},
 	}
-	driver := &fakeControllerDriver{}
+	driver := &fakeControllerDriver{store: store}
 	executor := &fakeControllerExecutor{}
 	bus := &fakeControllerPublisher{}
 	dashboard := &fakeControllerDashboard{}
 	controller := NewController(ControllerDependencies{
-		Config:    config,
-		Store:     store,
-		ConfigDB:  configDB,
-		Driver:    driver,
-		Executor:  executor,
+		Config:   config,
+		Store:    store,
+		ConfigDB: configDB,
+		Driver:   driver,
+		Executor: executor,
+		Runtime: func(*domain.Session) (Runtime, error) {
+			return &fakeControllerRuntime{}, nil
+		},
 		Images:    fakeControllerImages{},
 		Bus:       bus,
 		Dashboard: dashboard,
@@ -271,6 +274,84 @@ func TestIntegrationRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 
 func TestE2ERunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	TestRunsControllerRunProjectAgentSuccessWorkflow(t)
+}
+
+func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	config := &appconfig.Config{
+		DataRoot:      root,
+		SessionRoot:   filepath.Join(root, "sessions"),
+		RuntimeDriver: "boxlite",
+		DefaultImage:  "guest:latest",
+	}
+	store, err := sessionstore.NewWithConfig(config)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	configDB := &fakeControllerStore{
+		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
+		projectAgent: domain.ProjectAgentRecord{
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+		},
+		managed: ManagedAgentDefinition{
+			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+		},
+		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
+		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
+		runs:     map[string]domain.ProjectRunRecord{},
+	}
+	runtime := &fakeControllerRuntime{}
+	controller := NewController(ControllerDependencies{
+		Config:   config,
+		Store:    store,
+		ConfigDB: configDB,
+		Driver:   &fakeControllerDriver{store: store},
+		Runtime: func(*domain.Session) (Runtime, error) {
+			return runtime, nil
+		},
+		Images: fakeControllerImages{},
+	})
+	var started bool
+	var chunks []domain.ExecChunk
+	run, execErr, err := controller.RunProjectAgent(ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Command:         "echo command",
+		Source:          domain.ProjectRunSourceAPI,
+		ClientRequestID: "command-request",
+	}, &StreamSink{
+		SendStarted: func(domain.ProjectRunRecord, time.Time) error {
+			started = true
+			return nil
+		},
+		SendChunk: func(_ string, chunk domain.ExecChunk, _ time.Time) error {
+			chunks = append(chunks, chunk)
+			return nil
+		},
+	})
+	if err != nil || execErr != nil {
+		t.Fatalf("RunProjectAgent command err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if run.Status != domain.ProjectRunStatusSucceeded || run.Output != "command output\n" || run.ArtifactsDir == "" || run.LogsPath == "" {
+		t.Fatalf("command run = %#v", run)
+	}
+	if !started || len(chunks) != 1 || runtime.spec.Command != "bash" || strings.Join(runtime.spec.Args, " ") != "-lc echo command" {
+		t.Fatalf("started=%v chunks=%#v spec=%#v", started, chunks, runtime.spec)
+	}
+	if _, _, err := controller.RunProjectAgent(ctx, RunAgentRequest{
+		ProjectID: "project-1", AgentName: "worker", Command: "echo command", Prompt: "prompt",
+	}, nil); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("command and prompt error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestIntegrationRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
+	TestRunsControllerRunProjectAgentCommandWorkflow(t)
+}
+
+func TestE2ERunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
+	TestRunsControllerRunProjectAgentCommandWorkflow(t)
 }
 
 type fakeRunStore struct {
@@ -421,10 +502,14 @@ func (s *fakeControllerStore) GetWorkspaceConfig(context.Context, string) (domai
 type fakeControllerDriver struct {
 	started bool
 	stopped bool
+	store   *sessionstore.Store
 }
 
-func (d *fakeControllerDriver) StartSessionVM(context.Context, *domain.Session) error {
+func (d *fakeControllerDriver) StartSessionVM(_ context.Context, session *domain.Session) error {
 	d.started = true
+	if d.store != nil {
+		return d.store.SaveVMState(session.Summary.ID, domain.VMState{Driver: session.Summary.Driver, BoxID: "box-1"})
+	}
 	return nil
 }
 
@@ -453,6 +538,16 @@ func (e *fakeControllerExecutor) ExecuteAgentRequest(_ context.Context, _ *domai
 		domain.SessionEvent{ID: "user", Type: "user", Message: req.Message},
 		domain.SessionEvent{ID: "assistant", Type: "assistant", Message: "done"},
 		nil
+}
+
+type fakeControllerRuntime struct {
+	spec domain.ExecSpec
+}
+
+func (r *fakeControllerRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, writer domain.ExecStreamWriter) (domain.ExecResult, error) {
+	r.spec = spec
+	writer(domain.ExecChunk{Text: "command output\n"})
+	return domain.ExecResult{Stdout: "command output\n", Output: "command output\n", ExitCode: 0, Success: true}, nil
 }
 
 type fakeControllerImages struct{}

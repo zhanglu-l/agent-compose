@@ -2,6 +2,7 @@ package runs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,6 +36,12 @@ type AgentExecutor interface {
 	ExecuteAgentRequest(context.Context, *domain.Session, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SessionEvent, domain.SessionEvent, error)
 }
 
+type Runtime interface {
+	ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
+}
+
+type RuntimeProvider func(*domain.Session) (Runtime, error)
+
 type SessionDriver interface {
 	StartSessionVM(context.Context, *domain.Session) error
 	StopSessionVM(context.Context, *domain.Session) error
@@ -60,6 +67,7 @@ type Controller struct {
 	configDB  ControllerStore
 	driver    SessionDriver
 	executor  AgentExecutor
+	runtime   RuntimeProvider
 	images    images.Backend
 	cap       capabilities.Provider
 	streams   *sessions.StreamBroker
@@ -73,6 +81,7 @@ type ControllerDependencies struct {
 	ConfigDB  ControllerStore
 	Driver    SessionDriver
 	Executor  AgentExecutor
+	Runtime   RuntimeProvider
 	Images    images.Backend
 	Cap       capabilities.Provider
 	Streams   *sessions.StreamBroker
@@ -87,6 +96,7 @@ func NewController(deps ControllerDependencies) *Controller {
 		configDB:  deps.ConfigDB,
 		driver:    deps.Driver,
 		executor:  deps.Executor,
+		runtime:   deps.Runtime,
 		images:    deps.Images,
 		cap:       deps.Cap,
 		streams:   deps.Streams,
@@ -99,6 +109,7 @@ type RunAgentRequest struct {
 	ProjectID        string
 	AgentName        string
 	Prompt           string
+	Command          string
 	Source           string
 	SchedulerID      string
 	TriggerID        string
@@ -125,6 +136,10 @@ func PrepareStreamingHeaders(headers http.Header) {
 func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, stream *StreamSink) (domain.ProjectRunRecord, error, error) {
 	if c.configDB == nil {
 		return domain.ProjectRunRecord{}, nil, fmt.Errorf("config store is required")
+	}
+	commandText := strings.TrimSpace(req.Command)
+	if commandText != "" && (strings.TrimSpace(req.Prompt) != "" || strings.TrimSpace(req.TriggerID) != "") {
+		return domain.ProjectRunRecord{}, nil, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
 	}
 	coordinator := NewCoordinator(c.configDB, domain.StableProjectRunID)
 	run, err := coordinator.BeginRun(ctx, StartRequest{
@@ -169,6 +184,23 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
+	}
+	if commandText != "" {
+		transition, execErr := c.executeProjectRunCommand(ctx, run, sessionResult.Session, req, commandText, stream)
+		if execErr != nil || transition.ExitCode != 0 {
+			run, err = coordinator.MarkFailed(transitionCtx, transition)
+			if err != nil {
+				return domain.ProjectRunRecord{}, nil, err
+			}
+			run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+			return run, execErr, nil
+		}
+		run, err = coordinator.MarkSucceeded(transitionCtx, transition)
+		if err != nil {
+			return domain.ProjectRunRecord{}, nil, err
+		}
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+		return run, nil, nil
 	}
 	agentConfig, err := c.projectRunAgentConfig(ctx, run)
 	if err != nil {
@@ -222,6 +254,82 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 	return run, nil, nil
 }
 
+func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Session, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
+	transition := TransitionRequest{
+		RunID:     run.RunID,
+		SessionID: session.Summary.ID,
+	}
+	if c.store == nil || c.runtime == nil {
+		err := fmt.Errorf("command runtime dependencies are required")
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	if sink != nil && sink.SendStarted != nil {
+		if err := sink.SendStarted(run, time.Now().UTC()); err != nil {
+			transition.ExitCode = 1
+			transition.Error = fmt.Sprintf("command execution failed: %v", err)
+			return transition, err
+		}
+	}
+	appconfig.ApplyDefaultGuestPaths(c.config)
+	vmState, err := c.store.GetVMState(session.Summary.ID)
+	if err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	runtime, err := c.runtime(session)
+	if err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	var accumulator execution.ExecStreamAccumulator
+	var sendErr error
+	writer := func(chunk domain.ExecChunk) {
+		if sendErr != nil {
+			return
+		}
+		accumulator.WriteChunk(chunk)
+		if sink != nil && sink.SendChunk != nil {
+			sendErr = sink.SendChunk(run.RunID, chunk, time.Now().UTC())
+		}
+	}
+	execCtx, cancel := execution.ExecContext(ctx, 0)
+	defer cancel()
+	result, execErr := runtime.ExecStream(execCtx, session, vmState, domain.ExecSpec{
+		Command: "bash",
+		Args:    []string{"-lc", commandText},
+		Env:     execEnvMap(req.Env),
+		Cwd:     c.config.GuestWorkspacePath,
+	}, writer)
+	if sendErr != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", sendErr)
+		return transition, sendErr
+	}
+	if execErr != nil {
+		result = execution.MergeExecResults(result, accumulator.Result(execution.FirstNonZeroInt(result.ExitCode, 1), false))
+		result.ExitCode = execution.FirstNonZeroInt(result.ExitCode, 1)
+		result.Success = false
+		if strings.TrimSpace(result.Output) == "" {
+			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
+		}
+	} else {
+		result = execution.MergeExecResults(result, accumulator.Result(result.ExitCode, result.Success))
+	}
+	transition = transitionFromCommandResult(run, session, commandText, result, execErr)
+	if err := writeProjectRunCommandArtifacts(transition.ArtifactsDir, commandText, result); err != nil {
+		if execErr == nil {
+			execErr = err
+		}
+		transition.ExitCode = execution.FirstNonZeroInt(transition.ExitCode, 1)
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+	}
+	return transition, execErr
+}
+
 func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.ProjectRunRecord) (execution.AgentConfig, error) {
 	agent, err := c.configDB.GetAgentDefinition(ctx, run.ManagedAgentID)
 	if err != nil {
@@ -252,6 +360,65 @@ func projectRunAgentExecutionStream(run domain.ProjectRunRecord, sink *StreamSin
 			return sink.SendChunk(run.RunID, chunk, time.Now().UTC())
 		},
 	}
+}
+
+func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Session, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
+	artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+	req := TransitionRequest{
+		RunID:        run.RunID,
+		SessionID:    session.Summary.ID,
+		ExitCode:     result.ExitCode,
+		Output:       result.Output,
+		ArtifactsDir: artifactsDir,
+		LogsPath:     filepath.Join(artifactsDir, "output.txt"),
+	}
+	resultJSON, err := json.Marshal(map[string]any{
+		"mode":     "command",
+		"command":  commandText,
+		"success":  result.Success,
+		"exitCode": result.ExitCode,
+	})
+	if err == nil {
+		req.ResultJSON = string(resultJSON)
+	}
+	if execErr != nil {
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
+		req.Error = fmt.Sprintf("command execution failed: %v", execErr)
+		return req
+	}
+	if !result.Success {
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
+		req.Error = "command execution failed"
+		if detail := firstNonEmpty(result.Stderr, result.Output, result.Stdout); strings.TrimSpace(detail) != "" {
+			req.Error += ": " + strings.TrimSpace(detail)
+		}
+	}
+	return req
+}
+
+func writeProjectRunCommandArtifacts(artifactsDir, commandText string, result domain.ExecResult) error {
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		return fmt.Errorf("create command artifacts dir: %w", err)
+	}
+	return execution.WriteCellArtifacts(artifactsDir, commandText, result)
+}
+
+func execEnvMap(items []*agentcomposev2.EnvVarSpec) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	env := make(map[string]string)
+	for _, item := range items {
+		name := strings.TrimSpace(item.GetName())
+		if name == "" {
+			continue
+		}
+		env[name] = item.GetValue()
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 
 func (c *Controller) prepareProjectRun(ctx context.Context, run domain.ProjectRunRecord, requestEnv []*agentcomposev2.EnvVarSpec) (Preparation, error) {
