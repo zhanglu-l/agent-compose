@@ -450,6 +450,20 @@ func (r *cgoBoxRuntime) ExecStream(ctx context.Context, _ *Session, vmState VMSt
 	return r.execWithStream(ctx, vmState, spec, stream)
 }
 
+func (r *cgoBoxRuntime) Stats(_ context.Context, session *Session, vmState VMState) (SandboxStats, error) {
+	sandboxID := ""
+	driverName := RuntimeDriverBoxlite
+	if session != nil {
+		sandboxID = session.Summary.ID
+		driverName = firstNonEmpty(session.Summary.Driver, driverName)
+	}
+	return unknownSandboxStats(
+		sandboxID,
+		firstNonEmpty(driverName, vmState.Driver, RuntimeDriverBoxlite),
+		"boxlite metrics are not exposed by the current runtime wrapper",
+	), nil
+}
+
 func (r *cgoBoxRuntime) execWithStream(ctx context.Context, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
 	if strings.TrimSpace(vmState.BoxID) == "" {
 		return ExecResult{}, fmt.Errorf("session box is not initialized")

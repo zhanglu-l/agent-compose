@@ -47,6 +47,64 @@ func TestRemoveSandboxRemoveRaceRemainsInternal(t *testing.T) {
 	}
 }
 
+func TestGetSandboxStatsReturnsRuntimeMetrics(t *testing.T) {
+	value := 42.5
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", Driver: "docker", VMStatus: domain.VMStatusRunning}},
+		vmState: domain.VMState{
+			Driver: "docker",
+			BoxID:  "box-1",
+		},
+	}
+	runtime := &apiStatsRuntime{stats: domain.SandboxStats{
+		SandboxID:        "sandbox-1",
+		Driver:           "docker",
+		SampledAt:        time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC),
+		CPUPercent:       domain.MetricValue{Value: &value, Unit: "percent", Status: domain.MetricStatusOK},
+		MemoryUsageBytes: domain.MetricValue{Unit: "bytes", Status: domain.MetricStatusUnknown},
+	}}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil, func(*domain.Session) (SandboxStatsRuntime, error) {
+		return runtime, nil
+	})
+	resp, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if err != nil {
+		t.Fatalf("GetSandboxStats returned error: %v", err)
+	}
+	if resp.Msg.GetStats().GetCpuPercent().GetStatus() != agentcomposev2.MetricStatus_METRIC_STATUS_OK || resp.Msg.GetStats().GetCpuPercent().GetValue() != value {
+		t.Fatalf("GetSandboxStats response = %#v", resp.Msg.GetStats())
+	}
+	if resp.Msg.GetStats().GetMemoryUsageBytes().GetStatus() != agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN {
+		t.Fatalf("memory metric = %#v", resp.Msg.GetStats().GetMemoryUsageBytes())
+	}
+	if runtime.sessionID != "sandbox-1" || runtime.vmState.BoxID != "box-1" {
+		t.Fatalf("runtime call session/vm = %q/%#v", runtime.sessionID, runtime.vmState)
+	}
+}
+
+func TestGetSandboxStatsRejectsStoppedSandbox(t *testing.T) {
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", VMStatus: domain.VMStatusStopped}},
+	}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil, func(*domain.Session) (SandboxStatsRuntime, error) {
+		return &apiStatsRuntime{}, nil
+	})
+	_, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("GetSandboxStats stopped code = %v, err=%v", connect.CodeOf(err), err)
+	}
+}
+
+func TestGetSandboxStatsUnsupportedRuntimeIsUnimplemented(t *testing.T) {
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", VMStatus: domain.VMStatusRunning}},
+	}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil)
+	_, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if connect.CodeOf(err) != connect.CodeUnimplemented {
+		t.Fatalf("GetSandboxStats unsupported code = %v, err=%v", connect.CodeOf(err), err)
+	}
+}
+
 func TestLoaderServiceConnectErrorClassifiesInternalFailures(t *testing.T) {
 	tests := []struct {
 		err  error
@@ -500,6 +558,7 @@ func (r *apiExecRuntime) ExecStream(_ context.Context, _ *domain.Session, _ doma
 
 type apiSandboxStore struct {
 	session   *domain.Session
+	vmState   domain.VMState
 	removeErr error
 }
 
@@ -509,6 +568,24 @@ func (s *apiSandboxStore) GetSession(context.Context, string) (*domain.Session, 
 
 func (s *apiSandboxStore) RemoveSession(context.Context, string) error {
 	return s.removeErr
+}
+
+func (s *apiSandboxStore) GetVMState(string) (domain.VMState, error) {
+	return s.vmState, nil
+}
+
+type apiStatsRuntime struct {
+	stats     domain.SandboxStats
+	sessionID string
+	vmState   domain.VMState
+}
+
+func (r *apiStatsRuntime) Stats(_ context.Context, session *domain.Session, vmState domain.VMState) (domain.SandboxStats, error) {
+	if session != nil {
+		r.sessionID = session.Summary.ID
+	}
+	r.vmState = vmState
+	return r.stats, nil
 }
 
 type apiProjectRunStore struct {

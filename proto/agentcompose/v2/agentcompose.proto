@@ -36,6 +36,7 @@ service ImageService {
 
 service SandboxService {
   rpc RemoveSandbox(RemoveSandboxRequest) returns (RemoveSandboxResponse);
+  rpc GetSandboxStats(GetSandboxStatsRequest) returns (GetSandboxStatsResponse);
 }
 
 enum ProjectValidationSeverity {
@@ -114,6 +115,13 @@ enum ImageOperationStatus {
   IMAGE_OPERATION_STATUS_UNSPECIFIED = 0;
   IMAGE_OPERATION_STATUS_SUCCEEDED = 1;
   IMAGE_OPERATION_STATUS_FAILED = 2;
+}
+
+enum MetricStatus {
+  METRIC_STATUS_UNSPECIFIED = 0;
+  METRIC_STATUS_OK = 1;
+  METRIC_STATUS_UNKNOWN = 2;
+  METRIC_STATUS_UNAVAILABLE = 3;
 }
 
 message ValidateProjectRequest {
@@ -433,6 +441,36 @@ message RemoveSandboxResponse {
   string sandbox_id = 1;
   bool stopped = 2;
   bool removed = 3;
+}
+
+message GetSandboxStatsRequest {
+  string sandbox_id = 1;
+}
+
+message GetSandboxStatsResponse {
+  SandboxStats stats = 1;
+}
+
+message MetricValue {
+  optional double value = 1;
+  string unit = 2;
+  MetricStatus status = 3;
+  string message = 4;
+}
+
+message SandboxStats {
+  string sandbox_id = 1;
+  string driver = 2;
+  string sampled_at = 3;
+  MetricValue cpu_percent = 4;
+  MetricValue memory_usage_bytes = 5;
+  MetricValue memory_limit_bytes = 6;
+  MetricValue memory_percent = 7;
+  MetricValue network_rx_bytes = 8;
+  MetricValue network_tx_bytes = 9;
+  MetricValue block_read_bytes = 10;
+  MetricValue block_write_bytes = 11;
+  MetricValue uptime_seconds = 12;
 }
 
 message RunSummary {

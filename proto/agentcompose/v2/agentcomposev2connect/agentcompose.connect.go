@@ -90,6 +90,9 @@ const (
 	// SandboxServiceRemoveSandboxProcedure is the fully-qualified name of the SandboxService's
 	// RemoveSandbox RPC.
 	SandboxServiceRemoveSandboxProcedure = "/agentcompose.v2.SandboxService/RemoveSandbox"
+	// SandboxServiceGetSandboxStatsProcedure is the fully-qualified name of the SandboxService's
+	// GetSandboxStats RPC.
+	SandboxServiceGetSandboxStatsProcedure = "/agentcompose.v2.SandboxService/GetSandboxStats"
 )
 
 // ProjectServiceClient is a client for the agentcompose.v2.ProjectService service.
@@ -739,6 +742,7 @@ func (UnimplementedImageServiceHandler) RemoveImage(context.Context, *connect.Re
 // SandboxServiceClient is a client for the agentcompose.v2.SandboxService service.
 type SandboxServiceClient interface {
 	RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error)
+	GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error)
 }
 
 // NewSandboxServiceClient constructs a client for the agentcompose.v2.SandboxService service. By
@@ -758,12 +762,19 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sandboxServiceMethods.ByName("RemoveSandbox")),
 			connect.WithClientOptions(opts...),
 		),
+		getSandboxStats: connect.NewClient[v2.GetSandboxStatsRequest, v2.GetSandboxStatsResponse](
+			httpClient,
+			baseURL+SandboxServiceGetSandboxStatsProcedure,
+			connect.WithSchema(sandboxServiceMethods.ByName("GetSandboxStats")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sandboxServiceClient implements SandboxServiceClient.
 type sandboxServiceClient struct {
-	removeSandbox *connect.Client[v2.RemoveSandboxRequest, v2.RemoveSandboxResponse]
+	removeSandbox   *connect.Client[v2.RemoveSandboxRequest, v2.RemoveSandboxResponse]
+	getSandboxStats *connect.Client[v2.GetSandboxStatsRequest, v2.GetSandboxStatsResponse]
 }
 
 // RemoveSandbox calls agentcompose.v2.SandboxService.RemoveSandbox.
@@ -771,9 +782,15 @@ func (c *sandboxServiceClient) RemoveSandbox(ctx context.Context, req *connect.R
 	return c.removeSandbox.CallUnary(ctx, req)
 }
 
+// GetSandboxStats calls agentcompose.v2.SandboxService.GetSandboxStats.
+func (c *sandboxServiceClient) GetSandboxStats(ctx context.Context, req *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error) {
+	return c.getSandboxStats.CallUnary(ctx, req)
+}
+
 // SandboxServiceHandler is an implementation of the agentcompose.v2.SandboxService service.
 type SandboxServiceHandler interface {
 	RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error)
+	GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error)
 }
 
 // NewSandboxServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -789,10 +806,18 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sandboxServiceMethods.ByName("RemoveSandbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sandboxServiceGetSandboxStatsHandler := connect.NewUnaryHandler(
+		SandboxServiceGetSandboxStatsProcedure,
+		svc.GetSandboxStats,
+		connect.WithSchema(sandboxServiceMethods.ByName("GetSandboxStats")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentcompose.v2.SandboxService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SandboxServiceRemoveSandboxProcedure:
 			sandboxServiceRemoveSandboxHandler.ServeHTTP(w, r)
+		case SandboxServiceGetSandboxStatsProcedure:
+			sandboxServiceGetSandboxStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -804,4 +829,8 @@ type UnimplementedSandboxServiceHandler struct{}
 
 func (UnimplementedSandboxServiceHandler) RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.SandboxService.RemoveSandbox is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.SandboxService.GetSandboxStats is not implemented"))
 }

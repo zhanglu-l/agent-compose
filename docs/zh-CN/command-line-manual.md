@@ -215,6 +215,19 @@ agent-compose ps --json
 
 `--verbose` 增加 project、driver、image、Jupyter、workspace 和错误摘要等信息。
 
+## `stats`：查看 sandbox 资源统计
+
+查看运行中 sandbox 的单次资源统计快照。
+
+```bash
+agent-compose stats <sandbox>
+agent-compose stats <sandbox> --json
+```
+
+输出字段包括 CPU 百分比、memory usage/limit/percent、network rx/tx、block read/write、uptime、driver 和 sampled_at。不同 runtime driver 无法提供的字段会在文本表格中显示 `-`，在 JSON 中保留稳定 key，并以 `value: null` 和 `status: unknown` 或 `status: unavailable` 表达。
+
+driver 没有稳定 stats 能力入口时，命令会返回 unsupported，而不是普通 execution failed。
+
 ## `stop`：停止 sandbox
 
 停止一个或多个 sandbox。
@@ -427,7 +440,6 @@ agent-compose config --quiet
 
 以下命令或能力尚未作为稳定 CLI 发布：
 
-- `stats`：sandbox 资源统计需要统一 runtime 指标 API，本轮暂缓。
 - `build`：project image build 暂缓。
 - `push`：image push 暂缓。
 - `up -d/--detach`：当前 `up` 本身就是 apply project 后返回，不提供 detach 参数。

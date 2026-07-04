@@ -238,6 +238,34 @@ type ExecResult struct {
 	Success  bool
 }
 
+const (
+	MetricStatusOK          = "ok"
+	MetricStatusUnknown     = "unknown"
+	MetricStatusUnavailable = "unavailable"
+)
+
+type MetricValue struct {
+	Value   *float64 `json:"value"`
+	Unit    string   `json:"unit"`
+	Status  string   `json:"status"`
+	Message string   `json:"message,omitempty"`
+}
+
+type SandboxStats struct {
+	SandboxID        string      `json:"sandbox_id"`
+	Driver           string      `json:"driver"`
+	SampledAt        time.Time   `json:"sampled_at"`
+	CPUPercent       MetricValue `json:"cpu_percent"`
+	MemoryUsageBytes MetricValue `json:"memory_usage_bytes"`
+	MemoryLimitBytes MetricValue `json:"memory_limit_bytes"`
+	MemoryPercent    MetricValue `json:"memory_percent"`
+	NetworkRxBytes   MetricValue `json:"network_rx_bytes"`
+	NetworkTxBytes   MetricValue `json:"network_tx_bytes"`
+	BlockReadBytes   MetricValue `json:"block_read_bytes"`
+	BlockWriteBytes  MetricValue `json:"block_write_bytes"`
+	UptimeSeconds    MetricValue `json:"uptime_seconds"`
+}
+
 type RuntimeCommandArtifacts struct {
 	Stdout  string `json:"stdout"`
 	Stderr  string `json:"stderr"`

@@ -324,7 +324,7 @@
 
 ## 阶段 5：`stats` driver optional interface
 
-- [ ] 5.1 实现稳定 JSON model、`GetSandboxStats` 和 CLI `stats`
+- [x] 5.1 实现稳定 JSON model、`GetSandboxStats` 和 CLI `stats`
 
   依赖：0.1。
 
@@ -362,10 +362,27 @@
   - `stats` 不影响现有 `ps`、`inspect` 行为。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - v2 `SandboxService` 新增 `GetSandboxStats`；新增 `MetricStatus`、`MetricValue`、`SandboxStats`、`GetSandboxStatsRequest/Response`，并重新生成 Go proto/Connect Go 产物。
+    - 新增共享 sandbox stats domain/driver model，metric 字段统一使用 `value + unit + status + message`，状态覆盖 `ok`、`unknown`、`unavailable`。
+    - API `SandboxHandler.GetSandboxStats` 解析 sandbox/session、reconcile runtime state、拒绝 stopped sandbox，并通过 runtime optional `Stats` interface 返回指标；无稳定入口映射为 typed unsupported。
+    - Docker runtime 使用 Docker one-shot stats API 映射 CPU、memory、network、block IO 和 uptime。
+    - MicroSandbox runtime 映射 SDK `Metrics` 的 CPU、memory、disk IO、network 和 uptime 字段。
+    - BoxLite cgo runtime 当前 wrapper 未暴露稳定 metrics 调用，返回稳定 unknown metric 字段；非 cgo stub 仍按无稳定入口返回 unsupported。
+    - CLI 新增 `stats <sandbox>`，支持表格输出和 `--json`；JSON 保持稳定 key，unknown/unavailable metric 使用 `value: null` 和 status 表达，文本表格显示 `-`。
+    - 更新 `docs/zh-CN/command-line-manual.md`，补充 `stats` 命令说明，并移除 stats 暂缓说明。
+    - 补充 API service 测试、CLI 表格/JSON/unsupported 测试、Docker stats mapping 测试、MicroSandbox metrics mapping 测试。
+  - 验证：
+    - `protoc -I . --go_out=. --go_opt=module=agent-compose --connect-go_out=. --connect-go_opt=module=agent-compose proto/agentcompose/v2/agentcompose.proto`：通过。
+    - `cd proto-client && npm ci && npm run gen && npm run build`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/driver`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/storage/sessionstore ./pkg/driver`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - `stats` 是单次 snapshot，不实现持续 watch/stream。
+    - 本阶段没有改变现有 `ps`、`inspect` 行为；新增命令直接调用 sandbox v2 API。
+    - BoxLite 当前没有可调用的稳定 metrics binding，因此可得字段为空且全部以 unknown 表达；后续如 wrapper 暴露 metrics，可在 optional `Stats` 实现内补充映射，不需要改 CLI JSON shape。
   - 下一目标：6.1。
 
 ## 阶段 6：Jupyter CLI/YAML 和 proxy expose

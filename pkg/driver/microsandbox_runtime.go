@@ -262,6 +262,28 @@ func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, 
 	return result, nil
 }
 
+func (r *microsandboxRuntime) Stats(ctx context.Context, session *Session, vmState VMState) (SandboxStats, error) {
+	if err := r.ensureReady(ctx); err != nil {
+		return SandboxStats{}, err
+	}
+	name := r.sandboxName(session, vmState)
+	handle, err := microsandbox.GetSandbox(ctx, name)
+	if err != nil {
+		if microsandbox.IsKind(err, microsandbox.ErrSandboxNotFound) {
+			return SandboxStats{}, fmt.Errorf("session box is not initialized")
+		}
+		return SandboxStats{}, err
+	}
+	if handle.Status() != microsandbox.SandboxStatusRunning && handle.Status() != microsandbox.SandboxStatusDraining {
+		return SandboxStats{}, fmt.Errorf("session box is not running")
+	}
+	metrics, err := handle.Metrics(ctx)
+	if err != nil {
+		return SandboxStats{}, err
+	}
+	return microsandboxStatsFromMetrics(session, vmState, metrics), nil
+}
+
 func (r *microsandboxRuntime) ensureReady(ctx context.Context) error {
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
@@ -902,6 +924,36 @@ func (r *microsandboxRuntime) execOptions(ctx context.Context, spec ExecSpec) []
 
 func (r *microsandboxRuntime) sandboxName(session *Session, vmState VMState) string {
 	return firstNonEmpty(strings.TrimSpace(vmState.BoxName), strings.TrimSpace(vmState.BoxID), strings.TrimSpace(session.Summary.RuntimeRef), "agent-compose-"+session.Summary.ID)
+}
+
+func microsandboxStatsFromMetrics(session *Session, vmState VMState, metrics *microsandbox.Metrics) SandboxStats {
+	sandboxID := ""
+	driverName := RuntimeDriverMicrosandbox
+	if session != nil {
+		sandboxID = session.Summary.ID
+		driverName = firstNonEmpty(session.Summary.Driver, driverName)
+	}
+	if metrics == nil {
+		return unknownSandboxStats(sandboxID, firstNonEmpty(driverName, vmState.Driver, RuntimeDriverMicrosandbox), "microsandbox metrics are unavailable")
+	}
+	stats := SandboxStats{
+		SandboxID:        sandboxID,
+		Driver:           firstNonEmpty(driverName, vmState.Driver, RuntimeDriverMicrosandbox),
+		SampledAt:        time.Now().UTC(),
+		CPUPercent:       metricOK(metrics.CPUPercent, MetricUnitPercent),
+		MemoryUsageBytes: metricOK(float64(metrics.MemoryBytes), MetricUnitBytes),
+		MemoryLimitBytes: metricOK(float64(metrics.MemoryLimitBytes), MetricUnitBytes),
+		MemoryPercent:    metricUnknown(MetricUnitPercent, "memory limit is unknown"),
+		NetworkRxBytes:   metricOK(float64(metrics.NetRxBytes), MetricUnitBytes),
+		NetworkTxBytes:   metricOK(float64(metrics.NetTxBytes), MetricUnitBytes),
+		BlockReadBytes:   metricOK(float64(metrics.DiskReadBytes), MetricUnitBytes),
+		BlockWriteBytes:  metricOK(float64(metrics.DiskWriteBytes), MetricUnitBytes),
+		UptimeSeconds:    metricOK(metrics.Uptime.Seconds(), MetricUnitSeconds),
+	}
+	if metrics.MemoryLimitBytes > 0 {
+		stats.MemoryPercent = metricOK(float64(metrics.MemoryBytes)/float64(metrics.MemoryLimitBytes)*100, MetricUnitPercent)
+	}
+	return stats
 }
 
 func (r *microsandboxRuntime) releaseSandboxHandle(name string, sandbox *microsandbox.Sandbox) {

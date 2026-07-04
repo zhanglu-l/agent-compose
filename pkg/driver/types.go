@@ -72,6 +72,34 @@ type ExecResult struct {
 	Success  bool
 }
 
+const (
+	MetricStatusOK          = "ok"
+	MetricStatusUnknown     = "unknown"
+	MetricStatusUnavailable = "unavailable"
+)
+
+type MetricValue struct {
+	Value   *float64
+	Unit    string
+	Status  string
+	Message string
+}
+
+type SandboxStats struct {
+	SandboxID        string
+	Driver           string
+	SampledAt        time.Time
+	CPUPercent       MetricValue
+	MemoryUsageBytes MetricValue
+	MemoryLimitBytes MetricValue
+	MemoryPercent    MetricValue
+	NetworkRxBytes   MetricValue
+	NetworkTxBytes   MetricValue
+	BlockReadBytes   MetricValue
+	BlockWriteBytes  MetricValue
+	UptimeSeconds    MetricValue
+}
+
 type ExecStreamWriter func(ExecChunk)
 
 type SessionVMInfo struct {

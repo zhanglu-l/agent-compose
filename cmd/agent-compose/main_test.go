@@ -1999,6 +1999,82 @@ func TestIntegrationCLIResumeSandboxesJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIStatsTableAndJSON(t *testing.T) {
+	var calls int
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			getStats: func(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+				calls++
+				if req.Msg.GetSandboxId() != "sandbox-stats" {
+					t.Fatalf("GetSandboxStats sandbox = %q", req.Msg.GetSandboxId())
+				}
+				return connect.NewResponse(&agentcomposev2.GetSandboxStatsResponse{Stats: &agentcomposev2.SandboxStats{
+					SandboxId:        req.Msg.GetSandboxId(),
+					Driver:           "docker",
+					SampledAt:        "2026-07-04T08:00:00Z",
+					CpuPercent:       testStatsMetric(12.5, "percent"),
+					MemoryUsageBytes: testStatsMetric(512, "bytes"),
+					MemoryLimitBytes: &agentcomposev2.MetricValue{Unit: "bytes", Status: agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN, Message: "missing"},
+					MemoryPercent:    testStatsMetric(25, "percent"),
+					NetworkRxBytes:   testStatsMetric(100, "bytes"),
+					NetworkTxBytes:   testStatsMetric(200, "bytes"),
+					BlockReadBytes:   testStatsMetric(300, "bytes"),
+					BlockWriteBytes:  testStatsMetric(400, "bytes"),
+					UptimeSeconds:    testStatsMetric(90, "seconds"),
+				}}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "sandbox-stats")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("stats code/stderr = %d / %q", exitCode, stderr)
+	}
+	for _, want := range []string{"SANDBOX", "sandbox-stats", "docker", "12.50", "512", "-", "90s"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stats output %q does not contain %q", stdout, want)
+		}
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("stats", "--host", server.URL, "--json", "sandbox-stats")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("stats --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeStatsOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("stats JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if decoded.Sandbox != "sandbox-stats" || decoded.Driver != "docker" || decoded.MemoryLimitBytes.Status != "unknown" || decoded.MemoryLimitBytes.Value != nil {
+		t.Fatalf("stats JSON = %#v", decoded)
+	}
+	if decoded.CPUPercent.Value == nil || *decoded.CPUPercent.Value != 12.5 {
+		t.Fatalf("stats JSON cpu = %#v", decoded.CPUPercent)
+	}
+	if calls != 2 {
+		t.Fatalf("GetSandboxStats calls = %d, want 2", calls)
+	}
+}
+
+func TestCLIStatsUnsupportedUsesUnsupportedExitCode(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			getStats: func(context.Context, *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+				return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("sandbox stats are unsupported"))
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "sandbox-stats")
+	if exitCode != exitCodeUnsupported {
+		t.Fatalf("stats unsupported exit code = %d, want %d; stderr=%q", exitCode, exitCodeUnsupported, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "unsupported") {
+		t.Fatalf("stats unsupported stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
 func TestIntegrationCLIRemoveSandboxes(t *testing.T) {
 	type removedRequest struct {
 		sandbox string
@@ -3537,6 +3613,10 @@ func assertComposeUpChange(t *testing.T, changes []composeUpChangeOutput, action
 	t.Fatalf("change %s/%s/%s not found in %#v", action, resourceType, name, changes)
 }
 
+func testStatsMetric(value float64, unit string) *agentcomposev2.MetricValue {
+	return &agentcomposev2.MetricValue{Value: &value, Unit: unit, Status: agentcomposev2.MetricStatus_METRIC_STATUS_OK}
+}
+
 type runServiceStub struct {
 	runAgentStream func(context.Context, *connect.Request[agentcomposev2.RunAgentRequest], *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error
 	getRun         func(context.Context, *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error)
@@ -3680,6 +3760,7 @@ func (s imageServiceStub) RemoveImage(ctx context.Context, req *connect.Request[
 
 type sandboxServiceStub struct {
 	removeSandbox func(context.Context, *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error)
+	getStats      func(context.Context, *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error)
 
 	agentcomposev2connect.UnimplementedSandboxServiceHandler
 }
@@ -3689,6 +3770,13 @@ func (s sandboxServiceStub) RemoveSandbox(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("RemoveSandbox stub is not configured"))
 	}
 	return s.removeSandbox(ctx, req)
+}
+
+func (s sandboxServiceStub) GetSandboxStats(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+	if s.getStats == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("GetSandboxStats stub is not configured"))
+	}
+	return s.getStats(ctx, req)
 }
 
 type sessionServiceStub struct {
@@ -3747,7 +3835,7 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 		path, handler := agentcomposev2connect.NewImageServiceHandler(stubs.image)
 		mux.Handle(path, handler)
 	}
-	if stubs.sandbox.removeSandbox != nil {
+	if stubs.sandbox.removeSandbox != nil || stubs.sandbox.getStats != nil {
 		path, handler := agentcomposev2connect.NewSandboxServiceHandler(stubs.sandbox)
 		mux.Handle(path, handler)
 	}

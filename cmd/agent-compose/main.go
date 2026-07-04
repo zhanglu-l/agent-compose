@@ -555,6 +555,15 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	psCmd.Flags().StringVar(&psOptions.Status, "status", "", "Filter sandboxes by status, comma-separated")
 	psCmd.Flags().BoolVar(&psOptions.Verbose, "verbose", false, "Show more sandbox details")
 
+	statsCmd := &cobra.Command{
+		Use:   "stats <sandbox>",
+		Short: "Print sandbox resource stats",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runComposeStatsCommand(cmd, options, args[0])
+		},
+	}
+
 	stopCmd := &cobra.Command{
 		Use:   "stop <sandbox> [<sandbox N>]",
 		Short: "Stop one or more sandboxes",
@@ -713,7 +722,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 
-	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
+	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, statsCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
 	return root
 }
 
@@ -1076,6 +1085,27 @@ func removeSandbox(ctx context.Context, client agentcomposev2connect.SandboxServ
 		Force:     force,
 	}))
 	return err
+}
+
+func runComposeStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID string) error {
+	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	sandboxID = strings.TrimSpace(sandboxID)
+	resp, err := clients.sandbox.GetSandboxStats(cmd.Context(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: sandboxID}))
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("get sandbox %s stats: %w", sandboxID, err))
+	}
+	output := composeStatsOutputFromProto(resp.Msg.GetStats())
+	if cli.JSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	return writeStatsText(cmd.OutOrStdout(), output)
 }
 
 func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRunOptions, args []string) error {
@@ -1989,6 +2019,28 @@ type composePSSandboxOutput struct {
 	Workspace string `json:"workspace,omitempty"`
 }
 
+type composeStatsOutput struct {
+	Sandbox          string              `json:"sandbox"`
+	Driver           string              `json:"driver"`
+	SampledAt        string              `json:"sampled_at"`
+	CPUPercent       composeMetricOutput `json:"cpu_percent"`
+	MemoryUsageBytes composeMetricOutput `json:"memory_usage_bytes"`
+	MemoryLimitBytes composeMetricOutput `json:"memory_limit_bytes"`
+	MemoryPercent    composeMetricOutput `json:"memory_percent"`
+	NetworkRxBytes   composeMetricOutput `json:"network_rx_bytes"`
+	NetworkTxBytes   composeMetricOutput `json:"network_tx_bytes"`
+	BlockReadBytes   composeMetricOutput `json:"block_read_bytes"`
+	BlockWriteBytes  composeMetricOutput `json:"block_write_bytes"`
+	UptimeSeconds    composeMetricOutput `json:"uptime_seconds"`
+}
+
+type composeMetricOutput struct {
+	Value   *float64 `json:"value"`
+	Unit    string   `json:"unit"`
+	Status  string   `json:"status"`
+	Message string   `json:"message,omitempty"`
+}
+
 type composeProjectOutput struct {
 	Project    composeUpProjectOutput          `json:"project"`
 	Agents     []composeProjectAgentOutput     `json:"agents"`
@@ -2639,6 +2691,88 @@ func writePSText(out io.Writer, output composePSOutput, verbose bool) error {
 		}
 	}
 	return tw.Flush()
+}
+
+func composeStatsOutputFromProto(stats *agentcomposev2.SandboxStats) composeStatsOutput {
+	if stats == nil {
+		return composeStatsOutput{}
+	}
+	return composeStatsOutput{
+		Sandbox:          stats.GetSandboxId(),
+		Driver:           stats.GetDriver(),
+		SampledAt:        stats.GetSampledAt(),
+		CPUPercent:       composeMetricOutputFromProto(stats.GetCpuPercent()),
+		MemoryUsageBytes: composeMetricOutputFromProto(stats.GetMemoryUsageBytes()),
+		MemoryLimitBytes: composeMetricOutputFromProto(stats.GetMemoryLimitBytes()),
+		MemoryPercent:    composeMetricOutputFromProto(stats.GetMemoryPercent()),
+		NetworkRxBytes:   composeMetricOutputFromProto(stats.GetNetworkRxBytes()),
+		NetworkTxBytes:   composeMetricOutputFromProto(stats.GetNetworkTxBytes()),
+		BlockReadBytes:   composeMetricOutputFromProto(stats.GetBlockReadBytes()),
+		BlockWriteBytes:  composeMetricOutputFromProto(stats.GetBlockWriteBytes()),
+		UptimeSeconds:    composeMetricOutputFromProto(stats.GetUptimeSeconds()),
+	}
+}
+
+func composeMetricOutputFromProto(metric *agentcomposev2.MetricValue) composeMetricOutput {
+	if metric == nil {
+		return composeMetricOutput{Status: "unknown"}
+	}
+	return composeMetricOutput{
+		Value:   metric.Value,
+		Unit:    metric.GetUnit(),
+		Status:  metricStatusText(metric.GetStatus()),
+		Message: metric.GetMessage(),
+	}
+}
+
+func metricStatusText(status agentcomposev2.MetricStatus) string {
+	switch status {
+	case agentcomposev2.MetricStatus_METRIC_STATUS_OK:
+		return "ok"
+	case agentcomposev2.MetricStatus_METRIC_STATUS_UNAVAILABLE:
+		return "unavailable"
+	case agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN, agentcomposev2.MetricStatus_METRIC_STATUS_UNSPECIFIED:
+		fallthrough
+	default:
+		return "unknown"
+	}
+}
+
+func writeStatsText(out io.Writer, output composeStatsOutput) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "SANDBOX\tDRIVER\tCPU%\tMEM\tMEM_LIMIT\tMEM%\tNET_RX\tNET_TX\tBLOCK_READ\tBLOCK_WRITE\tUPTIME"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		output.Sandbox,
+		firstNonEmptyString(output.Driver, "-"),
+		formatMetricForText(output.CPUPercent),
+		formatMetricForText(output.MemoryUsageBytes),
+		formatMetricForText(output.MemoryLimitBytes),
+		formatMetricForText(output.MemoryPercent),
+		formatMetricForText(output.NetworkRxBytes),
+		formatMetricForText(output.NetworkTxBytes),
+		formatMetricForText(output.BlockReadBytes),
+		formatMetricForText(output.BlockWriteBytes),
+		formatMetricForText(output.UptimeSeconds),
+	); err != nil {
+		return err
+	}
+	return tw.Flush()
+}
+
+func formatMetricForText(metric composeMetricOutput) string {
+	if metric.Status != "ok" || metric.Value == nil {
+		return "-"
+	}
+	switch metric.Unit {
+	case "percent":
+		return fmt.Sprintf("%.2f", *metric.Value)
+	case "seconds":
+		return fmt.Sprintf("%.0fs", *metric.Value)
+	default:
+		return fmt.Sprintf("%.0f", *metric.Value)
+	}
 }
 
 func composeProjectOutputFromProject(project *agentcomposev2.Project) composeProjectOutput {
