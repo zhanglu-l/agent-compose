@@ -77,14 +77,19 @@ func (d projectControllerDelegate) ApplyProject(ctx context.Context, req *connec
 		return nil, projectConnectError(err)
 	}
 	spec := normalizedSpecToProto(result.RevisionSpec)
-	return connect.NewResponse(&agentcomposev2.ApplyProjectResponse{
-		Project:   api.ProjectToProto(result.Project, spec, result.Agents, result.Schedulers),
-		Revision:  api.ProjectRevisionToProto(result.Revision, spec),
+	resp := &agentcomposev2.ApplyProjectResponse{
 		Changes:   projectChangesToProto(result.Changes),
 		Issues:    validationIssuesToProto(result.Issues),
 		Applied:   result.Applied,
 		Unchanged: result.Unchanged,
-	}), nil
+	}
+	if strings.TrimSpace(result.Project.ID) != "" {
+		resp.Project = api.ProjectToProto(result.Project, spec, result.Agents, result.Schedulers)
+	}
+	if strings.TrimSpace(result.Revision.ProjectID) != "" {
+		resp.Revision = api.ProjectRevisionToProto(result.Revision, spec)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (d projectControllerDelegate) RemoveProject(ctx context.Context, req *connect.Request[agentcomposev2.RemoveProjectRequest]) (*connect.Response[agentcomposev2.RemoveProjectResponse], error) {

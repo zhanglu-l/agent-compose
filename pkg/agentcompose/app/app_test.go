@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/labstack/echo/v4"
 	"github.com/samber/do/v2"
 
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
+	"agent-compose/pkg/projects"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -76,6 +78,20 @@ func TestRunAgentRequestFromProtoPreservesCommand(t *testing.T) {
 	})
 	if req.ProjectID != "project-1" || req.AgentName != "worker" || req.Prompt != "prompt" || req.Command != "echo hi" || req.TriggerID != "trigger-1" {
 		t.Fatalf("mapped request = %#v", req)
+	}
+}
+
+func TestApplyProjectValidationIssuesOmitProjectAndRevision(t *testing.T) {
+	handler := projectControllerDelegate{controller: projects.NewController(projects.ControllerDependencies{})}
+	resp, err := handler.ApplyProject(context.Background(), connect.NewRequest(&agentcomposev2.ApplyProjectRequest{}))
+	if err != nil {
+		t.Fatalf("ApplyProject returned error: %v", err)
+	}
+	if len(resp.Msg.GetIssues()) == 0 {
+		t.Fatalf("expected validation issues, got %#v", resp.Msg)
+	}
+	if resp.Msg.GetProject() != nil || resp.Msg.GetRevision() != nil {
+		t.Fatalf("validation failure project=%#v revision=%#v", resp.Msg.GetProject(), resp.Msg.GetRevision())
 	}
 }
 
