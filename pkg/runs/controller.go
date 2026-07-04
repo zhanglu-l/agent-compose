@@ -261,7 +261,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		RunID:             run.RunID,
 		Message:           req.Prompt,
 		OutputSchemaJSON:  req.OutputSchemaJSON,
-		Stream:            projectRunAgentExecutionStream(run, stream),
+		Stream:            projectRunAgentExecutionStream(run, sessionResult.Session, stream),
 	})
 	transition := TransitionFromAgentCell(run, sessionResult.Session, cell, execErr)
 	if execErr != nil || !cell.Success {
@@ -295,9 +295,12 @@ func markProjectRunTerminalError(ctx context.Context, coordinator *Coordinator, 
 }
 
 func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Session, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
+	artifactsDir := projectRunCommandArtifactsDir(run, session)
+	logsPath := filepath.Join(artifactsDir, "output.txt")
 	transition := TransitionRequest{
 		RunID:     run.RunID,
 		SessionID: session.Summary.ID,
+		LogsPath:  logsPath,
 	}
 	if c.store == nil || c.runtime == nil {
 		err := fmt.Errorf("command runtime dependencies are required")
@@ -329,6 +332,10 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 	var sendErr error
 	writer := func(chunk domain.ExecChunk) {
 		if sendErr != nil {
+			return
+		}
+		if err := appendProjectRunLogChunk(logsPath, chunk); err != nil {
+			sendErr = err
 			return
 		}
 		accumulator.WriteChunk(chunk)
@@ -382,19 +389,19 @@ func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.Proje
 	return config, nil
 }
 
-func projectRunAgentExecutionStream(run domain.ProjectRunRecord, sink *StreamSink) execution.AgentExecutionStream {
-	if sink == nil {
-		return execution.AgentExecutionStream{}
-	}
+func projectRunAgentExecutionStream(run domain.ProjectRunRecord, session *domain.Session, sink *StreamSink) execution.AgentExecutionStream {
 	return execution.AgentExecutionStream{
 		OnStart: func(domain.NotebookCell) error {
-			if sink.SendStarted == nil {
+			if sink == nil || sink.SendStarted == nil {
 				return nil
 			}
 			return sink.SendStarted(run, time.Now().UTC())
 		},
-		OnChunk: func(_ string, chunk domain.ExecChunk) error {
-			if sink.SendChunk == nil {
+		OnChunk: func(cellID string, chunk domain.ExecChunk) error {
+			if err := appendProjectRunLogChunk(projectRunAgentCellOutputPath(session, cellID), chunk); err != nil {
+				return err
+			}
+			if sink == nil || sink.SendChunk == nil {
 				return nil
 			}
 			return sink.SendChunk(run.RunID, chunk, time.Now().UTC())
@@ -403,7 +410,7 @@ func projectRunAgentExecutionStream(run domain.ProjectRunRecord, sink *StreamSin
 }
 
 func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Session, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
-	artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+	artifactsDir := projectRunCommandArtifactsDir(run, session)
 	req := TransitionRequest{
 		RunID:        run.RunID,
 		SessionID:    session.Summary.ID,
@@ -434,6 +441,37 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Se
 		}
 	}
 	return req
+}
+
+func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Session) string {
+	return filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+}
+
+func projectRunAgentCellOutputPath(session *domain.Session, cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if session == nil || cellID == "" {
+		return ""
+	}
+	return filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID, "output.txt")
+}
+
+func appendProjectRunLogChunk(path string, chunk domain.ExecChunk) error {
+	path = strings.TrimSpace(path)
+	if path == "" || chunk.Text == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create run log dir: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open run log %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	if _, err := file.WriteString(chunk.Text); err != nil {
+		return fmt.Errorf("append run log %s: %w", path, err)
+	}
+	return nil
 }
 
 func writeProjectRunCommandArtifacts(artifactsDir, commandText string, result domain.ExecResult) error {

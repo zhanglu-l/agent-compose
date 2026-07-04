@@ -228,7 +228,7 @@
 
 ## 阶段 4：`logs --follow` 文件 tail
 
-- [ ] 4.1 统一 run 过程中的 `logs_path/output.txt` 实时 append
+- [x] 4.1 统一 run 过程中的 `logs_path/output.txt` 实时 append
 
   依赖：0.1、2.1。
 
@@ -256,10 +256,20 @@
   - 未创建 run output chunk DB 表。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - command run 在 `ExecStream` writer 收到每个 chunk 时同步 append 到 `state/runs/<run_id>/output.txt`，该路径继续作为 `project_run.logs_path`。
+    - agent run 在 `AgentExecutionStream.OnChunk` 收到每个 chunk 时同步 append 到 `state/cells/<cell_id>/output.txt`，该路径继续作为 `project_run.logs_path`。
+    - 新增共享 append helper，按 chunk 顺序写入 stdout/stderr 文本，不创建 run output chunk DB 表。
+    - 保持 `project_run.output` 为 terminal transition 的汇总输出；`logs_path` 是后续 follow 的文件权威来源。
+    - 补充 command run、agent run 和 append helper 测试，覆盖日志文件内容与 stdout/stderr chunk 顺序。
+  - 验证：
+    - `go test ./pkg/runs ./pkg/execution ./pkg/storage/sessionstore`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - command run 结束时仍通过 `WriteCellArtifacts` 用累积结果重写 `output.txt`，因此最终文件与 `project_run.output` 保持一致；运行中同一路径已可随 stream chunk 增长。
+    - agent executor 结束时仍会写完整 cell artifacts；本阶段只保证 `OnChunk` 期间同一 `logs_path` 可增量读取。
+    - 本阶段未新增 DB output chunk 表，也未实现 follow API；`logs --follow` 的服务端 tail 语义留到 4.2。
   - 下一目标：4.2。
 
 - [ ] 4.2 实现 `FollowRunLogs` API 和 CLI `logs --follow`

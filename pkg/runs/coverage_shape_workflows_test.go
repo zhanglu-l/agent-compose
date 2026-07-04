@@ -268,6 +268,9 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	if !started || len(chunks) != 1 || !driver.started || !driver.stopped || executor.request.Message != "do work" {
 		t.Fatalf("started=%v chunks=%#v driver=%#v request=%#v", started, chunks, driver, executor.request)
 	}
+	if data, err := os.ReadFile(run.LogsPath); err != nil || string(data) != "chunk" {
+		t.Fatalf("agent run logs_path content = %q err=%v", string(data), err)
+	}
 	if len(bus.events) == 0 || len(dashboard.reasons) == 0 {
 		t.Fatalf("bus=%#v dashboard=%#v", bus.events, dashboard.reasons)
 	}
@@ -340,6 +343,9 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	}
 	if run.Status != domain.ProjectRunStatusSucceeded || run.Output != "command output\n" || run.ArtifactsDir == "" || run.LogsPath == "" {
 		t.Fatalf("command run = %#v", run)
+	}
+	if data, err := os.ReadFile(run.LogsPath); err != nil || string(data) != "command output\n" {
+		t.Fatalf("command run logs_path content = %q err=%v", string(data), err)
 	}
 	if !started || len(chunks) != 1 || runtime.spec.Command != "bash" || strings.Join(runtime.spec.Args, " ") != "-lc echo command" {
 		t.Fatalf("started=%v chunks=%#v spec=%#v", started, chunks, runtime.spec)
@@ -651,6 +657,26 @@ func TestRunsControllerRunProjectAgentManualTriggerMissingDoesNotCreateRun(t *te
 	}
 	if len(fixture.configDB.runs) != 0 {
 		t.Fatalf("runs created before trigger resolution failure: %#v", fixture.configDB.runs)
+	}
+}
+
+func TestRunsProjectRunLogAppendChunk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "runs", "run-1", "output.txt")
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stdout\n"}); err != nil {
+		t.Fatalf("append stdout returned error: %v", err)
+	}
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", IsStderr: true}); err != nil {
+		t.Fatalf("append stderr returned error: %v", err)
+	}
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{}); err != nil {
+		t.Fatalf("append empty returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(data) != "stdout\nstderr\n" {
+		t.Fatalf("log content = %q", string(data))
 	}
 }
 
