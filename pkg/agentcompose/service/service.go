@@ -74,6 +74,7 @@ type Service struct {
 	agentcomposev2connect.UnimplementedRunServiceHandler
 	agentcomposev2connect.UnimplementedExecServiceHandler
 	agentcomposev2connect.UnimplementedImageServiceHandler
+	agentcomposev2connect.UnimplementedSandboxServiceHandler
 }
 
 func NewService(di do.Injector) (*Service, error) {
@@ -179,6 +180,8 @@ func Register(di do.Injector) {
 	path, handler = agentcomposev2connect.NewExecServiceHandler(service)
 	app.Any(path+"*", echo.WrapHandler(handler))
 	path, handler = agentcomposev2connect.NewImageServiceHandler(service)
+	app.Any(path+"*", echo.WrapHandler(handler))
+	path, handler = agentcomposev2connect.NewSandboxServiceHandler(service)
 	app.Any(path+"*", echo.WrapHandler(handler))
 
 	registerWebhookRoutes(app, service)

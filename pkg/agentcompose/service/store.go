@@ -71,6 +71,14 @@ func (s *Store) UpdateSession(ctx context.Context, session *Session) error {
 	return store.UpdateSession(ctx, session)
 }
 
+func (s *Store) RemoveSession(ctx context.Context, id string) error {
+	store, err := s.sessionStore()
+	if err != nil {
+		return err
+	}
+	return store.RemoveSession(ctx, id)
+}
+
 func (s *Store) AddCell(ctx context.Context, session *Session, cell NotebookCell) error {
 	store, err := s.sessionStore()
 	if err != nil {

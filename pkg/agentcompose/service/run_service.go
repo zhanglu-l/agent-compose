@@ -1,11 +1,13 @@
 package agentcompose
 
 import (
+	appconfig "agent-compose/pkg/config"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -68,6 +70,10 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	if s.configDB == nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("config store is required"))
 	}
+	commandText := strings.TrimSpace(msg.GetCommand())
+	if commandText != "" && (strings.TrimSpace(msg.GetPrompt()) != "" || strings.TrimSpace(msg.GetTriggerId()) != "") {
+		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("run requires only one of command, prompt, or trigger"))
+	}
 	coordinator := runs.NewCoordinator(s.configDB, domain.StableProjectRunID)
 	run, err := coordinator.BeginRun(ctx, runs.StartRequest{
 		ProjectID:       msg.GetProjectId(),
@@ -111,6 +117,23 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
 	if err != nil {
 		return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if commandText != "" {
+		transition, execErr := s.executeProjectRunCommand(ctx, run, sessionResult.Session, msg, commandText, stream)
+		if execErr != nil || transition.ExitCode != 0 {
+			run, err = coordinator.MarkFailed(transitionCtx, transition)
+			if err != nil {
+				return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
+			}
+			run = s.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
+			return run, execErr, nil
+		}
+		run, err = coordinator.MarkSucceeded(transitionCtx, transition)
+		if err != nil {
+			return ProjectRunRecord{}, nil, connect.NewError(connect.CodeInternal, err)
+		}
+		run = s.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
+		return run, nil, nil
 	}
 	agentConfig, err := s.projectRunAgentConfig(ctx, run)
 	if err != nil {
@@ -162,6 +185,93 @@ func (s *Service) runProjectAgent(ctx context.Context, msg *agentcomposev2.RunAg
 	}
 	run = s.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, msg.GetCleanupPolicy())
 	return run, nil, nil
+}
+
+func (s *Service) executeProjectRunCommand(ctx context.Context, run ProjectRunRecord, session *Session, msg *agentcomposev2.RunAgentRequest, commandText string, sink *projectRunStreamSink) (runs.TransitionRequest, error) {
+	transition := runs.TransitionRequest{
+		RunID:     run.RunID,
+		SessionID: session.Summary.ID,
+	}
+	if s.store == nil || s.runtimes == nil {
+		err := fmt.Errorf("command runtime dependencies are required")
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	if sink != nil && sink.send != nil {
+		if err := sink.send(&agentcomposev2.RunAgentStreamResponse{
+			EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_STARTED,
+			Run:       api.ProjectRunSummaryToProto(run),
+			RunId:     run.RunID,
+			CreatedAt: api.FormatProjectTime(time.Now().UTC()),
+		}); err != nil {
+			transition.ExitCode = 1
+			transition.Error = fmt.Sprintf("command execution failed: %v", err)
+			return transition, err
+		}
+	}
+	appconfig.ApplyDefaultGuestPaths(s.config)
+	vmState, err := s.store.GetVMState(session.Summary.ID)
+	if err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	runtime, err := s.runtimes.ForSession(session)
+	if err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	accumulator := execStreamAccumulator{}
+	var sendErr error
+	writer := func(chunk ExecChunk) {
+		if sendErr != nil {
+			return
+		}
+		accumulator.writeChunk(chunk)
+		if sink != nil && sink.send != nil {
+			sendErr = sink.send(&agentcomposev2.RunAgentStreamResponse{
+				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+				RunId:     run.RunID,
+				Chunk:     chunk.Text,
+				IsStderr:  chunk.IsStderr,
+				CreatedAt: api.FormatProjectTime(time.Now().UTC()),
+			})
+		}
+	}
+	execCtx, cancel := execution.ExecContext(ctx, 0)
+	defer cancel()
+	result, execErr := runtime.ExecStream(execCtx, session, vmState, ExecSpec{
+		Command: "bash",
+		Args:    []string{"-lc", commandText},
+		Env:     api.ExecEnvMap(msg.GetEnv()),
+		Cwd:     s.config.GuestWorkspacePath,
+	}, writer)
+	if sendErr != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", sendErr)
+		return transition, sendErr
+	}
+	if execErr != nil {
+		result = execution.MergeExecResults(result, accumulator.result(execution.FirstNonZeroInt(result.ExitCode, 1), false))
+		result.ExitCode = execution.FirstNonZeroInt(result.ExitCode, 1)
+		result.Success = false
+		if strings.TrimSpace(result.Output) == "" {
+			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
+		}
+	} else {
+		result = execution.MergeExecResults(result, accumulator.result(result.ExitCode, result.Success))
+	}
+	transition = projectRunTransitionFromCommandResult(run, session, commandText, result, execErr)
+	if err := writeProjectRunCommandArtifacts(transition.ArtifactsDir, commandText, result); err != nil {
+		if execErr == nil {
+			execErr = err
+		}
+		transition.ExitCode = execution.FirstNonZeroInt(transition.ExitCode, 1)
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+	}
+	return transition, execErr
 }
 
 func (s *Service) projectRunAgentConfig(ctx context.Context, run ProjectRunRecord) (agentExecutionConfig, error) {
@@ -237,6 +347,47 @@ func projectRunTransitionFromAgentCell(run ProjectRunRecord, session *Session, c
 		}
 	}
 	return req
+}
+
+func projectRunTransitionFromCommandResult(run ProjectRunRecord, session *Session, commandText string, result domain.ExecResult, execErr error) runs.TransitionRequest {
+	artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+	req := runs.TransitionRequest{
+		RunID:        run.RunID,
+		SessionID:    session.Summary.ID,
+		ExitCode:     result.ExitCode,
+		Output:       result.Output,
+		ArtifactsDir: artifactsDir,
+		LogsPath:     filepath.Join(artifactsDir, "output.txt"),
+	}
+	resultJSON, err := json.Marshal(map[string]any{
+		"mode":     "command",
+		"command":  commandText,
+		"success":  result.Success,
+		"exitCode": result.ExitCode,
+	})
+	if err == nil {
+		req.ResultJSON = string(resultJSON)
+	}
+	if execErr != nil {
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
+		req.Error = fmt.Sprintf("command execution failed: %v", execErr)
+		return req
+	}
+	if !result.Success {
+		req.ExitCode = execution.FirstNonZeroInt(req.ExitCode, 1)
+		req.Error = "command execution failed"
+		if detail := firstNonEmpty(result.Stderr, result.Output, result.Stdout); strings.TrimSpace(detail) != "" {
+			req.Error += ": " + strings.TrimSpace(detail)
+		}
+	}
+	return req
+}
+
+func writeProjectRunCommandArtifacts(artifactsDir, commandText string, result domain.ExecResult) error {
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		return fmt.Errorf("create command artifacts dir: %w", err)
+	}
+	return execution.WriteCellArtifacts(artifactsDir, commandText, result)
 }
 
 func (s *Service) cleanupProjectRunSession(ctx context.Context, coordinator *runs.Coordinator, run ProjectRunRecord, session *Session, policy agentcomposev2.RunSessionCleanupPolicy) ProjectRunRecord {

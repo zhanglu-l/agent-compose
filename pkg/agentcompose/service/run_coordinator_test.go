@@ -414,6 +414,135 @@ func testRunAgentStreamReturnsRealtimeOutput(t *testing.T) {
 	}
 }
 
+func TestRunServiceCommandRunPersistsSucceededRecordAndStreamsOutput(t *testing.T) {
+	store, service, projectID := setupRunCoordinatorProject(t)
+	runtime := runServiceFakeRuntime(t, service)
+	runtime.commandStdout = "command stdout\n"
+	runtime.commandStderr = "command stderr\n"
+	client, closeServer := newRunServiceTestClient(t, service)
+	defer closeServer()
+	ctx := context.Background()
+
+	events, err := collectRunAgentStreamEvents(ctx, client, &agentcomposev2.RunAgentRequest{
+		ProjectId:       projectID,
+		AgentName:       "reviewer",
+		Command:         "echo command",
+		Source:          agentcomposev2.RunSource_RUN_SOURCE_API,
+		ClientRequestId: "command-success-request",
+	})
+	if err != nil {
+		t.Fatalf("RunAgentStream command returned error: %v", err)
+	}
+	if len(runtime.providers) != 0 {
+		t.Fatalf("agent providers called for command run: %#v", runtime.providers)
+	}
+	if len(runtime.commandSpecs) != 1 || runtime.commandSpecs[0].Command != "bash" || len(runtime.commandSpecs[0].Args) != 2 || runtime.commandSpecs[0].Args[0] != "-lc" || runtime.commandSpecs[0].Args[1] != "echo command" {
+		t.Fatalf("command exec specs = %#v", runtime.commandSpecs)
+	}
+	if lastRunAgentStreamEvent(events, agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_STARTED) == nil {
+		t.Fatalf("command stream missing started event: %#v", events)
+	}
+	var stdoutSeen, stderrSeen bool
+	for _, event := range events {
+		if event.GetEventType() != agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT {
+			continue
+		}
+		if event.GetChunk() == "command stdout\n" && !event.GetIsStderr() {
+			stdoutSeen = true
+		}
+		if event.GetChunk() == "command stderr\n" && event.GetIsStderr() {
+			stderrSeen = true
+		}
+	}
+	completed := lastRunAgentStreamEvent(events, agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED)
+	if !stdoutSeen || !stderrSeen || completed == nil || completed.GetRun().GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("command stream stdout=%v stderr=%v completed=%#v events=%#v", stdoutSeen, stderrSeen, completed, events)
+	}
+	stored, err := store.GetProjectRun(ctx, completed.GetRunId())
+	if err != nil {
+		t.Fatalf("GetProjectRun command returned error: %v", err)
+	}
+	if stored.Status != domain.ProjectRunStatusSucceeded || stored.ExitCode != 0 || stored.Output != "command stdout\ncommand stderr\n" || stored.SessionID == "" {
+		t.Fatalf("stored command run = %#v", stored)
+	}
+	if !strings.Contains(stored.ResultJSON, `"mode":"command"`) || !strings.Contains(stored.ResultJSON, `"command":"echo command"`) {
+		t.Fatalf("stored command result json = %s", stored.ResultJSON)
+	}
+	if stored.ArtifactsDir == "" || stored.LogsPath == "" {
+		t.Fatalf("stored command artifacts = %#v", stored)
+	}
+	if data, err := os.ReadFile(stored.LogsPath); err != nil || string(data) != stored.Output {
+		t.Fatalf("stored command logs path read = %q, %v; want %q", data, err, stored.Output)
+	}
+	session, err := service.store.GetSession(ctx, stored.SessionID)
+	if err != nil {
+		t.Fatalf("GetSession command returned error: %v", err)
+	}
+	if session.Summary.VMStatus != domain.VMStatusStopped {
+		t.Fatalf("command run cleanup session status = %q, want stopped", session.Summary.VMStatus)
+	}
+
+	keepResp, err := service.RunAgent(ctx, connect.NewRequest(&agentcomposev2.RunAgentRequest{
+		ProjectId:       projectID,
+		AgentName:       "reviewer",
+		Command:         "echo keep",
+		CleanupPolicy:   agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING,
+		ClientRequestId: "command-keep-running-request",
+	}))
+	if err != nil {
+		t.Fatalf("RunAgent command keep-running returned error: %v", err)
+	}
+	keepSummary := keepResp.Msg.GetRun().GetSummary()
+	if keepSummary.GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED || keepSummary.GetSessionId() == "" {
+		t.Fatalf("RunAgent command keep-running summary = %#v", keepSummary)
+	}
+	keepSession, err := service.store.GetSession(ctx, keepSummary.GetSessionId())
+	if err != nil {
+		t.Fatalf("GetSession command keep-running returned error: %v", err)
+	}
+	if keepSession.Summary.VMStatus != domain.VMStatusRunning {
+		t.Fatalf("command keep-running session status = %q, want running", keepSession.Summary.VMStatus)
+	}
+	if len(runtime.providers) != 0 {
+		t.Fatalf("agent providers called for command keep-running run: %#v", runtime.providers)
+	}
+}
+
+func TestRunServiceCommandRunPersistsFailedRecord(t *testing.T) {
+	store, service, projectID := setupRunCoordinatorProject(t)
+	runtime := runServiceFakeRuntime(t, service)
+	runtime.commandExitCode = 7
+	runtime.commandStdout = "partial stdout\n"
+	runtime.commandStderr = "command failed\n"
+	client, closeServer := newRunServiceTestClient(t, service)
+	defer closeServer()
+	ctx := context.Background()
+
+	events, err := collectRunAgentStreamEvents(ctx, client, &agentcomposev2.RunAgentRequest{
+		ProjectId:       projectID,
+		AgentName:       "reviewer",
+		Command:         "exit 7",
+		ClientRequestId: "command-failure-request",
+	})
+	if err != nil {
+		t.Fatalf("RunAgentStream command failure returned RPC error: %v", err)
+	}
+	completed := lastRunAgentStreamEvent(events, agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED)
+	if completed == nil || completed.GetRun().GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_FAILED || completed.GetRun().GetExitCode() != 7 {
+		t.Fatalf("completed command failure = %#v events=%#v", completed, events)
+	}
+	stored, err := store.GetProjectRun(ctx, completed.GetRunId())
+	if err != nil {
+		t.Fatalf("GetProjectRun failed command returned error: %v", err)
+	}
+	if stored.Status != domain.ProjectRunStatusFailed || stored.ExitCode != 7 || stored.Output != "partial stdout\ncommand failed\n" {
+		t.Fatalf("stored failed command run = %#v", stored)
+	}
+	if !strings.Contains(stored.Error, "command failed") || !strings.Contains(stored.ResultJSON, `"success":false`) {
+		t.Fatalf("stored failed command error/result = %q / %s", stored.Error, stored.ResultJSON)
+	}
+}
+
 func TestIntegrationRunAgentStreamAgentFailurePersistsRun(t *testing.T) {
 	testRunAgentStreamAgentFailurePersistsRun(t)
 }

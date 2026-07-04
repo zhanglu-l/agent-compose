@@ -7,6 +7,7 @@ Chinese documentation is available at [zh-CN/README.md](zh-CN/README.md).
 ## User Guides
 
 - [Project overview and quick start](../README.md)
+- [Command line manual](command-line-manual.md)
 - [Configuration example](../.env.example)
 - [Loader script API](../loader-script/README.md)
 - [Security policy](../SECURITY.md)

@@ -2116,6 +2116,7 @@ func (r *fakeLoaderAgentRuntime) ExecStream(ctx context.Context, session *Sessio
 		}, nil
 	}
 	if spec.Command == "bash" || spec.Command == "node" || spec.Command == "python3" {
+		r.commandSpecs = append(r.commandSpecs, spec)
 		stdout := firstNonEmpty(r.commandStdout, "cell stdout\n")
 		stderr := r.commandStderr
 		output := firstNonEmpty(r.commandOutput, stdout+stderr)

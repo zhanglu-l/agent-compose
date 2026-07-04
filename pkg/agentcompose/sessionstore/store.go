@@ -220,6 +220,21 @@ func (s *Store) UpdateSession(_ context.Context, session *Session) error {
 	return s.saveSession(session)
 }
 
+func (s *Store) RemoveSession(_ context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if err := validateSessionIDForRemove(id); err != nil {
+		return err
+	}
+	path := s.sessionDir(id)
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("stat session dir %s: %w", id, err)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove session dir %s: %w", id, err)
+	}
+	return nil
+}
+
 func (s *Store) AddCell(_ context.Context, session *Session, cell NotebookCell) error {
 	cells, err := s.loadCells(session.Summary.ID)
 	if err != nil {
@@ -313,6 +328,16 @@ func (s *Store) sessionDir(id string) string {
 
 func (s *Store) SessionDir(id string) string {
 	return s.sessionDir(id)
+}
+
+func validateSessionIDForRemove(id string) error {
+	if id == "" {
+		return fmt.Errorf("session id is required")
+	}
+	if id == "." || id == ".." || filepath.Base(id) != id {
+		return fmt.Errorf("invalid session id %q", id)
+	}
+	return nil
 }
 
 func (s *Store) hydrateSessionGuestImage(session *Session) {

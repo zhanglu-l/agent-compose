@@ -8,6 +8,8 @@ agent-compose 是一个 daemon + CLI 形态的 agent/session 控制面。daemon 
 
 ## 快速开始
 
+完整 CLI 说明见 [agent-compose 命令行使用手册](command-line-manual.md)。
+
 构建：
 
 ```bash
@@ -200,7 +202,9 @@ task test
 相关文档：
 
 - [英文文档索引](../README.md)
+- [命令行使用手册](command-line-manual.md)
 - [架构说明](design/agent-compose_design.md)
+- [CLI 改进计划](design/agent-compose-cli-improvement-plan.md)
 - [Agent system prompt（Phase 1）](design/agent_system_prompt_design.md)
 - [Runtime contract](design/agent-compose-runtime_contract.md)
 - [OpenCode CLI Provider 支持](design/opencode_cli_support.md)
