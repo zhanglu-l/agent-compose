@@ -19,6 +19,7 @@ func ProjectRunDetailToProto(run domain.ProjectRunRecord) *agentcomposev2.RunDet
 		CleanupError: run.CleanupError,
 		Driver:       run.Driver,
 		ImageRef:     run.ImageRef,
+		Warnings:     append([]string(nil), run.Warnings...),
 	}
 }
 
@@ -42,6 +43,7 @@ func ProjectRunSummaryToProto(run domain.ProjectRunRecord) *agentcomposev2.RunSu
 		DurationMs:      run.DurationMs,
 		CreatedAt:       FormatProjectTime(run.CreatedAt),
 		UpdatedAt:       FormatProjectTime(run.UpdatedAt),
+		Warnings:        append([]string(nil), run.Warnings...),
 	}
 }
 

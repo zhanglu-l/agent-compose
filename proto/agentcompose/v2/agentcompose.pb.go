@@ -2935,6 +2935,7 @@ func (x *RunAgentRequest) GetCommand() string {
 type RunAgentResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Run           *RunDetail             `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	Warnings      []string               `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2976,6 +2977,13 @@ func (x *RunAgentResponse) GetRun() *RunDetail {
 	return nil
 }
 
+func (x *RunAgentResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 type RunAgentStreamResponse struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	EventType     RunAgentStreamEventType `protobuf:"varint,1,opt,name=event_type,json=eventType,proto3,enum=agentcompose.v2.RunAgentStreamEventType" json:"event_type,omitempty"`
@@ -2984,6 +2992,7 @@ type RunAgentStreamResponse struct {
 	Chunk         string                  `protobuf:"bytes,4,opt,name=chunk,proto3" json:"chunk,omitempty"`
 	IsStderr      bool                    `protobuf:"varint,5,opt,name=is_stderr,json=isStderr,proto3" json:"is_stderr,omitempty"`
 	CreatedAt     string                  `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Warnings      []string                `protobuf:"bytes,7,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3058,6 +3067,13 @@ func (x *RunAgentStreamResponse) GetCreatedAt() string {
 		return x.CreatedAt
 	}
 	return ""
+}
+
+func (x *RunAgentStreamResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
 }
 
 type GetRunRequest struct {
@@ -3552,6 +3568,7 @@ type RunSummary struct {
 	DurationMs      int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
 	CreatedAt       string                 `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt       string                 `protobuf:"bytes,18,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Warnings        []string               `protobuf:"bytes,19,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3712,6 +3729,13 @@ func (x *RunSummary) GetUpdatedAt() string {
 	return ""
 }
 
+func (x *RunSummary) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 type RunDetail struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Summary       *RunSummary            `protobuf:"bytes,1,opt,name=summary,proto3" json:"summary,omitempty"`
@@ -3723,6 +3747,7 @@ type RunDetail struct {
 	CleanupError  string                 `protobuf:"bytes,7,opt,name=cleanup_error,json=cleanupError,proto3" json:"cleanup_error,omitempty"`
 	Driver        string                 `protobuf:"bytes,8,opt,name=driver,proto3" json:"driver,omitempty"`
 	ImageRef      string                 `protobuf:"bytes,9,opt,name=image_ref,json=imageRef,proto3" json:"image_ref,omitempty"`
+	Warnings      []string               `protobuf:"bytes,10,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3818,6 +3843,13 @@ func (x *RunDetail) GetImageRef() string {
 		return x.ImageRef
 	}
 	return ""
+}
+
+func (x *RunDetail) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
 }
 
 type ExecRequest struct {
@@ -5634,9 +5666,10 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\x12output_schema_json\x18\n" +
 	" \x01(\tR\x10outputSchemaJson\x12*\n" +
 	"\x11client_request_id\x18\v \x01(\tR\x0fclientRequestId\x12\x18\n" +
-	"\acommand\x18\f \x01(\tR\acommand\"@\n" +
+	"\acommand\x18\f \x01(\tR\acommand\"\\\n" +
 	"\x10RunAgentResponse\x12,\n" +
-	"\x03run\x18\x01 \x01(\v2\x1a.agentcompose.v2.RunDetailR\x03run\"\xf9\x01\n" +
+	"\x03run\x18\x01 \x01(\v2\x1a.agentcompose.v2.RunDetailR\x03run\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\x95\x02\n" +
 	"\x16RunAgentStreamResponse\x12G\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\x0e2(.agentcompose.v2.RunAgentStreamEventTypeR\teventType\x12-\n" +
@@ -5645,7 +5678,8 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\x05chunk\x18\x04 \x01(\tR\x05chunk\x12\x1b\n" +
 	"\tis_stderr\x18\x05 \x01(\bR\bisStderr\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\tR\tcreatedAt\"E\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1a\n" +
+	"\bwarnings\x18\a \x03(\tR\bwarnings\"E\n" +
 	"\rGetRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
 	"\n" +
@@ -5684,7 +5718,7 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\n" +
 	"sandbox_id\x18\x01 \x01(\tR\tsandboxId\x12\x18\n" +
 	"\astopped\x18\x02 \x01(\bR\astopped\x12\x18\n" +
-	"\aremoved\x18\x03 \x01(\bR\aremoved\"\xe7\x04\n" +
+	"\aremoved\x18\x03 \x01(\bR\aremoved\"\x83\x05\n" +
 	"\n" +
 	"RunSummary\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1d\n" +
@@ -5713,7 +5747,8 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x11 \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x12 \x01(\tR\tupdatedAt\"\xaf\x02\n" +
+	"updated_at\x18\x12 \x01(\tR\tupdatedAt\x12\x1a\n" +
+	"\bwarnings\x18\x13 \x03(\tR\bwarnings\"\xcb\x02\n" +
 	"\tRunDetail\x125\n" +
 	"\asummary\x18\x01 \x01(\v2\x1b.agentcompose.v2.RunSummaryR\asummary\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x16\n" +
@@ -5724,7 +5759,9 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\rartifacts_dir\x18\x06 \x01(\tR\fartifactsDir\x12#\n" +
 	"\rcleanup_error\x18\a \x01(\tR\fcleanupError\x12\x16\n" +
 	"\x06driver\x18\b \x01(\tR\x06driver\x12\x1b\n" +
-	"\timage_ref\x18\t \x01(\tR\bimageRef\"\xd7\x02\n" +
+	"\timage_ref\x18\t \x01(\tR\bimageRef\x12\x1a\n" +
+	"\bwarnings\x18\n" +
+	" \x03(\tR\bwarnings\"\xd7\x02\n" +
 	"\vExecRequest\x12\x1f\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tH\x00R\tsessionId\x12\x17\n" +

@@ -89,6 +89,7 @@ type ProjectRunRecord struct {
 	DurationMs      int64     `json:"duration_ms,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Warnings        []string  `json:"warnings,omitempty"`
 }
 
 type ProjectListOptions struct {

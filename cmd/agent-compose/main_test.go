@@ -1249,6 +1249,48 @@ agents:
 	}
 }
 
+func TestIntegrationCLIRunTriggerWarnings(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-trigger-warning
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-trigger-warning",
+					Warnings:  []string{"trigger trigger-1 is disabled; running because it was requested manually"},
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-trigger-warning",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-trigger",
+						Warnings:  []string{"trigger trigger-1 is disabled; running because it was requested manually"},
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-trigger-warning", "reviewer", "sandbox-trigger", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "trigger-1")
+	if exitCode != 0 || stdout != "" || !strings.Contains(stderr, "warning: trigger trigger-1 is disabled") {
+		t.Fatalf("run --trigger warning code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--json", "reviewer", "--trigger", "trigger-1")
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"warnings"`) || !strings.Contains(jsonOut, "trigger trigger-1 is disabled") {
+		t.Fatalf("run --trigger --json warning code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+}
+
 func TestCLIRunInputModeUsageErrors(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-input-errors

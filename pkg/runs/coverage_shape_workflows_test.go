@@ -14,6 +14,7 @@ import (
 	appconfig "agent-compose/pkg/config"
 	"agent-compose/pkg/execution"
 	"agent-compose/pkg/images"
+	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/storage/sessionstore"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -399,13 +400,14 @@ func newControllerRunFixture(t *testing.T) *controllerRunFixture {
 	executor := &fakeControllerExecutor{}
 	dashboard := &fakeControllerDashboard{}
 	controller := NewController(ControllerDependencies{
-		Config:    config,
-		Store:     store,
-		ConfigDB:  configDB,
-		Driver:    driver,
-		Executor:  executor,
-		Images:    fakeControllerImages{},
-		Dashboard: dashboard,
+		Config:       config,
+		Store:        store,
+		ConfigDB:     configDB,
+		Driver:       driver,
+		Executor:     executor,
+		Images:       fakeControllerImages{},
+		LoaderEngine: &loaders.QJSLoaderEngine{},
+		Dashboard:    dashboard,
 	})
 	return &controllerRunFixture{
 		ctx:        ctx,
@@ -557,6 +559,101 @@ func TestRunsControllerRunProjectAgentCleanupErrorRecording(t *testing.T) {
 	})
 }
 
+func TestRunsControllerRunProjectAgentManualTriggerResolution(t *testing.T) {
+	fixture := newControllerRunFixture(t)
+	trigger := domain.LoaderTrigger{
+		LoaderID:   "loader-1",
+		ID:         "trigger-1",
+		Kind:       domain.LoaderTriggerKindInterval,
+		IntervalMs: 1000,
+		Enabled:    false,
+		SpecJSON:   `{"kind":"interval","intervalMs":1000}`,
+	}
+	fixture.configDB.schedulers = []domain.ProjectSchedulerRecord{{
+		ProjectID:       "project-1",
+		SchedulerID:     "scheduler-1",
+		AgentName:       "worker",
+		ManagedLoaderID: "loader-1",
+		Enabled:         true,
+		TriggerCount:    1,
+	}}
+	fixture.configDB.loaders = map[string]domain.Loader{
+		"loader-1": {
+			Summary: domain.LoaderSummary{
+				ID:                 "loader-1",
+				Enabled:            true,
+				Runtime:            domain.LoaderRuntimeScheduler,
+				ManagedProjectID:   "project-1",
+				ManagedAgentName:   "worker",
+				ManagedSchedulerID: "scheduler-1",
+			},
+			Script:   `scheduler.interval("trigger-1", async function() { return scheduler.agent("resolved prompt", { sessionEnv: [{ name: "TRIGGER_ENV", value: "yes" }] }); }, 1000);`,
+			Triggers: []domain.LoaderTrigger{trigger},
+		},
+	}
+	run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Source:          domain.ProjectRunSourceManual,
+		TriggerID:       "trigger-1",
+		ClientRequestID: "manual-trigger",
+	}, nil)
+	if err != nil || execErr != nil {
+		t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if run.Status != domain.ProjectRunStatusSucceeded || run.Prompt != "resolved prompt" || run.TriggerID != "trigger-1" || run.SchedulerID != "scheduler-1" {
+		t.Fatalf("run = %#v", run)
+	}
+	session, err := fixture.store.GetSession(fixture.ctx, run.SessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if fixture.executor.request.Message != "resolved prompt" || envItemValue(session.EnvItems, "TRIGGER_ENV") != "yes" {
+		t.Fatalf("executor request = %#v", fixture.executor.request)
+	}
+	if len(run.Warnings) != 1 || !strings.Contains(run.Warnings[0], "trigger trigger-1 is disabled") {
+		t.Fatalf("warnings = %#v", run.Warnings)
+	}
+}
+
+func TestRunsControllerRunProjectAgentManualTriggerMissingDoesNotCreateRun(t *testing.T) {
+	fixture := newControllerRunFixture(t)
+	fixture.configDB.schedulers = []domain.ProjectSchedulerRecord{{
+		ProjectID:       "project-1",
+		SchedulerID:     "scheduler-1",
+		AgentName:       "worker",
+		ManagedLoaderID: "loader-1",
+		Enabled:         true,
+	}}
+	fixture.configDB.loaders = map[string]domain.Loader{
+		"loader-1": {
+			Summary: domain.LoaderSummary{
+				ID:                 "loader-1",
+				Enabled:            true,
+				Runtime:            domain.LoaderRuntimeScheduler,
+				ManagedProjectID:   "project-1",
+				ManagedAgentName:   "worker",
+				ManagedSchedulerID: "scheduler-1",
+			},
+			Script:   `scheduler.interval("trigger-1", async function() { return scheduler.agent("resolved prompt"); }, 1000);`,
+			Triggers: []domain.LoaderTrigger{{LoaderID: "loader-1", ID: "trigger-1", Kind: domain.LoaderTriggerKindInterval, IntervalMs: 1000, Enabled: true}},
+		},
+	}
+	run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Source:          domain.ProjectRunSourceManual,
+		TriggerID:       "missing",
+		ClientRequestID: "missing-trigger",
+	}, nil)
+	if !errors.Is(err, domain.ErrNotFound) || execErr != nil {
+		t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if len(fixture.configDB.runs) != 0 {
+		t.Fatalf("runs created before trigger resolution failure: %#v", fixture.configDB.runs)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -564,6 +661,15 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func envItemValue(items []domain.SessionEnvVar, name string) string {
+	for _, item := range items {
+		if item.Name == name {
+			return item.Value
+		}
+	}
+	return ""
 }
 
 type fakeRunStore struct {
@@ -657,6 +763,8 @@ type fakeControllerStore struct {
 	agent        domain.AgentDefinition
 	global       []domain.SessionEnvVar
 	runs         map[string]domain.ProjectRunRecord
+	schedulers   []domain.ProjectSchedulerRecord
+	loaders      map[string]domain.Loader
 }
 
 func (s *fakeControllerStore) GetProject(context.Context, string) (domain.ProjectRecord, error) {
@@ -709,6 +817,27 @@ func (s *fakeControllerStore) ListGlobalEnv(context.Context) ([]domain.SessionEn
 
 func (s *fakeControllerStore) GetWorkspaceConfig(context.Context, string) (domain.WorkspaceConfig, error) {
 	return domain.WorkspaceConfig{}, domain.ErrNotFound
+}
+
+func (s *fakeControllerStore) ListProjectSchedulers(_ context.Context, projectID string) ([]domain.ProjectSchedulerRecord, error) {
+	var items []domain.ProjectSchedulerRecord
+	for _, scheduler := range s.schedulers {
+		if scheduler.ProjectID == projectID {
+			items = append(items, scheduler)
+		}
+	}
+	return items, nil
+}
+
+func (s *fakeControllerStore) GetLoader(_ context.Context, loaderID string) (domain.Loader, error) {
+	if s.loaders == nil {
+		return domain.Loader{}, domain.ErrNotFound
+	}
+	loader, ok := s.loaders[loaderID]
+	if !ok {
+		return domain.Loader{}, domain.ErrNotFound
+	}
+	return loader, nil
 }
 
 type fakeControllerDriver struct {

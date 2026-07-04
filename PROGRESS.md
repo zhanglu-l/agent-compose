@@ -176,7 +176,7 @@
 
 ## 阶段 3：`run --trigger` managed trigger 解析
 
-- [ ] 3.1 实现手动 `run --trigger <trigger_id>` 的 trigger 解析和 prompt 注入
+- [x] 3.1 实现手动 `run --trigger <trigger_id>` 的 trigger 解析和 prompt 注入
 
   依赖：0.1。
 
@@ -206,10 +206,24 @@
   - `run --trigger` 不依赖 scheduler 自动触发路径。
 
   完成总结：
-  - 状态：待完成。
-  - 变更：待记录。
-  - 验证：待记录。
-  - 审计与例外：待记录。
+  - 状态：已完成。
+  - 变更：
+    - `pkg/runs.Controller` 在 `BeginRun` 前解析 manual `run --trigger`：按 project/agent 反查 `project_scheduler`，加载对应 managed loader，并校验 loader 的 managed project、agent、scheduler 归属。
+    - 新增 manual trigger capture 流程：执行指定 loader trigger callback 到 `scheduler.agent(...)` capture host，只提取 prompt、`sessionEnv` 和 output schema 等 agent request 输入，不创建 loader run，也不依赖 scheduler 自动触发路径。
+    - 解析后的 prompt 写入 `project_run.prompt`，并进入 `ExecuteAgentRequest.Message`；原始 `trigger_id` 和解析出的 `scheduler_id` 保留在 run summary/detail。
+    - disabled scheduler/trigger 允许手动运行，并把 warning 附加到 run response；CLI 文本输出写 stderr，`--json` 输出写入 run JSON 的 `warnings` 字段。
+    - v2 `RunAgentResponse`、`RunAgentStreamResponse`、`RunSummary`、`RunDetail` 增加 `warnings` 字段，并重新生成 Go proto/Connect Go 与 proto-client TS 产物。
+    - 补充 `pkg/runs` manual trigger 成功解析、disabled trigger warning、missing trigger 不创建 run 测试；补充 CLI trigger warning 文本/JSON 输出测试。
+  - 验证：
+    - `go test ./pkg/runs ./pkg/agentcompose/app ./pkg/agentcompose/api ./cmd/agent-compose`：通过。
+    - `protoc -I . --go_out=. --go_opt=module=agent-compose --connect-go_out=. --connect-go_opt=module=agent-compose proto/agentcompose/v2/agentcompose.proto`：通过。
+    - `cd proto-client && npm ci && npm run gen && npm run build`：通过。
+    - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs ./pkg/loaders ./pkg/projects ./pkg/storage/configstore`：通过。
+    - `task build`：通过。
+  - 审计与例外：
+    - trigger resolution 只面向当前 project/agent 的 managed scheduler loader；全局 loader trigger id 不能绕过 project/agent 归属校验。
+    - manual trigger resolution 不创建 `loader_run`，避免把 operator 手动 run 混入 scheduler 自动触发审计链路。
+    - 当前 compose trigger YAML 只有 prompt/session options，没有 Jupyter 字段；Jupyter 默认配置仍按后续 Jupyter 阶段实现。
   - 下一目标：4.1。
 
 ## 阶段 4：`logs --follow` 文件 tail

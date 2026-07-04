@@ -58,50 +58,59 @@ type DashboardNotifier interface {
 type ControllerStore interface {
 	Store
 	PreparationStore
+	TriggerResolverStore
 	workspaces.Store
 }
 
+type TriggerResolverStore interface {
+	ListProjectSchedulers(context.Context, string) ([]domain.ProjectSchedulerRecord, error)
+	GetLoader(context.Context, string) (domain.Loader, error)
+}
+
 type Controller struct {
-	config    *appconfig.Config
-	store     *sessionstore.Store
-	configDB  ControllerStore
-	driver    SessionDriver
-	executor  AgentExecutor
-	runtime   RuntimeProvider
-	images    images.Backend
-	cap       capabilities.Provider
-	streams   *sessions.StreamBroker
-	bus       TopicPublisher
-	dashboard DashboardNotifier
+	config       *appconfig.Config
+	store        *sessionstore.Store
+	configDB     ControllerStore
+	driver       SessionDriver
+	executor     AgentExecutor
+	runtime      RuntimeProvider
+	images       images.Backend
+	loaderEngine loaders.LoaderEngine
+	cap          capabilities.Provider
+	streams      *sessions.StreamBroker
+	bus          TopicPublisher
+	dashboard    DashboardNotifier
 }
 
 type ControllerDependencies struct {
-	Config    *appconfig.Config
-	Store     *sessionstore.Store
-	ConfigDB  ControllerStore
-	Driver    SessionDriver
-	Executor  AgentExecutor
-	Runtime   RuntimeProvider
-	Images    images.Backend
-	Cap       capabilities.Provider
-	Streams   *sessions.StreamBroker
-	Bus       TopicPublisher
-	Dashboard DashboardNotifier
+	Config       *appconfig.Config
+	Store        *sessionstore.Store
+	ConfigDB     ControllerStore
+	Driver       SessionDriver
+	Executor     AgentExecutor
+	Runtime      RuntimeProvider
+	Images       images.Backend
+	LoaderEngine loaders.LoaderEngine
+	Cap          capabilities.Provider
+	Streams      *sessions.StreamBroker
+	Bus          TopicPublisher
+	Dashboard    DashboardNotifier
 }
 
 func NewController(deps ControllerDependencies) *Controller {
 	return &Controller{
-		config:    deps.Config,
-		store:     deps.Store,
-		configDB:  deps.ConfigDB,
-		driver:    deps.Driver,
-		executor:  deps.Executor,
-		runtime:   deps.Runtime,
-		images:    deps.Images,
-		cap:       deps.Cap,
-		streams:   deps.Streams,
-		bus:       deps.Bus,
-		dashboard: deps.Dashboard,
+		config:       deps.Config,
+		store:        deps.Store,
+		configDB:     deps.ConfigDB,
+		driver:       deps.Driver,
+		executor:     deps.Executor,
+		runtime:      deps.Runtime,
+		images:       deps.Images,
+		loaderEngine: deps.LoaderEngine,
+		cap:          deps.Cap,
+		streams:      deps.Streams,
+		bus:          deps.Bus,
+		dashboard:    deps.Dashboard,
 	}
 }
 
@@ -141,6 +150,12 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 	if commandText != "" && (strings.TrimSpace(req.Prompt) != "" || strings.TrimSpace(req.TriggerID) != "") {
 		return domain.ProjectRunRecord{}, nil, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
 	}
+	resolved, err := c.resolveTriggerForManualRun(ctx, req)
+	if err != nil {
+		return domain.ProjectRunRecord{}, nil, err
+	}
+	req = resolved.Request
+	warnings := resolved.Warnings
 	coordinator := NewCoordinator(c.configDB, domain.StableProjectRunID)
 	run, err := coordinator.BeginRun(ctx, StartRequest{
 		ProjectID:       req.ProjectID,
@@ -154,6 +169,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
+	run = withRunWarnings(run, warnings)
 	transitionCtx := context.WithoutCancel(ctx)
 	prepared, err := c.prepareProjectRun(ctx, run, req.Env)
 	if err != nil {
@@ -164,6 +180,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	sessionResult, err := c.ensureProjectRunSession(ctx, run, prepared, req.SessionID)
@@ -180,12 +197,14 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
 		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
 	}
+	run = withRunWarnings(run, warnings)
 	if commandText != "" {
 		transition, execErr := c.executeProjectRunCommand(ctx, run, sessionResult.Session, req, commandText, stream)
 		if execErr != nil || transition.ExitCode != 0 {
@@ -194,6 +213,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 				return domain.ProjectRunRecord{}, nil, err
 			}
 			run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+			run = withRunWarnings(run, warnings)
 			return run, execErr, nil
 		}
 		run, err = coordinator.MarkSucceeded(transitionCtx, transition)
@@ -201,6 +221,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 			return domain.ProjectRunRecord{}, nil, err
 		}
 		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, nil, nil
 	}
 	agentConfig, err := c.projectRunAgentConfig(ctx, run)
@@ -215,6 +236,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
 		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	if c.executor == nil {
@@ -229,6 +251,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
 		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	cell, _, _, execErr := c.executor.ExecuteAgentRequest(ctx, sessionResult.Session, execution.ExecuteAgentRequest{
@@ -247,6 +270,7 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 			return domain.ProjectRunRecord{}, nil, err
 		}
 		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, execErr, nil
 	}
 	run, err = coordinator.MarkSucceeded(transitionCtx, transition)
@@ -254,7 +278,13 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		return domain.ProjectRunRecord{}, nil, err
 	}
 	run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+	run = withRunWarnings(run, warnings)
 	return run, nil, nil
+}
+
+func withRunWarnings(run domain.ProjectRunRecord, warnings []string) domain.ProjectRunRecord {
+	run.Warnings = append([]string(nil), warnings...)
+	return run
 }
 
 func markProjectRunTerminalError(ctx context.Context, coordinator *Coordinator, transition TransitionRequest, err error) (domain.ProjectRunRecord, error) {

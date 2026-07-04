@@ -1145,8 +1145,13 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		return commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", normalized.Name, agentName, err))
 	}
 	var completed *agentcomposev2.RunSummary
+	var warnings []string
 	for stream.Receive() {
 		event := stream.Msg()
+		warnings = appendUniqueStrings(warnings, event.GetWarnings()...)
+		if event.GetRun() != nil {
+			warnings = appendUniqueStrings(warnings, event.GetRun().GetWarnings()...)
+		}
 		switch event.GetEventType() {
 		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT:
 			if cli.JSON {
@@ -1169,16 +1174,24 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	if completed == nil {
 		return fmt.Errorf("run project %s agent %s: stream completed without terminal run", normalized.Name, agentName)
 	}
+	warnings = appendUniqueStrings(warnings, completed.GetWarnings()...)
 	detail, err := getRunDetail(cmd.Context(), client, projectID, completed.GetRunId())
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", completed.GetRunId(), normalized.Name, err))
 	}
 	if cli.JSON {
-		data, err := json.MarshalIndent(composeRunOutputFromDetail(detail.Msg.GetRun()), "", "  ")
+		output := composeRunOutputFromDetail(detail.Msg.GetRun())
+		output.Warnings = appendUniqueStrings(output.Warnings, warnings...)
+		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return err
 		}
 		if err := writeCommandOutput(cmd.OutOrStdout(), append(data, '\n')); err != nil {
+			return err
+		}
+	}
+	if !cli.JSON {
+		if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
 			return err
 		}
 	}
@@ -1201,6 +1214,15 @@ func runDetailCleanupError(detail *agentcomposev2.RunDetail) string {
 		return ""
 	}
 	return strings.TrimSpace(detail.GetCleanupError())
+}
+
+func writeRunWarnings(out io.Writer, warnings []string) error {
+	for _, warning := range appendUniqueStrings(nil, warnings...) {
+		if _, err := fmt.Fprintf(out, "warning: %s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeComposeRunOptions(cmd *cobra.Command, options composeRunOptions) (composeRunOptions, error) {
@@ -1911,26 +1933,27 @@ type composeUpChangeOutput struct {
 }
 
 type composeRunOutput struct {
-	RunID        string `json:"run_id"`
-	ProjectID    string `json:"project_id"`
-	ProjectName  string `json:"project_name"`
-	AgentName    string `json:"agent_name"`
-	Source       string `json:"source"`
-	Status       string `json:"status"`
-	SessionID    string `json:"session_id"`
-	ExitCode     int32  `json:"exit_code"`
-	Error        string `json:"error,omitempty"`
-	StartedAt    string `json:"started_at,omitempty"`
-	CompletedAt  string `json:"completed_at,omitempty"`
-	DurationMs   int64  `json:"duration_ms,omitempty"`
-	Prompt       string `json:"prompt,omitempty"`
-	Output       string `json:"output,omitempty"`
-	ResultJSON   string `json:"result_json,omitempty"`
-	LogsPath     string `json:"logs_path,omitempty"`
-	ArtifactsDir string `json:"artifacts_dir,omitempty"`
-	CleanupError string `json:"cleanup_error,omitempty"`
-	Driver       string `json:"driver,omitempty"`
-	ImageRef     string `json:"image_ref,omitempty"`
+	RunID        string   `json:"run_id"`
+	ProjectID    string   `json:"project_id"`
+	ProjectName  string   `json:"project_name"`
+	AgentName    string   `json:"agent_name"`
+	Source       string   `json:"source"`
+	Status       string   `json:"status"`
+	SessionID    string   `json:"session_id"`
+	ExitCode     int32    `json:"exit_code"`
+	Error        string   `json:"error,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	CompletedAt  string   `json:"completed_at,omitempty"`
+	DurationMs   int64    `json:"duration_ms,omitempty"`
+	Prompt       string   `json:"prompt,omitempty"`
+	Output       string   `json:"output,omitempty"`
+	ResultJSON   string   `json:"result_json,omitempty"`
+	LogsPath     string   `json:"logs_path,omitempty"`
+	ArtifactsDir string   `json:"artifacts_dir,omitempty"`
+	CleanupError string   `json:"cleanup_error,omitempty"`
+	Driver       string   `json:"driver,omitempty"`
+	ImageRef     string   `json:"image_ref,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
 }
 
 type composeLogsOutput struct {
@@ -2720,6 +2743,7 @@ func composeRunOutputFromDetailWithOptions(run *agentcomposev2.RunDetail, option
 		CleanupError: run.GetCleanupError(),
 		Driver:       run.GetDriver(),
 		ImageRef:     run.GetImageRef(),
+		Warnings:     appendUniqueStrings(append([]string(nil), summary.GetWarnings()...), run.GetWarnings()...),
 	}
 }
 
@@ -3212,6 +3236,23 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(additions))
+	result := make([]string, 0, len(values)+len(additions))
+	for _, value := range append(values, additions...) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 type commandExitError struct {

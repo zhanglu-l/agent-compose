@@ -39,11 +39,12 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 		Runtime: func(session *domain.Session) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)
 		},
-		Images:    imageBackends.Auto,
-		Cap:       do.MustInvoke[capabilities.Provider](di),
-		Streams:   do.MustInvoke[*sessions.StreamBroker](di),
-		Bus:       do.MustInvoke[*loaders.Bus](di),
-		Dashboard: dashboardHub,
+		Images:       imageBackends.Auto,
+		LoaderEngine: do.MustInvoke[loaders.LoaderEngine](di),
+		Cap:          do.MustInvoke[capabilities.Provider](di),
+		Streams:      do.MustInvoke[*sessions.StreamBroker](di),
+		Bus:          do.MustInvoke[*loaders.Bus](di),
+		Dashboard:    dashboardHub,
 	}), nil
 }
 
@@ -57,7 +58,8 @@ func (d runControllerDelegate) RunAgent(ctx context.Context, req *connect.Reques
 		return nil, runConnectError(err)
 	}
 	return connect.NewResponse(&agentcomposev2.RunAgentResponse{
-		Run: api.ProjectRunDetailToProto(run),
+		Run:      api.ProjectRunDetailToProto(run),
+		Warnings: append([]string(nil), run.Warnings...),
 	}), nil
 }
 
@@ -70,6 +72,7 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 				Run:       api.ProjectRunSummaryToProto(run),
 				RunId:     run.RunID,
 				CreatedAt: api.FormatProjectTime(createdAt),
+				Warnings:  append([]string(nil), run.Warnings...),
 			}); err != nil {
 				return fmt.Errorf("%w: %w", runs.ErrRunAgentStreamSend, err)
 			}
@@ -100,6 +103,7 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 		Run:       api.ProjectRunSummaryToProto(run),
 		RunId:     run.RunID,
 		CreatedAt: api.FormatProjectTime(time.Now().UTC()),
+		Warnings:  append([]string(nil), run.Warnings...),
 	}); sendErr != nil {
 		return connect.NewError(connect.CodeUnknown, sendErr)
 	}

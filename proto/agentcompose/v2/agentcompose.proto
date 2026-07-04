@@ -358,6 +358,7 @@ message RunAgentRequest {
 
 message RunAgentResponse {
   RunDetail run = 1;
+  repeated string warnings = 2;
 }
 
 message RunAgentStreamResponse {
@@ -367,6 +368,7 @@ message RunAgentStreamResponse {
   string chunk = 4;
   bool is_stderr = 5;
   string created_at = 6;
+  repeated string warnings = 7;
 }
 
 message GetRunRequest {
@@ -435,6 +437,7 @@ message RunSummary {
   int64 duration_ms = 16;
   string created_at = 17;
   string updated_at = 18;
+  repeated string warnings = 19;
 }
 
 message RunDetail {
@@ -447,6 +450,7 @@ message RunDetail {
   string cleanup_error = 7;
   string driver = 8;
   string image_ref = 9;
+  repeated string warnings = 10;
 }
 
 message ExecRequest {
