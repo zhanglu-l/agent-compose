@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"net/http"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -10,14 +9,6 @@ import (
 	"agent-compose/pkg/dashboard"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
-
-func prepareStreamingHeaders(headers http.Header) {
-	if headers == nil {
-		return
-	}
-	headers.Set("X-Accel-Buffering", "no")
-	headers.Set("Cache-Control", "no-cache")
-}
 
 type DashboardHandler struct {
 	hub *dashboard.Hub
@@ -38,7 +29,7 @@ func (h *DashboardHandler) GetDashboardOverview(ctx context.Context, req *connec
 
 func (h *DashboardHandler) WatchDashboardOverview(ctx context.Context, req *connect.Request[emptypb.Empty], stream *connect.ServerStream[agentcomposev1.DashboardOverviewEvent]) error {
 	_ = req
-	prepareStreamingHeaders(stream.ResponseHeader())
+	PrepareStreamingHeaders(stream.ResponseHeader())
 	overview, err := h.hub.Current(ctx)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)

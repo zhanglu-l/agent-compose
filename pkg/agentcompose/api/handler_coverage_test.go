@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,17 @@ import (
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
+
+func TestPrepareStreamingHeadersPreservesNoTransform(t *testing.T) {
+	headers := http.Header{}
+	PrepareStreamingHeaders(headers)
+	if got, want := headers.Get("Cache-Control"), "no-cache, no-transform"; got != want {
+		t.Fatalf("Cache-Control = %q, want %q", got, want)
+	}
+	if got, want := headers.Get("X-Accel-Buffering"), "no"; got != want {
+		t.Fatalf("X-Accel-Buffering = %q, want %q", got, want)
+	}
+}
 
 func TestKernelAndAgentUnaryHandlerWorkflows(t *testing.T) {
 	ctx := context.Background()
