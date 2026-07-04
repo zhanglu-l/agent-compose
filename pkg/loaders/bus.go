@@ -1,4 +1,4 @@
-package bus
+package loaders
 
 import (
 	"strings"
@@ -12,7 +12,7 @@ type Bus struct {
 	ch chan domain.LoaderTopicEvent
 }
 
-func NewBus(do.Injector) (*Bus, error) {
+func NewBus(di do.Injector) (*Bus, error) {
 	return NewBusWithBuffer(256), nil
 }
 
