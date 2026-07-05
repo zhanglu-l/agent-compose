@@ -252,7 +252,7 @@
       - 真实 Microsandbox smoke 未在本任务运行；真实 runtime bind mount 能力和 exec guard 行为按阶段 5 验证。
     - 下一目标：4.2。
 
-- [ ] 4.2 在 Microsandbox Exec/ExecStream 前执行 bootstrap guard
+- [x] 4.2 在 Microsandbox Exec/ExecStream 前执行 bootstrap guard
   - 依赖：4.1。
   - 工作内容：
     - 在 `Exec` 和 `ExecStream` 连接 sandbox 后、执行用户 command 前执行 bootstrap guard。
@@ -260,9 +260,9 @@
     - bootstrap 失败时不执行原始 command。
     - 隔离 bootstrap 输出，避免混入用户 stream。
   - 可并行子任务：
-    - [ ] 可并行：实现 `Exec` guard。
-    - [ ] 可并行：实现 `ExecStream` guard。
-    - [ ] 可并行：补 bootstrap 失败不执行原始 command 的测试。
+    - [x] 可并行：实现 `Exec` guard。
+    - [x] 可并行：实现 `ExecStream` guard。
+    - [x] 可并行：补 bootstrap 失败不执行原始 command 的测试。
   - 测试方案：
     - `go test ./pkg/driver -run 'Test.*Microsandbox.*Exec|Test.*Bootstrap'`
     - `go test ./pkg/driver`
@@ -270,10 +270,21 @@
     - Existing running Microsandbox sandbox 可通过 exec 前 guard 自愈。
     - 原始 command 只在 bootstrap 成功后执行。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `Exec` 在连接 sandbox 后、执行用户 command 前先调用 `ensureDirectoryOnlyGuestSessionBootstrap`。
+      - `ExecStream` 在连接 sandbox 后、创建用户 stream 前先调用 `ensureDirectoryOnlyGuestSessionBootstrap`。
+      - 两条路径都复用 `executeUserCommandAfterBootstrap`，确保 bootstrap 失败时不会执行原始 command。
+      - bootstrap guard 使用 `sandbox.Exec` 且不接入用户 stream，因此 bootstrap stdout/stderr 不会混入用户 `ExecStream` 输出。
+      - 增加 Microsandbox 命名的 deterministic tests，证明 bootstrap 失败不执行用户 command，bootstrap 成功后才返回用户 command 结果。
+    - 验证：
+      - `go test ./pkg/driver -run 'Test.*Microsandbox.*Exec|Test.*Bootstrap'`：通过。
+      - `go test ./pkg/driver`：通过。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 本任务只接入 Microsandbox `Exec`/`ExecStream` 前 bootstrap guard，未触达 API、CLI、proto、数据库 schema、配置项、Docker manifest 语义或 JS runtime 主修复。
+      - Existing running Microsandbox sandbox 和 stopped 后由 `connectSandbox(..., true)` 重新 start 的路径都会在用户 command 前执行 bootstrap guard。
+      - 真实 Microsandbox smoke 未在本任务运行；真实 runtime bind mount 与 exec guard 行为按阶段 5 验证。
     - 下一目标：阶段 5。
 
 ## 阶段 5：更新真实 runtime smoke 覆盖

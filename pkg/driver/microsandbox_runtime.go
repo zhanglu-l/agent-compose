@@ -196,17 +196,24 @@ func (r *microsandboxRuntime) Exec(ctx context.Context, session *Session, vmStat
 		return ExecResult{}, err
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
-	output, err := sandbox.Exec(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
-	if err != nil {
-		return ExecResult{}, err
-	}
-	return ExecResult{
-		ExitCode: output.ExitCode(),
-		Stdout:   output.Stdout(),
-		Stderr:   output.Stderr(),
-		Output:   output.Stdout() + output.Stderr(),
-		Success:  output.Success(),
-	}, nil
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, sandbox, session, name)
+		},
+		func() (ExecResult, error) {
+			output, err := sandbox.Exec(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+			if err != nil {
+				return ExecResult{}, err
+			}
+			return ExecResult{
+				ExitCode: output.ExitCode(),
+				Stdout:   output.Stdout(),
+				Stderr:   output.Stderr(),
+				Output:   output.Stdout() + output.Stderr(),
+				Success:  output.Success(),
+			}, nil
+		},
+	)
 }
 
 func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
@@ -220,52 +227,59 @@ func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, 
 		return ExecResult{}, err
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
-	handle, err := sandbox.ExecStream(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
-	if err != nil {
-		return ExecResult{}, err
-	}
-	defer func() { _ = handle.Close() }()
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, sandbox, session, name)
+		},
+		func() (ExecResult, error) {
+			handle, err := sandbox.ExecStream(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+			if err != nil {
+				return ExecResult{}, err
+			}
+			defer func() { _ = handle.Close() }()
 
-	collector := &microsandboxExecCollector{stream: stream, filter: newExecOutputFilter()}
-	exitCode := 0
-	sawExit := false
-	for {
-		event, err := handle.Recv(ctx)
-		if err != nil {
+			collector := &microsandboxExecCollector{stream: stream, filter: newExecOutputFilter()}
+			exitCode := 0
+			sawExit := false
+			for {
+				event, err := handle.Recv(ctx)
+				if err != nil {
+					collector.finish()
+					return ExecResult{}, err
+				}
+				if event == nil || event.Kind == microsandbox.ExecEventDone {
+					break
+				}
+				switch event.Kind {
+				case microsandbox.ExecEventStdout:
+					collector.writeChunk(ExecChunk{Text: string(event.Data)})
+				case microsandbox.ExecEventStderr:
+					collector.writeChunk(ExecChunk{Text: string(event.Data), IsStderr: true})
+				case microsandbox.ExecEventExited:
+					exitCode = event.ExitCode
+					sawExit = true
+				case microsandbox.ExecEventFailed:
+					collector.finish()
+					return ExecResult{}, formatMicrosandboxExecFailure(event.Failure)
+				case microsandbox.ExecEventStdinError:
+					collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", IsStderr: true})
+				}
+			}
 			collector.finish()
-			return ExecResult{}, err
-		}
-		if event == nil || event.Kind == microsandbox.ExecEventDone {
-			break
-		}
-		switch event.Kind {
-		case microsandbox.ExecEventStdout:
-			collector.writeChunk(ExecChunk{Text: string(event.Data)})
-		case microsandbox.ExecEventStderr:
-			collector.writeChunk(ExecChunk{Text: string(event.Data), IsStderr: true})
-		case microsandbox.ExecEventExited:
-			exitCode = event.ExitCode
-			sawExit = true
-		case microsandbox.ExecEventFailed:
-			collector.finish()
-			return ExecResult{}, formatMicrosandboxExecFailure(event.Failure)
-		case microsandbox.ExecEventStdinError:
-			collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", IsStderr: true})
-		}
-	}
-	collector.finish()
-	if !sawExit {
-		exitCode = 0
-	}
+			if !sawExit {
+				exitCode = 0
+			}
 
-	result := ExecResult{
-		ExitCode: exitCode,
-		Stdout:   collector.stdout.String(),
-		Stderr:   collector.stderr.String(),
-		Output:   collector.output.String(),
-	}
-	result.Success = result.ExitCode == 0
-	return result, nil
+			result := ExecResult{
+				ExitCode: exitCode,
+				Stdout:   collector.stdout.String(),
+				Stderr:   collector.stderr.String(),
+				Output:   collector.output.String(),
+			}
+			result.Success = result.ExitCode == 0
+			return result, nil
+		},
+	)
 }
 
 func (r *microsandboxRuntime) ensureDirectoryOnlyGuestSessionBootstrap(ctx context.Context, sandbox *microsandbox.Sandbox, session *Session, sandboxName string) error {
