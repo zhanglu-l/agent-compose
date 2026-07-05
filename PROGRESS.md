@@ -69,7 +69,7 @@
 
 参考文档：[docs/plan/directory-only-runtime-bootstrap-implementation-plan.md](docs/plan/directory-only-runtime-bootstrap-implementation-plan.md#阶段-2重构-directory-only-bootstrap-helper)
 
-- [ ] 2.1 改造共享 bootstrap command
+- [x] 2.1 改造共享 bootstrap command
   - 依赖：1.1。
   - 工作内容：
     - 在 `pkg/driver/boxlite_guest_cgo.go` 保留或重命名 `directoryOnlyGuestSessionBootstrapCommand(config)`，保持 `pkg/driver` 内复用。
@@ -78,9 +78,9 @@
     - 覆盖 `/data/home` 缺失、旧 `/root -> /data/home` symlink、image 原始 `/root`、未知 mount point 等错误/迁移语义。
     - 确保 bootstrap 可在 guest cwd `/` 下执行。
   - 可并行子任务：
-    - [ ] 可并行：设计和实现 `/workspace` 与自定义 guest path 的幂等逻辑。
-    - [ ] 可并行：设计和实现 `/root` bind mount 与迁移逻辑。
-    - [ ] 可并行：设计 bootstrap guard/probe 命令文本。
+    - [x] 可并行：设计和实现 `/workspace` 与自定义 guest path 的幂等逻辑。
+    - [x] 可并行：设计和实现 `/root` bind mount 与迁移逻辑。
+    - [x] 可并行：设计 bootstrap guard/probe 命令文本。
   - 测试方案：
     - 更新并运行 `go test ./pkg/driver -run 'TestDirectoryOnly|TestPrepareRuntimeMountManifest|TestRuntimeMountManifest'`。
   - 验收标准：
@@ -88,10 +88,22 @@
     - `/data/home` 缺失时命令不会删除或移动 `/root`。
     - Docker manifest 仍保持 `/root/...` 细粒度 mount；BoxLite/Microsandbox manifest 仍只有 `<session> -> /data`。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 将 `directoryOnlyGuestSessionBootstrapCommand(config)` 改为 fail-fast bootstrap：先验证 `/data/workspace` 和 `/data/home` 存在，再处理 guest compatible paths。
+      - 保持 `/workspace -> /data/workspace` 暴露逻辑，并继续跳过 `/data/state`、`/data/runtime`、`/data/logs` 的自指向 symlink。
+      - 将 `/root` 从 symlink 改为 guest 内 `mount --bind /data/home /root`，并增加 mount point、非 symlink、source/target directory entity 一致性检查。
+      - 增加 `/root` 迁移保护：旧 symlink 会被移除并替换为真实目录；image 原始 `/root` 首次迁移为 `/root.image`；未知 mount point 或非目录目标会失败而不覆盖。
+      - 拆分 Jupyter launch command：Docker 继续使用不含 directory-only bootstrap 的 `jupyterLaunchCommand`；BoxLite/Microsandbox 使用 `directoryOnlyJupyterLaunchCommand`。
+    - 验证：
+      - `go test ./pkg/driver -run 'TestDirectoryOnly|TestPrepareRuntimeMountManifest|TestRuntimeMountManifest'`：通过。
+      - `go test ./pkg/driver`：通过。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 未新增 API、CLI、proto、数据库 schema、配置项、Docker manifest 语义或 JS runtime 主修复。
+      - Docker manifest 测试仍覆盖 `/root/...` 细粒度 mounts；BoxLite/Microsandbox manifest 测试仍覆盖 `<session> -> /data` directory-only mount。
+      - 本任务只改造 helper 和 Jupyter bootstrap 调用边界；BoxLite/Microsandbox `EnsureSession`、`Exec`、`ExecStream` 独立 guard 尚未接入，仍按后续 3.x/4.x 任务处理。
+      - 真实 BoxLite/Microsandbox smoke 未在本任务运行；按计划留到 runtime lifecycle/exec guard 和 smoke 覆盖阶段。
     - 下一目标：2.2。
 
 - [ ] 2.2 扩展 bootstrap unit tests

@@ -169,6 +169,14 @@ func jupyterLogIndicatesReady(logText string) bool {
 }
 
 func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, background bool) string {
+	return jupyterLaunchCommandWithBootstrap(config, proxyState, background, false)
+}
+
+func directoryOnlyJupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, background bool) string {
+	return jupyterLaunchCommandWithBootstrap(config, proxyState, background, true)
+}
+
+func jupyterLaunchCommandWithBootstrap(config *appconfig.Config, proxyState ProxyState, background bool, includeDirectoryOnlyBootstrap bool) string {
 	appconfig.ApplyDefaultGuestPaths(config)
 	logDir := jupyterLogDir(config)
 	logPath := jupyterLogPath(config)
@@ -183,9 +191,8 @@ func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, backg
 	} else {
 		launch = "exec " + launch + " > \"" + logPath + "\" 2>&1"
 	}
-	return strings.Join([]string{
+	commands := []string{
 		"set -eux",
-		directoryOnlyGuestSessionBootstrapCommand(config),
 		"mkdir -p \"" + config.GuestWorkspacePath + "\" \"" + config.GuestHomePath + "\" \"" + logDir + "\"",
 		runtimeSmokeMarkerCommand(),
 		"echo \"[agent-compose] starting jupyter\" > \"" + logPath + "\"",
@@ -196,7 +203,11 @@ func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, backg
 		"echo \"[agent-compose] workspace=" + config.GuestWorkspacePath + "\" >> \"" + logPath + "\"",
 		"python3 -c \"import jupyterlab; print('[agent-compose] jupyterlab=' + getattr(jupyterlab, '__version__', 'unknown'))\" >> \"" + logPath + "\" 2>&1",
 		launch,
-	}, " && ")
+	}
+	if includeDirectoryOnlyBootstrap {
+		commands = append(commands[:1], append([]string{directoryOnlyGuestSessionBootstrapCommand(config)}, commands[1:]...)...)
+	}
+	return strings.Join(commands, " && ")
 }
 
 func runtimeSmokeMarkerCommand() string {
@@ -210,18 +221,24 @@ func runtimeSmokeMarkerCommand() string {
 
 func directoryOnlyGuestSessionBootstrapCommand(config *appconfig.Config) string {
 	appconfig.ApplyDefaultGuestPaths(config)
+	workspaceSource := filepath.Clean(filepath.Join(directoryOnlyGuestSessionPath, "workspace"))
+	workspaceTarget := filepath.Clean(config.GuestWorkspacePath)
+	homeSource := filepath.Clean(filepath.Join(directoryOnlyGuestSessionPath, "home"))
+	homeTarget := filepath.Clean(config.GuestHomePath)
+	homeImageTarget := homeTarget + ".image"
+
 	commands := []string{
-		"if [ -d " + shellQuote(filepath.Join(directoryOnlyGuestSessionPath, "workspace")) + " ] && [ -d " + shellQuote(filepath.Join(directoryOnlyGuestSessionPath, "home")) + " ]; then",
+		"test -d " + shellQuote(workspaceSource) + " || { echo \"missing directory-only workspace " + workspaceSource + "\" >&2; exit 1; }",
+		"test -d " + shellQuote(homeSource) + " || { echo \"missing directory-only home " + homeSource + "\" >&2; exit 1; }",
 	}
 	for _, link := range []struct {
 		source string
 		target string
 	}{
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "workspace"), target: config.GuestWorkspacePath},
+		{source: workspaceSource, target: workspaceTarget},
 		{source: filepath.Join(directoryOnlyGuestSessionPath, "state"), target: config.GuestStateRoot},
 		{source: filepath.Join(directoryOnlyGuestSessionPath, "runtime"), target: config.GuestRuntimeRoot},
 		{source: filepath.Join(directoryOnlyGuestSessionPath, "logs"), target: config.GuestLogRoot},
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "home"), target: config.GuestHomePath},
 	} {
 		source := filepath.Clean(link.source)
 		target := filepath.Clean(link.target)
@@ -229,11 +246,30 @@ func directoryOnlyGuestSessionBootstrapCommand(config *appconfig.Config) string 
 			continue
 		}
 		commands = append(commands,
-			"  rm -rf "+shellQuote(target)+";",
-			"  mkdir -p "+shellQuote(filepath.Dir(target))+";",
-			"  ln -s "+shellQuote(source)+" "+shellQuote(target)+";",
+			"rm -rf "+shellQuote(target),
+			"mkdir -p "+shellQuote(filepath.Dir(target)),
+			"ln -s "+shellQuote(source)+" "+shellQuote(target),
 		)
 	}
-	commands = append(commands, "fi")
-	return strings.Join(commands, " ")
+	if homeSource != homeTarget {
+		commands = append(commands,
+			"mkdir -p "+shellQuote(filepath.Dir(homeTarget)),
+			"if mountpoint -q "+shellQuote(homeTarget)+"; then "+
+				"if [ \"$(stat -c '%d:%i' "+shellQuote(homeTarget)+")\" != \"$(stat -c '%d:%i' "+shellQuote(homeSource)+")\" ]; then "+
+				"echo \"refusing to replace unknown mount point "+homeTarget+"\" >&2; exit 1; "+
+				"fi; "+
+				"else "+
+				"if [ -L "+shellQuote(homeTarget)+" ]; then rm -f "+shellQuote(homeTarget)+"; mkdir -p "+shellQuote(homeTarget)+"; "+
+				"elif [ -e "+shellQuote(homeTarget)+" ]; then "+
+				"if [ ! -d "+shellQuote(homeTarget)+" ]; then echo \"refusing to replace non-directory "+homeTarget+"\" >&2; exit 1; fi; "+
+				"if [ ! -e "+shellQuote(homeImageTarget)+" ]; then mv "+shellQuote(homeTarget)+" "+shellQuote(homeImageTarget)+"; mkdir -p "+shellQuote(homeTarget)+"; fi; "+
+				"else mkdir -p "+shellQuote(homeTarget)+"; fi; "+
+				"mount --bind "+shellQuote(homeSource)+" "+shellQuote(homeTarget)+"; "+
+				"fi",
+			"test ! -L "+shellQuote(homeTarget)+" || { echo \"directory-only home target is still a symlink "+homeTarget+"\" >&2; exit 1; }",
+			"mountpoint -q "+shellQuote(homeTarget)+" || { echo \"directory-only home target is not a mount point "+homeTarget+"\" >&2; exit 1; }",
+			"[ \"$(stat -c '%d:%i' "+shellQuote(homeTarget)+")\" = \"$(stat -c '%d:%i' "+shellQuote(homeSource)+")\" ] || { echo \"directory-only home target does not match "+homeSource+"\" >&2; exit 1; }",
+		)
+	}
+	return strings.Join(commands, "; ")
 }

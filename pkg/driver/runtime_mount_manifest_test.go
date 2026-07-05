@@ -219,16 +219,21 @@ func TestPrepareRuntimeMountManifestForDirectoryOnlyDriversMountsSingleSessionDi
 func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 	command := directoryOnlyGuestSessionBootstrapCommand(testRuntimeMountConfig())
 	for _, required := range []string{
-		"[ -d '/data/workspace' ]",
-		"[ -d '/data/home' ]",
+		"test -d '/data/workspace'",
+		"test -d '/data/home'",
 		"ln -s '/data/workspace' '/workspace'",
-		"ln -s '/data/home' '/root'",
+		"mount --bind '/data/home' '/root'",
+		"mountpoint -q '/root'",
+		"test ! -L '/root'",
+		"mv '/root' '/root.image'",
+		"refusing to replace unknown mount point /root",
 	} {
 		if !strings.Contains(command, required) {
 			t.Fatalf("bootstrap command missing %q: %s", required, command)
 		}
 	}
 	for _, forbidden := range []string{
+		"ln -s '/data/home' '/root'",
 		"ln -s '/data/state' '/data/state'",
 		"ln -s '/data/runtime' '/data/runtime'",
 		"ln -s '/data/logs' '/data/logs'",
@@ -236,6 +241,21 @@ func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 		if strings.Contains(command, forbidden) {
 			t.Fatalf("bootstrap command contains self symlink %q: %s", forbidden, command)
 		}
+	}
+}
+
+func TestJupyterLaunchCommandDoesNotRunDirectoryOnlyBootstrapByDefault(t *testing.T) {
+	config := testRuntimeMountConfig()
+	proxyState := ProxyState{Enabled: true, GuestPort: 8888, Token: "test-token"}
+
+	dockerCommand := jupyterLaunchCommand(config, proxyState, false)
+	if strings.Contains(dockerCommand, "mount --bind '/data/home' '/root'") {
+		t.Fatalf("default jupyter command unexpectedly contains directory-only bootstrap: %s", dockerCommand)
+	}
+
+	directoryOnlyCommand := directoryOnlyJupyterLaunchCommand(config, proxyState, false)
+	if !strings.Contains(directoryOnlyCommand, "mount --bind '/data/home' '/root'") {
+		t.Fatalf("directory-only jupyter command missing bootstrap: %s", directoryOnlyCommand)
 	}
 }
 

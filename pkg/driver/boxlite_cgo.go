@@ -960,7 +960,7 @@ func (r *cgoBoxRuntime) buildBoxOptions(ctx context.Context, session *Session, v
 
 	commandText := "sleep infinity"
 	if jupyterEnabled(proxyState) {
-		commandText = jupyterLaunchCommand(r.config, proxyState, false)
+		commandText = directoryOnlyJupyterLaunchCommand(r.config, proxyState, false)
 	}
 	command, commandLen, freeCommand := cStringArray([]string{commandText})
 	defer freeCommand()
