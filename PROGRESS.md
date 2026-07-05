@@ -600,17 +600,17 @@
       - 真实 smoke 已证明 directory-only bootstrap 不依赖 Jupyter readiness，并且声明 home 条目写入会持久化到 host `<session>/home`。
     - 下一目标：7.5。
 
-- [ ] 7.5 运行全量质量门禁并收口文档
+- [x] 7.5 运行全量质量门禁并收口文档
   - 依赖：7.4。
   - 工作内容：
     - 审计 spec/plan/design 与实现一致性。
     - 运行常规门禁和 CI Go 测试范围。
     - 记录真实 runtime smoke 结果或环境型例外。
   - 可并行子任务：
-    - [ ] 可并行：运行 `task lint`。
-    - [ ] 可并行：运行 `task build`。
-    - [ ] 可并行：运行 `task test`。
-    - [ ] 可并行：运行 `go test ./cmd/... ./pkg/...`。
+    - [x] 可并行：运行 `task lint`。
+    - [x] 可并行：运行 `task build`。
+    - [x] 可并行：运行 `task test`。
+    - [x] 可并行：运行 `go test ./cmd/... ./pkg/...`。
   - 测试方案：
     - `task lint`
     - `task build`
@@ -621,8 +621,21 @@
     - 无 proto、API、CLI、数据库 schema 或 compose 行为变更。
     - 文档不再描述 BoxLite/Microsandbox 通过 `/root` bind mount 或整体 `/root` symlink 暴露 home。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 审计 `docs/spec/directory-only-runtime-bootstrap-spec.md`、`docs/plan/directory-only-runtime-bootstrap-implementation-plan.md`、英文/中文 runtime mount manifest 设计文档、英文/中文 runtime environment variables 设计文档、英文/中文 runtime contract 文档。
+      - 确认当前设计文档均描述 v2 语义：Docker 从统一逻辑清单生成细粒度 bind mounts；BoxLite/Microsandbox 只挂 `<session> -> /data`，保持 `/root` 为真实目录，并只为声明 home 条目创建 `/root/... -> /data/home/...` symlink。
+      - 本任务只更新进度记录；未修改生产代码、测试代码、设计文档、API、CLI、proto、数据库 schema、配置项、Docker compose 或 JS runtime provider 行为。
+    - 验证：
+      - 对 spec/plan/PROGRESS 和英文/中文 runtime mount、runtime env、runtime contract 设计文档搜索 `mount --bind /data/home /root`、`/root -> /data/home`、`bind mount`、`mount point`、`same inode`、`同一目录实体` 等旧语义关键词：仅命中历史记录、阻塞依据、否定性约束或 v2 阶段审计记录；未发现当前目标语义仍要求 `/root` bind mount 或整体 `/root` symlink。
+      - `rg -n -e 'mount --bind /data/home /root' -e '/root -> /data/home' -e 'bind mount' -e 'mount point' -e 'GUEST_HOME' -e 'HOME' docs/zh-CN/design/runtime_environment_variables_design.md docs/zh-CN/design/agent-compose-runtime_contract.md`：未发现中文 runtime env/contract 存在旧 bind mount 目标；`HOME`/`GUEST_HOME` 命中均为“不注入/不再作为配置输入”语义。
+      - `task lint`：通过。
+      - `task build`：通过。
+      - `task test`：通过。
+      - `go test ./cmd/... ./pkg/...`：通过。
+      - `git status --short`：门禁后工作区干净。
+    - 审计与例外：
+      - `PROGRESS.md` 旧 1-6 阶段仍保留 `/root` bind mount 和旧 smoke 失败细节作为历史执行记录；文件顶部“方案重定向说明”和阶段 7 已明确旧阶段 5/6 被 v2 superseded，不作为当前目标验收。
+      - 7.4 已记录真实 BoxLite/Microsandbox smoke 在 `sg kvm` 下通过；OCI image smoke 因未设置 `SMOKE_OCI_IMAGE_REF` 按既有逻辑 skip，未计为通过。
+      - 本阶段未新增或修改 proto、API、CLI、数据库 schema、compose 行为、`GUEST_HOME`、`HOME` 注入或 JS runtime provider workaround。
     - 下一目标：无。
