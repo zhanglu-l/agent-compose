@@ -324,10 +324,12 @@
       - `sg kvm -c 'IMAGE_REGISTRY=registry-mirrors.dev.in.chaitin.net SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke'`：BoxLite runtime 启动并进入 bootstrap，失败于 `directory-only guest bootstrap failed ... stderr="mount: /root: permission denied ... directory-only home target is not a mount point /root"`。
       - 2026-07-05 再次运行 `sg kvm -c 'IMAGE_REGISTRY=registry-mirrors.dev.in.chaitin.net SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke'`：同样越过 KVM 和 image registry 阶段，失败于 guest bootstrap `mount: /root: permission denied`。
       - 复核 `build/boxlite/include/boxlite.h` 和 `pkg/driver/boxlite_cgo.go`：当前 BoxLite C options 暴露 rootfs、workdir、volume、port、network、entrypoint/cmd 等设置，未发现可在当前 scope 内启用 guest bind mount 所需能力的 privileged/capability 配置。
+      - 2026-07-05 第三次运行 `sg kvm -c 'IMAGE_REGISTRY=registry-mirrors.dev.in.chaitin.net SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke'`：同样在 `EnsureSession` 的 guest bootstrap 中失败，stderr 仍为 `mount: /root: permission denied ... directory-only home target is not a mount point /root`。
     - 审计与例外：
       - 本任务只更新 BoxLite smoke 覆盖，未触达 API、CLI、proto、数据库 schema、配置项、Docker manifest 语义或 JS runtime 主修复。
       - 已通过 sudo/`sg kvm` 排除 host KVM 组权限问题，BoxLite guest 内 `mount --bind /data/home /root` 返回 permission denied。
       - 二次复验确认该失败不是一次性 host 权限或 registry 拉取问题；本地 BoxLite C SDK 暴露面也未提供不改变产品配置语义即可启用该 guest mount 能力的开关。
+      - 三次连续 goal turn 均复现同一 BoxLite guest bind mount 能力阻塞；在没有 BoxLite runtime 能力变更或产品方案变更前，当前实现无法满足 5.1 验收标准。
       - 该结果命中 spec/plan 停止条件：不得退回 `/root -> /data/home` symlink；停止后续实现并更新 spec/plan，等待 BoxLite runtime 能力或产品方案决策。
       - Microsandbox smoke 覆盖暂不推进，避免在 BoxLite 停止条件未解决时继续扩大实现面。
     - 下一目标：停止实现并更新 spec/plan 记录 BoxLite bind mount runtime 能力限制。

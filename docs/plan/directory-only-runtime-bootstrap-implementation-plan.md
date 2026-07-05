@@ -125,6 +125,7 @@ go test ./pkg/driver
 - 2026-07-05 执行 `sg kvm -c 'IMAGE_REGISTRY=registry-mirrors.dev.in.chaitin.net SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke'` 时，BoxLite runtime 成功越过 host KVM 和 image registry 阶段，但 guest bootstrap 中 `mount --bind /data/home /root` 返回 `permission denied`。
 - 该结果已触发 BoxLite 停止条件。后续不得以 `/root -> /data/home` symlink 降级完成；需先确认 BoxLite guest 可获得 bind mount 能力，或回到 spec 重新决策方案。
 - 同日复验相同 smoke 命令仍在 guest bootstrap `mount --bind /data/home /root` 处失败；复核 `build/boxlite/include/boxlite.h` 与 `pkg/driver/boxlite_cgo.go` 未发现当前 C SDK options 暴露 privileged/capability 开关，无法在既定 scope 内通过配置启用该能力。
+- 第三次连续复验同一 smoke 命令仍在相同 guest bind mount 步骤失败，已达到 blocked audit 阈值；继续推进需依赖 BoxLite runtime 能力变更或产品重新决策 `/root` 暴露方案。
 
 ## 阶段 4：接入 Microsandbox lifecycle 和 exec guard
 
