@@ -179,7 +179,7 @@
       - 真实 BoxLite smoke 未在本任务运行；按阶段 5 使用 `SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke` 验证真实 runtime bind mount 能力。
     - 下一目标：3.2。
 
-- [ ] 3.2 在 BoxLite Exec/ExecStream 前执行 bootstrap guard
+- [x] 3.2 在 BoxLite Exec/ExecStream 前执行 bootstrap guard
   - 依赖：3.1。
   - 工作内容：
     - 在 `execWithStream` 中处理 stopped box 重新 start 后的 bootstrap。
@@ -187,8 +187,8 @@
     - bootstrap 失败时不执行原始 command。
     - 避免 bootstrap stdout/stderr 混入用户 command 输出。
   - 可并行子任务：
-    - [ ] 可并行：实现 exec 前 guard 调用。
-    - [ ] 可并行：补 bootstrap 失败不执行原始 command 的测试。
+    - [x] 可并行：实现 exec 前 guard 调用。
+    - [x] 可并行：补 bootstrap 失败不执行原始 command 的测试。
   - 测试方案：
     - `go test ./pkg/driver -run 'Test.*BoxLite.*Exec|Test.*Bootstrap'`
     - `go test ./pkg/driver`
@@ -196,10 +196,22 @@
     - Existing running BoxLite box 可通过 exec 前 guard 自愈。
     - 原始 command 只在 bootstrap 成功后执行。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `Exec` 和 `ExecStream` 不再丢弃 `Session`，并将 session context 传入 `execWithStream`，用于 bootstrap 失败诊断。
+      - `execWithStream` 在获取 box、必要时 `startBox` 后，先执行 `ensureDirectoryOnlyGuestSessionBootstrap`，bootstrap 成功后才执行用户 `ExecSpec`。
+      - bootstrap guard 继续通过 nil stream 调用 `executeBox`，因此 bootstrap stdout/stderr 不会写入用户 command stream；失败时只进入诊断错误。
+      - 新增 `executeUserCommandAfterBootstrap` 的 deterministic tests，证明 bootstrap 失败时原始 command 不执行，bootstrap 成功时才返回用户 command 结果。
+    - 验证：
+      - `go test ./pkg/driver -run 'Test.*BoxLite.*Exec|Test.*Bootstrap'`：通过。
+      - `go test ./pkg/driver`：通过。
+      - `go test -tags boxlitecgo ./pkg/driver -run 'Test.*BoxLite.*Exec|Test.*Bootstrap'`：通过。
+      - `go test -tags boxlitecgo ./pkg/driver`：通过。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 本任务只接入 BoxLite `Exec`/`ExecStream` 前 bootstrap guard，未触达 Microsandbox、API、CLI、proto、数据库 schema、配置项、Docker manifest 语义或 JS runtime 主修复。
+      - Existing running BoxLite box 和 stopped 后由 `execWithStream` 重新 `startBox` 的路径都会在用户 command 前执行 bootstrap guard。
+      - 真实 BoxLite smoke 未在本任务运行；真实 runtime bind mount 与 exec guard 行为按阶段 5 验证。
     - 下一目标：阶段 4。
 
 ## 阶段 4：接入 Microsandbox lifecycle 和 exec guard

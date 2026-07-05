@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,6 +21,55 @@ func TestNewJupyterReadyHTTPClientDisablesProxyFromEnvironment(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Fatalf("jupyter ready client should not use proxy environment")
+	}
+}
+
+func TestBoxLiteExecDoesNotRunUserCommandWhenBootstrapFails(t *testing.T) {
+	wantErr := errors.New("bootstrap failed")
+	executed := false
+
+	result, err := executeUserCommandAfterBootstrap(
+		func() error {
+			return wantErr
+		},
+		func() (ExecResult, error) {
+			executed = true
+			return ExecResult{ExitCode: 0, Success: true}, nil
+		},
+	)
+
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+	if executed {
+		t.Fatalf("user command executed after bootstrap failure")
+	}
+	if result != (ExecResult{}) {
+		t.Fatalf("result = %#v, want zero value", result)
+	}
+}
+
+func TestBoxLiteExecRunsUserCommandAfterBootstrapSucceeds(t *testing.T) {
+	executed := false
+
+	result, err := executeUserCommandAfterBootstrap(
+		func() error {
+			return nil
+		},
+		func() (ExecResult, error) {
+			executed = true
+			return ExecResult{ExitCode: 0, Success: true, Stdout: "ok"}, nil
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("executeUserCommandAfterBootstrap returned error: %v", err)
+	}
+	if !executed {
+		t.Fatalf("user command was not executed after bootstrap success")
+	}
+	if result.Stdout != "ok" || !result.Success {
+		t.Fatalf("result = %#v, want successful user command result", result)
 	}
 }
 

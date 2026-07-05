@@ -282,6 +282,13 @@ func directoryOnlyGuestSessionBootstrapExecSpec(config *appconfig.Config) ExecSp
 	}
 }
 
+func executeUserCommandAfterBootstrap(bootstrap func() error, execute func() (ExecResult, error)) (ExecResult, error) {
+	if err := bootstrap(); err != nil {
+		return ExecResult{}, err
+	}
+	return execute()
+}
+
 func formatDirectoryOnlyGuestSessionBootstrapError(driver, sessionID, runtimeID string, result ExecResult, execErr error) error {
 	parts := []string{"directory-only guest bootstrap failed", "driver=" + strings.TrimSpace(driver)}
 	if sessionID = strings.TrimSpace(sessionID); sessionID != "" {

@@ -449,12 +449,12 @@ func (r *cgoBoxRuntime) StopSession(ctx context.Context, _ *Session, vmState VMS
 	return true, nil
 }
 
-func (r *cgoBoxRuntime) Exec(ctx context.Context, _ *Session, vmState VMState, spec ExecSpec) (ExecResult, error) {
-	return r.execWithStream(ctx, vmState, spec, nil)
+func (r *cgoBoxRuntime) Exec(ctx context.Context, session *Session, vmState VMState, spec ExecSpec) (ExecResult, error) {
+	return r.execWithStream(ctx, session, vmState, spec, nil)
 }
 
-func (r *cgoBoxRuntime) ExecStream(ctx context.Context, _ *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
-	return r.execWithStream(ctx, vmState, spec, stream)
+func (r *cgoBoxRuntime) ExecStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
+	return r.execWithStream(ctx, session, vmState, spec, stream)
 }
 
 func (r *cgoBoxRuntime) Stats(_ context.Context, session *Session, vmState VMState) (SandboxStats, error) {
@@ -471,7 +471,7 @@ func (r *cgoBoxRuntime) Stats(_ context.Context, session *Session, vmState VMSta
 	), nil
 }
 
-func (r *cgoBoxRuntime) execWithStream(ctx context.Context, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
+func (r *cgoBoxRuntime) execWithStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
 	if strings.TrimSpace(vmState.BoxID) == "" {
 		return ExecResult{}, fmt.Errorf("session box is not initialized")
 	}
@@ -490,7 +490,14 @@ func (r *cgoBoxRuntime) execWithStream(ctx context.Context, vmState VMState, spe
 			return ExecResult{}, err
 		}
 	}
-	return r.executeBox(ctx, box, spec, stream)
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, box, session)
+		},
+		func() (ExecResult, error) {
+			return r.executeBox(ctx, box, spec, stream)
+		},
+	)
 }
 
 func (r *cgoBoxRuntime) ensureDirectoryOnlyGuestSessionBootstrap(ctx context.Context, box *cgoBoxHandle, session *Session) error {
