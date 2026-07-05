@@ -222,9 +222,13 @@ func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 		"test -d '/data/workspace'",
 		"test -d '/data/home'",
 		"ln -s '/data/workspace' '/workspace'",
+		"if [ -L '/root' ]; then rm -f '/root'; mkdir -p '/root';",
+		"if [ ! -d '/root' ]; then echo \"refusing to replace non-directory /root\" >&2; exit 1; fi;",
+		"if [ ! -e '/root.image' ]; then mv '/root' '/root.image'; mkdir -p '/root'; fi;",
 		"mount --bind '/data/home' '/root'",
 		"mountpoint -q '/root'",
 		"test ! -L '/root'",
+		"[ \"$(stat -c '%d:%i' '/root')\" = \"$(stat -c '%d:%i' '/data/home')\" ]",
 		"mv '/root' '/root.image'",
 		"refusing to replace unknown mount point /root",
 	} {
@@ -241,6 +245,25 @@ func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 		if strings.Contains(command, forbidden) {
 			t.Fatalf("bootstrap command contains self symlink %q: %s", forbidden, command)
 		}
+	}
+	assertSubstringOrder(t, command, "test -d '/data/home'", "rm -f '/root'")
+	assertSubstringOrder(t, command, "test -d '/data/home'", "mv '/root' '/root.image'")
+	assertSubstringOrder(t, command, "mount --bind '/data/home' '/root'", "test ! -L '/root'")
+	assertSubstringOrder(t, command, "mount --bind '/data/home' '/root'", "mountpoint -q '/root' ||")
+}
+
+func assertSubstringOrder(t *testing.T, text, before, after string) {
+	t.Helper()
+	beforeIndex := strings.Index(text, before)
+	if beforeIndex < 0 {
+		t.Fatalf("text missing %q: %s", before, text)
+	}
+	afterIndex := strings.Index(text, after)
+	if afterIndex < 0 {
+		t.Fatalf("text missing %q: %s", after, text)
+	}
+	if beforeIndex >= afterIndex {
+		t.Fatalf("expected %q before %q in: %s", before, after, text)
 	}
 }
 

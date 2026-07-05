@@ -106,15 +106,15 @@
       - 真实 BoxLite/Microsandbox smoke 未在本任务运行；按计划留到 runtime lifecycle/exec guard 和 smoke 覆盖阶段。
     - 下一目标：2.2。
 
-- [ ] 2.2 扩展 bootstrap unit tests
+- [x] 2.2 扩展 bootstrap unit tests
   - 依赖：2.1。
   - 工作内容：
     - 更新 `pkg/driver/runtime_mount_manifest_test.go` 中 `TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot`。
     - 增加断言：`/root` bind mount、mount point/probe、防 symlink 回退、`/data/home` 缺失保护。
     - 增加断言：不为 `/data/state`、`/data/runtime`、`/data/logs` 生成自指向 symlink。
   - 可并行子任务：
-    - [ ] 可并行：补 bootstrap command 文本测试。
-    - [ ] 可并行：补 manifest 非回归测试。
+    - [x] 可并行：补 bootstrap command 文本测试。
+    - [x] 可并行：补 manifest 非回归测试。
   - 测试方案：
     - `go test ./pkg/driver -run 'TestDirectoryOnly|TestPrepareRuntimeMountManifest|TestRuntimeMountManifest'`
     - `go test ./pkg/driver`
@@ -122,10 +122,20 @@
     - 相关 unit tests 覆盖 spec 中的 `/root` bind mount 和迁移保护规则。
     - 阶段结束后 `go test ./pkg/driver` 通过，或记录环境型失败原因。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 扩展 `TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot`，显式断言 `/root` bind mount、mount point/probe、非 symlink guard、source/target entity guard、旧 symlink 迁移、image `/root` 迁移到 `/root.image`、未知 mount point 失败文本。
+      - 增加 bootstrap command ordering 断言，证明 `/data/home` 缺失保护发生在任何 `/root` 删除或移动之前。
+      - 保留并强化不为 `/data/state`、`/data/runtime`、`/data/logs` 生成自指向 symlink 的非回归断言。
+      - 保留 `TestJupyterLaunchCommandDoesNotRunDirectoryOnlyBootstrapByDefault`，证明 Docker 默认 Jupyter command 不包含 directory-only bootstrap，而 BoxLite/Microsandbox 使用的 directory-only Jupyter command 包含 bootstrap。
+    - 验证：
+      - `go test ./pkg/driver -run 'TestDirectoryOnly|TestPrepareRuntimeMountManifest|TestRuntimeMountManifest'`：通过。
+      - `go test ./pkg/driver`：通过。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 本任务只修改 bootstrap/manifest unit tests 和进度记录，未新增配置、proto、数据库迁移、Docker manifest 语义或 JS runtime 主修复。
+      - 测试覆盖已能证明 spec 中 `/root` bind mount 和迁移保护规则的 command 文本；真实 runtime 是否允许 guest 内 `mount --bind /data/home /root` 仍由后续 BoxLite/Microsandbox smoke 验证。
+      - 阶段 2 已完成；BoxLite/Microsandbox lifecycle 和 exec guard 尚未接入，按阶段 3、阶段 4 继续。
     - 下一目标：阶段 3。
 
 ## 阶段 3：接入 BoxLite lifecycle 和 exec guard
