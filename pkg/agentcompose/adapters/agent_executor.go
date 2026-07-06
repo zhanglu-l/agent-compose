@@ -157,7 +157,8 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 	}
 
 	streamWriter := func(chunk domain.ExecChunk) {
-		if !chunk.IsStderr {
+		isStderr := domain.NormalizeStdioStream(chunk.Stream) == domain.StdioStderr
+		if !isStderr {
 			return
 		}
 		cellMu.Lock()
@@ -172,7 +173,7 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 			return
 		}
 		if e.streams != nil {
-			e.streams.PublishCellOutput(session.Summary.ID, snapshot.ID, chunk.Text, chunk.IsStderr)
+			e.streams.PublishCellOutput(session.Summary.ID, snapshot.ID, chunk.Text, chunk.Stream)
 		}
 		if stream.OnChunk != nil {
 			if err := stream.OnChunk(cellID, chunk); err != nil {

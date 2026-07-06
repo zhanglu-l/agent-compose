@@ -105,7 +105,7 @@ func TestAgentExecutorStreamsOnlyHumanVisibleAgentOutput(t *testing.T) {
 	runtime := &fakeAgentRuntime{
 		streamChunks: []domain.ExecChunk{
 			{Text: payload},
-			{Text: "loader agent transcript\n", IsStderr: true},
+			{Text: "loader agent transcript\n", Stream: domain.StdioStderr},
 		},
 		result: domain.ExecResult{Stdout: payload, Output: payload, ExitCode: 0, Success: true},
 	}
@@ -126,7 +126,7 @@ func TestAgentExecutorStreamsOnlyHumanVisibleAgentOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteAgentRequest returned error: %v", err)
 	}
-	if len(chunks) != 1 || !chunks[0].IsStderr || !strings.Contains(chunks[0].Text, "loader agent transcript") {
+	if len(chunks) != 1 || domain.NormalizeStdioStream(chunks[0].Stream) != domain.StdioStderr || !strings.Contains(chunks[0].Text, "loader agent transcript") {
 		t.Fatalf("stream chunks = %#v", chunks)
 	}
 	if strings.Contains(chunks[0].Text, execution.AgentResultPrefix) {

@@ -30,7 +30,7 @@ type WatchEvent struct {
 	Event     *domain.SessionEvent
 	CellID    string
 	Chunk     string
-	IsStderr  bool
+	Stream    domain.StdioStream
 }
 
 type StreamBroker struct {
@@ -100,13 +100,13 @@ func (b *StreamBroker) PublishCellStarted(sessionID string, cell domain.Notebook
 	})
 }
 
-func (b *StreamBroker) PublishCellOutput(sessionID, cellID, chunk string, isStderr bool) {
+func (b *StreamBroker) PublishCellOutput(sessionID, cellID, chunk string, stream domain.StdioStream) {
 	b.publish(WatchEvent{
 		SessionID: strings.TrimSpace(sessionID),
 		EventType: WatchEventTypeCellOutput,
 		CellID:    strings.TrimSpace(cellID),
 		Chunk:     chunk,
-		IsStderr:  isStderr,
+		Stream:    domain.NormalizeStdioStream(stream),
 	})
 }
 

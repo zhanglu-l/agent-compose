@@ -171,16 +171,16 @@
 
 参考文档：[docs/spec/output-protocol-contract-spec.md](docs/spec/output-protocol-contract-spec.md)、[docs/plan/output-protocol-contract-implementation-plan.md](docs/plan/output-protocol-contract-implementation-plan.md)
 
-- [ ] 3.1 迁移 runtime adapter 和历史 bool 兼容边界
+- [x] 3.1 迁移 runtime adapter 和历史 bool 兼容边界
   - 依赖：1.1、2.1。
   - 工作内容：
     - 在 `pkg/agentcompose/adapters/runtime_provider.go` 增加 driver stream 到 domain stream 的显式映射。
     - 迁移 `pkg/agentcompose/adapters/cell_executor.go`、`pkg/agentcompose/api/kernel.go`、`pkg/agentcompose/api/agent_handler.go`、`pkg/sessions/stream.go`、`pkg/agentcompose/api/session_model.go` 等内部 chunk 使用。
     - 仅在 v1 或历史 session stream 输出边界把 domain stream 转回 bool。
   - 可并行子任务：
-    - [ ] 可并行：审计 adapter/domain stream 映射调用点。
-    - [ ] 可并行：审计 v1/session 兼容 bool 保留点。
-    - [ ] 可并行：更新相关单元测试中的 chunk 构造。
+    - [x] 可并行：审计 adapter/domain stream 映射调用点。
+    - [x] 可并行：审计 v1/session 兼容 bool 保留点。
+    - [x] 可并行：更新相关单元测试中的 chunk 构造。
   - 测试方案：
     - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/sessions`
   - 验收标准：
@@ -188,10 +188,21 @@
     - 空或未知 driver stream 映射为 domain stdout。
     - v1/session 兼容输出行为保持不变。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/agentcompose/adapters/runtime_provider.go` 增加 driver stream 到 domain stream 的显式映射，空/未知 driver stream 归一为 domain stdout。
+      - `pkg/sessions/stream.go` 的内部 `WatchEvent` 和 `PublishCellOutput` 从 legacy bool 迁移为 domain `StdioStream`。
+      - `pkg/agentcompose/adapters/cell_executor.go`、`agent_executor.go`、`loader_command_executor.go` 改为内部传递/判断 `ExecChunk.Stream`。
+      - `pkg/agentcompose/api/kernel.go`、`agent_handler.go`、`session_model.go`、`run.go`、`exec.go` 和 `pkg/agentcompose/app/run_controller.go` 仅在 v1/v2 现有协议输出边界由 stream 派生 legacy `is_stderr` bool。
+      - 更新 `pkg/agentcompose/adapters/agent_executor_test.go`、`runtime_provider_test.go`、`pkg/sessions/stream_coverage_test.go` 和 `pkg/runs/coverage_shape_workflows_test.go` 的 chunk 构造/断言。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/sessions`：通过。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/app ./pkg/runs`：通过，用于覆盖本任务中顺手迁移的 app/runs 编译点。
+      - `rg -n "domainStreamFromDriver|PublishCellOutput\\(|WatchEvent.*Stream|Stream domain.StdioStream|NormalizeStdioStream\\(event.Stream\\)|NormalizeStdioStream\\(chunk.Stream\\)" pkg/agentcompose pkg/sessions pkg/runs`：确认 driver/domain 映射、session broker stream 内部状态和 legacy bool 派生点。
+    - 审计与例外：
+      - `pkg/agentcompose/adapters/agent_executor.go` 仍保留只处理 stderr stream 的旧行为，仅将判断迁移为 enum；stdout 静默丢弃修复按 3.2 使用 `FilterAgentStreamChunk` 完成。
+      - `pkg/agentcompose/api` 和 `pkg/agentcompose/app` 中剩余 `IsStderr` 均为当前 v1/v2 proto legacy 字段赋值；v2 字段形态迁移按阶段四处理。
+      - `cmd/agent-compose` 中 v2 `GetIsStderr`/`IsStderr` 使用尚未迁移，属于 4.2/4.4 CLI stream writer 范围。
     - 下一目标：3.2 修复 agent prompt streaming。
 
 - [ ] 3.2 修复 agent prompt streaming stdout 静默丢弃

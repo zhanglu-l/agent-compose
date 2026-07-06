@@ -167,7 +167,8 @@ func (e *LoaderCommandExecutor) ExecuteLoaderCommand(ctx context.Context, sessio
 		}
 		cellMu.Lock()
 		streamed.WriteChunk(chunk)
-		if chunk.IsStderr {
+		isStderr := domain.NormalizeStdioStream(chunk.Stream) == domain.StdioStderr
+		if isStderr {
 			cell.Stderr += chunk.Text
 		} else {
 			cell.Stdout += chunk.Text
@@ -179,7 +180,7 @@ func (e *LoaderCommandExecutor) ExecuteLoaderCommand(ctx context.Context, sessio
 			setStreamErr(err)
 			return
 		}
-		e.Streams.PublishCellOutput(session.Summary.ID, snapshot.ID, chunk.Text, chunk.IsStderr)
+		e.Streams.PublishCellOutput(session.Summary.ID, snapshot.ID, chunk.Text, chunk.Stream)
 	}
 	commandHome := e.Config.GuestHomePath
 	execResult, err := runtime.ExecStream(execCtx, execSession, vmState, execution.BuildLoaderCommandExecSpec(e.Config, execSession, filepath.Join(guestCellDir, "command-request.json"), commandHome), streamWriter)

@@ -765,7 +765,7 @@ func TestRunsProjectRunLogAppendChunk(t *testing.T) {
 	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stdout\n"}); err != nil {
 		t.Fatalf("append stdout returned error: %v", err)
 	}
-	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", IsStderr: true}); err != nil {
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", Stream: domain.StdioStderr}); err != nil {
 		t.Fatalf("append stderr returned error: %v", err)
 	}
 	if err := appendProjectRunLogChunk(path, domain.ExecChunk{}); err != nil {

@@ -16,8 +16,8 @@ func TestStreamBrokerCellEventsCoverage(t *testing.T) {
 	if event := <-ch; event.EventType != WatchEventTypeCellStarted || event.Cell.ID != "cell-1" {
 		t.Fatalf("cell started event = %#v", event)
 	}
-	broker.PublishCellOutput("session-1", "cell-1", "hi", false)
-	if event := <-ch; event.EventType != WatchEventTypeCellOutput || event.Chunk != "hi" {
+	broker.PublishCellOutput("session-1", "cell-1", "hi", domain.StdioStderr)
+	if event := <-ch; event.EventType != WatchEventTypeCellOutput || event.Chunk != "hi" || event.Stream != domain.StdioStderr {
 		t.Fatalf("cell output event = %#v", event)
 	}
 	broker.PublishCellCompleted("session-1", cell)

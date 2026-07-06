@@ -122,13 +122,14 @@ func ProjectRunSourceFilterFromProto(source agentcomposev2.RunSource) string {
 
 func TranscriptEventFromExecChunk(chunk domain.ExecChunk, createdAt time.Time) *agentcomposev2.TranscriptEvent {
 	kind := "stdout"
-	if chunk.IsStderr {
+	isStderr := domain.NormalizeStdioStream(chunk.Stream) == domain.StdioStderr
+	if isStderr {
 		kind = "stderr"
 	}
 	return &agentcomposev2.TranscriptEvent{
 		Kind:      kind,
 		Text:      chunk.Text,
-		IsStderr:  chunk.IsStderr,
+		IsStderr:  isStderr,
 		CreatedAt: FormatProjectTime(createdAt),
 	}
 }
