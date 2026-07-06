@@ -569,11 +569,11 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	psCmd.Flags().BoolVar(&psOptions.Verbose, "verbose", false, "Show more sandbox details")
 
 	statsCmd := &cobra.Command{
-		Use:   "stats <sandbox>",
+		Use:   "stats [sandbox]",
 		Short: "Print sandbox resource stats",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeStatsCommand(cmd, options, args[0])
+			return runComposeStatsCommand(cmd, options, args)
 		},
 	}
 
@@ -1106,17 +1106,28 @@ func removeSandbox(ctx context.Context, client agentcomposev2connect.SandboxServ
 	return err
 }
 
-func runComposeStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID string) error {
+func runComposeStatsCommand(cmd *cobra.Command, cli cliOptions, args []string) error {
+	if len(args) > 0 {
+		return runComposeSingleStatsCommand(cmd, cli, args[0])
+	}
+	_, normalized, projectID, err := resolveComposeProject(cli)
+	if err != nil {
+		return err
+	}
 	clients, err := newCLIServiceClients(cli)
 	if err != nil {
 		return err
 	}
-	sandboxID = strings.TrimSpace(sandboxID)
-	resp, err := clients.sandbox.GetSandboxStats(cmd.Context(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: sandboxID}))
+	project, err := clients.project.GetProject(cmd.Context(), connect.NewRequest(&agentcomposev2.GetProjectRequest{
+		Project: &agentcomposev2.ProjectRef{ProjectId: projectID},
+	}))
 	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("get sandbox %s stats: %w", sandboxID, err))
+		return commandExitErrorForConnect(fmt.Errorf("get project %s: %w", normalized.Name, err))
 	}
-	output := composeStatsOutputFromProto(resp.Msg.GetStats())
+	output, err := composeProjectStatsOutputFromProject(cmd.Context(), clients, project.Msg.GetProject())
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("build stats for project %s: %w", normalized.Name, err))
+	}
 	if cli.JSON {
 		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
@@ -1124,7 +1135,30 @@ func runComposeStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID string
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	return writeStatsText(cmd.OutOrStdout(), output)
+	return writeStatsText(cmd.OutOrStdout(), output.Stats)
+}
+
+func runComposeSingleStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID string) error {
+	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	sandboxID = strings.TrimSpace(sandboxID)
+	if sandboxID == "" {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("stats requires non-empty sandbox")}
+	}
+	output, err := composeStatsOutputForSandbox(cmd.Context(), clients.sandbox, sandboxID)
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("get sandbox %s stats: %w", sandboxID, err))
+	}
+	if cli.JSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	return writeStatsText(cmd.OutOrStdout(), []composeStatsOutput{output})
 }
 
 func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRunOptions, args []string) error {
@@ -2300,6 +2334,11 @@ type composeStatsOutput struct {
 	UptimeSeconds    composeMetricOutput `json:"uptime_seconds"`
 }
 
+type composeProjectStatsOutput struct {
+	Project composeUpProjectOutput `json:"project"`
+	Stats   []composeStatsOutput   `json:"stats"`
+}
+
 type composeMetricOutput struct {
 	Value   *float64 `json:"value"`
 	Unit    string   `json:"unit"`
@@ -2979,6 +3018,33 @@ func composeStatsOutputFromProto(stats *agentcomposev2.SandboxStats) composeStat
 	}
 }
 
+func composeStatsOutputForSandbox(ctx context.Context, client agentcomposev2connect.SandboxServiceClient, sandboxID string) (composeStatsOutput, error) {
+	resp, err := client.GetSandboxStats(ctx, connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: sandboxID}))
+	if err != nil {
+		return composeStatsOutput{}, err
+	}
+	return composeStatsOutputFromProto(resp.Msg.GetStats()), nil
+}
+
+func composeProjectStatsOutputFromProject(ctx context.Context, clients cliServiceClients, project *agentcomposev2.Project) (composeProjectStatsOutput, error) {
+	output := composeProjectStatsOutput{
+		Project: composeProjectSummaryOutput(project.GetSummary()),
+	}
+	psOutput, err := composePSOutputFromProject(ctx, clients, project, composePSOptions{})
+	if err != nil {
+		return composeProjectStatsOutput{}, err
+	}
+	output.Stats = make([]composeStatsOutput, 0, len(psOutput.Sandboxes))
+	for _, sandbox := range psOutput.Sandboxes {
+		stats, err := composeStatsOutputForSandbox(ctx, clients.sandbox, sandbox.Sandbox)
+		if err != nil {
+			return composeProjectStatsOutput{}, fmt.Errorf("get sandbox %s stats: %w", sandbox.Sandbox, err)
+		}
+		output.Stats = append(output.Stats, stats)
+	}
+	return output, nil
+}
+
 func composeMetricOutputFromProto(metric *agentcomposev2.MetricValue) composeMetricOutput {
 	if metric == nil {
 		return composeMetricOutput{Status: "unknown"}
@@ -3004,25 +3070,27 @@ func metricStatusText(status agentcomposev2.MetricStatus) string {
 	}
 }
 
-func writeStatsText(out io.Writer, output composeStatsOutput) error {
+func writeStatsText(out io.Writer, stats []composeStatsOutput) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, "SANDBOX\tDRIVER\tCPU%\tMEM\tMEM_LIMIT\tMEM%\tNET_RX\tNET_TX\tBLOCK_READ\tBLOCK_WRITE\tUPTIME"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-		output.Sandbox,
-		firstNonEmptyString(output.Driver, "-"),
-		formatMetricForText(output.CPUPercent),
-		formatMetricForText(output.MemoryUsageBytes),
-		formatMetricForText(output.MemoryLimitBytes),
-		formatMetricForText(output.MemoryPercent),
-		formatMetricForText(output.NetworkRxBytes),
-		formatMetricForText(output.NetworkTxBytes),
-		formatMetricForText(output.BlockReadBytes),
-		formatMetricForText(output.BlockWriteBytes),
-		formatMetricForText(output.UptimeSeconds),
-	); err != nil {
-		return err
+	for _, output := range stats {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			output.Sandbox,
+			firstNonEmptyString(output.Driver, "-"),
+			formatMetricForText(output.CPUPercent),
+			formatMetricForText(output.MemoryUsageBytes),
+			formatMetricForText(output.MemoryLimitBytes),
+			formatMetricForText(output.MemoryPercent),
+			formatMetricForText(output.NetworkRxBytes),
+			formatMetricForText(output.NetworkTxBytes),
+			formatMetricForText(output.BlockReadBytes),
+			formatMetricForText(output.BlockWriteBytes),
+			formatMetricForText(output.UptimeSeconds),
+		); err != nil {
+			return err
+		}
 	}
 	return tw.Flush()
 }

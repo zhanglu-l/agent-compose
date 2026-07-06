@@ -227,9 +227,11 @@ Default columns:
 
 ## `stats`: Show Sandbox Resource Stats
 
-Show a single resource stats snapshot for a running sandbox.
+Show resource stats snapshots for running sandboxes. Without a sandbox argument, the command shows all running sandboxes for the current compose project.
 
 ```bash
+agent-compose stats
+agent-compose stats --json
 agent-compose stats <sandbox>
 agent-compose stats <sandbox> --json
 ```

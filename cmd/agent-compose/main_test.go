@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -2603,6 +2604,157 @@ func TestIntegrationCLIStatsTableAndJSON(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("GetSandboxStats calls = %d, want 2", calls)
+	}
+}
+
+func TestIntegrationCLIStatsWithoutSandboxUsesProjectRunningSandboxes(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-stats-demo
+agents:
+  reviewer:
+    provider: codex
+  worker:
+    provider: codex
+`)
+	project := testCLIProject("project-cli-stats", "cli-stats-demo", composePath)
+	sessions := []*agentcomposev1.SessionSummary{
+		testCLISessionSummary("session-one", "RUNNING", "project-cli-stats", "reviewer", "run-one"),
+		testCLISessionSummary("session-two", "RUNNING", "project-cli-stats", "worker", "run-two"),
+		testCLISessionSummary("session-stopped", "STOPPED", "project-cli-stats", "reviewer", "run-stopped"),
+		testCLISessionSummary("session-foreign", "RUNNING", "foreign-project", "reviewer", "run-foreign"),
+	}
+	runs := []*agentcomposev2.RunSummary{
+		{RunId: "run-one", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SessionId: "session-one", UpdatedAt: "2026-06-11T00:00:01Z"},
+		{RunId: "run-two", ProjectId: project.GetSummary().GetProjectId(), AgentName: "worker", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SessionId: "session-two", UpdatedAt: "2026-06-11T00:00:02Z"},
+		{RunId: "run-stopped", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SessionId: "session-stopped", UpdatedAt: "2026-06-11T00:00:03Z"},
+	}
+	var statsCalls []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			getProject: func(ctx context.Context, req *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: project}), nil
+			},
+		},
+		run: runServiceStub{
+			listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+				if req.Msg.GetProjectId() != project.GetSummary().GetProjectId() || req.Msg.GetLimit() < 100 {
+					t.Fatalf("ListRuns request = %#v", req.Msg)
+				}
+				return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: runs}), nil
+			},
+		},
+		session: sessionServiceStub{
+			listSessions: func(ctx context.Context, req *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
+				if req.Msg.GetLimit() < 100 {
+					t.Fatalf("ListSessions request = %#v", req.Msg)
+				}
+				return connect.NewResponse(&agentcomposev1.ListSessionsResponse{Sessions: sessions}), nil
+			},
+		},
+		sandbox: sandboxServiceStub{
+			getStats: func(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+				statsCalls = append(statsCalls, req.Msg.GetSandboxId())
+				value := float64(len(statsCalls) * 10)
+				return connect.NewResponse(&agentcomposev2.GetSandboxStatsResponse{Stats: &agentcomposev2.SandboxStats{
+					SandboxId:        req.Msg.GetSandboxId(),
+					Driver:           "boxlite",
+					SampledAt:        "2026-07-04T08:00:00Z",
+					CpuPercent:       testStatsMetric(value, "percent"),
+					MemoryUsageBytes: testStatsMetric(value*100, "bytes"),
+					UptimeSeconds:    testStatsMetric(value, "seconds"),
+				}}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "--file", composePath)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("stats code/stderr = %d / %q", exitCode, stderr)
+	}
+	for _, want := range []string{"SANDBOX", "session-one", "session-two", "boxlite", "10.00", "20.00"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stats output %q does not contain %q", stdout, want)
+		}
+	}
+	for _, notWant := range []string{"session-stopped", "session-foreign"} {
+		if strings.Contains(stdout, notWant) {
+			t.Fatalf("stats output %q contains %q", stdout, notWant)
+		}
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("stats", "--host", server.URL, "--file", composePath, "--json")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("stats --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeProjectStatsOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("stats JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if decoded.Project.Name != "cli-stats-demo" || len(decoded.Stats) != 2 {
+		t.Fatalf("stats JSON project/stats = %#v", decoded)
+	}
+	if decoded.Stats[0].Sandbox != "session-one" || decoded.Stats[1].Sandbox != "session-two" {
+		t.Fatalf("stats JSON order = %#v", decoded.Stats)
+	}
+	if strings.Contains(jsonOut, "session-stopped") || strings.Contains(jsonOut, "session-foreign") {
+		t.Fatalf("stats JSON includes non-running or foreign sandbox: %s", jsonOut)
+	}
+	wantCalls := []string{"session-one", "session-two", "session-one", "session-two"}
+	if !reflect.DeepEqual(statsCalls, wantCalls) {
+		t.Fatalf("stats calls = %#v, want %#v", statsCalls, wantCalls)
+	}
+}
+
+func TestIntegrationCLIStatsWithoutSandboxAllowsNoRunningSandboxes(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-stats-empty
+agents:
+  reviewer:
+    provider: codex
+`)
+	project := testCLIProject("project-cli-stats-empty", "cli-stats-empty", composePath)
+	sessions := []*agentcomposev1.SessionSummary{
+		testCLISessionSummary("session-stopped", "STOPPED", "project-cli-stats-empty", "reviewer", "run-stopped"),
+		testCLISessionSummary("session-foreign", "RUNNING", "foreign-project", "reviewer", "run-foreign"),
+	}
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			getProject: func(ctx context.Context, req *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: project}), nil
+			},
+		},
+		run: runServiceStub{
+			listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+				return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{}}), nil
+			},
+		},
+		session: sessionServiceStub{
+			listSessions: func(ctx context.Context, req *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
+				return connect.NewResponse(&agentcomposev1.ListSessionsResponse{Sessions: sessions}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "--file", composePath)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("stats empty code/stderr = %d / %q", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, "SANDBOX") || strings.Contains(stdout, "session-stopped") || strings.Contains(stdout, "session-foreign") {
+		t.Fatalf("stats empty output = %q", stdout)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("stats", "--host", server.URL, "--file", composePath, "--json")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("stats empty --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeProjectStatsOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("stats empty JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if decoded.Project.Name != "cli-stats-empty" || len(decoded.Stats) != 0 {
+		t.Fatalf("stats empty JSON = %#v", decoded)
 	}
 }
 

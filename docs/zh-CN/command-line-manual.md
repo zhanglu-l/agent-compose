@@ -233,9 +233,11 @@ agent-compose ps --json
 
 ## `stats`：查看 sandbox 资源统计
 
-查看运行中 sandbox 的单次资源统计快照。
+查看运行中 sandbox 的资源统计快照。未指定 sandbox 参数时，显示当前 compose project 下所有 running sandbox 的统计。
 
 ```bash
+agent-compose stats
+agent-compose stats --json
 agent-compose stats <sandbox>
 agent-compose stats <sandbox> --json
 ```

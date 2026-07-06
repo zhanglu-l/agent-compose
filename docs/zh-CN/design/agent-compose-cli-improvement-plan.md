@@ -51,7 +51,7 @@ CLI 是 agent-compose daemon 的操作入口。它负责读取本地 project 配
 | `run` | 调用 v2 `RunService` 创建 run，支持 trigger、prompt、command、detach、interactive、Jupyter 和 cleanup policy。 |
 | `logs` | 读取 run 日志，支持 agent/run/sandbox filter、tail、timestamp 和 server streaming follow。 |
 | `ps` | 以 sandbox 视图列出当前 project 的运行态，默认只显示 running sandbox。 |
-| `stats` | 通过 v2 `SandboxService.GetSandboxStats` 获取 running sandbox 的单次资源统计。 |
+| `stats` | 通过 v2 `SandboxService.GetSandboxStats` 获取指定 sandbox 或当前 project 所有 running sandbox 的资源统计。 |
 | `stop` | 基于 v1 `SessionService.StopSession` 停止 sandbox。 |
 | `resume` | 基于 v1 `SessionService.ResumeSession` 恢复 sandbox。 |
 | `rm` | 调用 v2 `SandboxService.RemoveSandbox` 删除 sandbox；running sandbox 需要 `--force`。 |
@@ -190,7 +190,7 @@ run 日志的权威文件由 `project_run.logs_path` 指向：
 
 ## Stats
 
-`agent-compose stats <sandbox>` 调用 v2 `SandboxService.GetSandboxStats`。service 解析 sandbox/session、runtime state 和对应 driver optional stats 能力。
+`agent-compose stats [sandbox]` 调用 v2 `SandboxService.GetSandboxStats`。指定 sandbox 时直接查询该 sandbox；未指定 sandbox 时先按当前 compose project 枚举 running sandbox，再逐个查询 stats。service 解析 sandbox/session、runtime state 和对应 driver optional stats 能力。
 
 JSON 字段集合保持稳定：
 
