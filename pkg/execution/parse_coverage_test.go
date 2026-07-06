@@ -46,6 +46,90 @@ func TestParseAgentAndCommandExecResultWorkflows(t *testing.T) {
 	}
 }
 
+func TestFilterCommandStreamChunk(t *testing.T) {
+	commandPayload := CommandResultPrefix + `{"stdout":"out","stderr":"","output":"out","exitCode":0,"success":true}`
+	filtered, visible := FilterCommandStreamChunk(domain.ExecChunk{
+		Text:   "visible\n" + commandPayload,
+		Stream: domain.StdioStdout,
+	})
+	if !visible {
+		t.Fatalf("expected command chunk to remain visible")
+	}
+	if filtered.Text != "visible\n" || filtered.Stream != domain.StdioStdout {
+		t.Fatalf("filtered command chunk = %#v", filtered)
+	}
+
+	filtered, visible = FilterCommandStreamChunk(domain.ExecChunk{
+		Text:   commandPayload,
+		Stream: domain.StdioStderr,
+	})
+	if visible {
+		t.Fatalf("payload-only command chunk should be hidden: %#v", filtered)
+	}
+	if filtered.Text != "" || filtered.Stream != domain.StdioStderr {
+		t.Fatalf("payload-only command chunk = %#v", filtered)
+	}
+
+	filtered, visible = FilterCommandStreamChunk(domain.ExecChunk{
+		Text:   "stderr transcript",
+		Stream: domain.StdioStderr,
+	})
+	if !visible || filtered.Text != "stderr transcript" || filtered.Stream != domain.StdioStderr {
+		t.Fatalf("stderr transcript command chunk = %#v visible=%v", filtered, visible)
+	}
+
+	unknownStream := domain.StdioStream("future")
+	filtered, visible = FilterCommandStreamChunk(domain.ExecChunk{
+		Text:   "unknown stream transcript",
+		Stream: unknownStream,
+	})
+	if !visible || filtered.Text != "unknown stream transcript" || filtered.Stream != unknownStream {
+		t.Fatalf("unknown stream command chunk = %#v visible=%v", filtered, visible)
+	}
+}
+
+func TestFilterAgentStreamChunk(t *testing.T) {
+	agentPayload := AgentResultPrefix + `{"provider":"codex","finalText":"done"}`
+	filtered, visible := FilterAgentStreamChunk(domain.ExecChunk{
+		Text:   "stdout transcript\n" + agentPayload,
+		Stream: domain.StdioStdout,
+	})
+	if !visible {
+		t.Fatalf("expected agent stdout prefix to remain visible")
+	}
+	if filtered.Text != "stdout transcript\n" || filtered.Stream != domain.StdioStdout {
+		t.Fatalf("filtered agent stdout chunk = %#v", filtered)
+	}
+
+	filtered, visible = FilterAgentStreamChunk(domain.ExecChunk{
+		Text:   agentPayload,
+		Stream: domain.StdioStdout,
+	})
+	if visible {
+		t.Fatalf("payload-only agent chunk should be hidden: %#v", filtered)
+	}
+	if filtered.Text != "" || filtered.Stream != domain.StdioStdout {
+		t.Fatalf("payload-only agent chunk = %#v", filtered)
+	}
+
+	filtered, visible = FilterAgentStreamChunk(domain.ExecChunk{
+		Text:   "stderr transcript",
+		Stream: domain.StdioStderr,
+	})
+	if !visible || filtered.Text != "stderr transcript" || filtered.Stream != domain.StdioStderr {
+		t.Fatalf("stderr transcript agent chunk = %#v visible=%v", filtered, visible)
+	}
+
+	unknownStream := domain.StdioStream("future")
+	filtered, visible = FilterAgentStreamChunk(domain.ExecChunk{
+		Text:   "unknown stream transcript",
+		Stream: unknownStream,
+	})
+	if !visible || filtered.Text != "unknown stream transcript" || filtered.Stream != unknownStream {
+		t.Fatalf("unknown stream agent chunk = %#v visible=%v", filtered, visible)
+	}
+}
+
 func TestIntegrationParseAgentAndCommandExecResultWorkflows(t *testing.T) {
 	TestParseAgentAndCommandExecResultWorkflows(t)
 }

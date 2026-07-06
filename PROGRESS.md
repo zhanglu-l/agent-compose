@@ -63,7 +63,7 @@
       - 只运行 1.1 要求的 focused test；完整 `task lint`、`task build`、`task test` 按阶段收口任务执行。
     - 下一目标：1.2 建立 marker stream filter helper。
 
-- [ ] 1.2 建立 `pkg/execution` marker stream filter helper
+- [x] 1.2 建立 `pkg/execution` marker stream filter helper
   - 依赖：1.1。
   - 工作内容：
     - 在 `pkg/execution/parse.go` 增加 `FilterCommandStreamChunk` 和 `FilterAgentStreamChunk` 或等价命名 helper。
@@ -71,9 +71,9 @@
     - `FilterAgentStreamChunk` 调用 `StripAgentResultPayload`，stderr transcript 可见，stdout payload 被剥离，stdout marker 外文本必须保留为 stdout transcript。
     - 保持 final result parser/sanitizer 只基于 marker，不基于 stream。
   - 可并行子任务：
-    - [ ] 可并行：补充 command stream filter 单元测试。
-    - [ ] 可并行：补充 agent stream filter 单元测试。
-    - [ ] 可并行：审计现有 strip helper 的 marker 查找语义是否满足流式 chunk 场景。
+    - [x] 可并行：补充 command stream filter 单元测试。
+    - [x] 可并行：补充 agent stream filter 单元测试。
+    - [x] 可并行：审计现有 strip helper 的 marker 查找语义是否满足流式 chunk 场景。
   - 测试方案：
     - `./scripts/with-go-toolchain.sh go test ./pkg/execution`
   - 验收标准：
@@ -82,10 +82,19 @@
     - agent stdout 中 marker 前的可见文本不被静默丢弃。
     - `pkg/execution` 成为 host streaming marker filtering 的唯一归口。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/execution/parse.go` 新增 `FilterAgentStreamChunk` 和 `FilterCommandStreamChunk`。
+      - 两个 filter helper 都复用现有 marker strip helper，保留原始 `ExecChunk.Stream`，空文本返回不可见。
+      - `pkg/execution/parse_coverage_test.go` 增加 command/agent stream filter 单元测试，覆盖 payload-only chunk 隐藏、marker 前可见文本保留、stderr transcript 保留、unknown stream 保留和 stream 字段不变。
+    - 验证：
+      - `rg -n "FilterAgentStreamChunk|FilterCommandStreamChunk|StripAgentResultPayload|StripCommandResultPayload|__AGENT_RESULT__|__COMMAND_RESULT__" pkg/execution`：marker 常量、strip helper 和 stream filter helper 均集中在 `pkg/execution`。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/execution`：通过。
+    - 审计与例外：
+      - 现有 `StripAgentResultPayload` 使用最后一个 `__AGENT_RESULT__` marker，`StripCommandResultPayload` 使用第一个 `__COMMAND_RESULT__` marker；stream filter 继承该语义，满足当前 chunk 中 marker 前 transcript 保留、payload-only chunk 隐藏的要求。
+      - filter helper 是 stateless chunk helper；若未来 driver 将 marker 字符串本身拆分到多个 chunk，当前 helper不会跨 chunk 重组。现有任务要求的调用点迁移仍应统一使用该 helper，跨 chunk buffering 若需要应作为后续协议增强处理。
+      - 本任务只建立归口 helper；调用点迁移按后续 adapter/API/runs/loader 任务执行。
+      - 只运行 1.2 要求的 focused test；完整 `task lint`、`task build`、`task test` 按阶段收口任务执行。
     - 下一目标：2.1 迁移 driver-local stream enum。
 
 ## 2. 阶段二：迁移 runtime driver 层为 driver-local `StdioStream`
