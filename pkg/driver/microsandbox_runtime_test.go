@@ -57,7 +57,11 @@ func TestMicrosandboxResolveLibkrunfwPrefersVersionedRealFile(t *testing.T) {
 	runtime := &microsandboxRuntime{config: &appconfig.Config{
 		MicrosandboxLibPath: filepath.Join(libDir, "libmicrosandbox_go_ffi.so"),
 	}}
-	if got := runtime.resolveLibkrunfwPath(); got != versioned {
+	got, err := runtime.resolveLibkrunfwPath()
+	if err != nil {
+		t.Fatalf("resolveLibkrunfwPath: %v", err)
+	}
+	if got != versioned {
 		t.Fatalf("resolveLibkrunfwPath() = %q, want %q", got, versioned)
 	}
 }
@@ -78,8 +82,35 @@ func TestMicrosandboxResolveLibkrunfwUsesNumericVersionOrder(t *testing.T) {
 		MicrosandboxLibPath: filepath.Join(libDir, "libmicrosandbox_go_ffi.so"),
 	}}
 	want := filepath.Join(libDir, "libkrunfw.so.5.10.0")
-	if got := runtime.resolveLibkrunfwPath(); got != want {
+	got, err := runtime.resolveLibkrunfwPath()
+	if err != nil {
+		t.Fatalf("resolveLibkrunfwPath: %v", err)
+	}
+	if got != want {
 		t.Fatalf("resolveLibkrunfwPath() = %q, want %q", got, want)
+	}
+}
+
+func TestMicrosandboxResolveLibkrunfwHandlesGlobMetaInDirectory(t *testing.T) {
+	root := t.TempDir()
+	libDir := filepath.Join(root, "lib[meta]")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	versioned := filepath.Join(libDir, "libkrunfw.so.5.6.0")
+	if err := os.WriteFile(versioned, []byte("krun"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime := &microsandboxRuntime{config: &appconfig.Config{
+		MicrosandboxLibPath: filepath.Join(libDir, "libmicrosandbox_go_ffi.so"),
+	}}
+	got, err := runtime.resolveLibkrunfwPath()
+	if err != nil {
+		t.Fatalf("resolveLibkrunfwPath: %v", err)
+	}
+	if got != versioned {
+		t.Fatalf("resolveLibkrunfwPath() = %q, want %q", got, versioned)
 	}
 }
 

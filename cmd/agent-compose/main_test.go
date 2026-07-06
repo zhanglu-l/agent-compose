@@ -3949,6 +3949,16 @@ func TestIntegrationCLICacheRemoveDryRunForceProtectedAndJSON(t *testing.T) {
 					}), nil
 				case "cache-connect-protected":
 					return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("cache is protected"))
+				case "cache-remove-failed":
+					failed := testCLICache("cache-remove-failed")
+					failed.Removable = false
+					failed.BlockedReasons = []string{"remove failed"}
+					return connect.NewResponse(&agentcomposev2.RemoveCacheResponse{
+						DryRun:   false,
+						Matched:  []*agentcomposev2.CacheItem{failed},
+						Skipped:  []*agentcomposev2.CacheItem{failed},
+						Warnings: []string{"remove cache-remove-failed: permission denied"},
+					}), nil
 				default:
 					t.Fatalf("unexpected RemoveCache cache_id = %q", req.Msg.GetCacheId())
 					return nil, nil
@@ -3985,8 +3995,19 @@ func TestIntegrationCLICacheRemoveDryRunForceProtectedAndJSON(t *testing.T) {
 	if !strings.Contains(protectedOut, "Skipped") || !strings.Contains(protectedOut, "cache-protected") {
 		t.Fatalf("cache rm protected stdout = %q", protectedOut)
 	}
-	if !strings.Contains(protectedErr, "cache is protected") {
+	if !strings.Contains(protectedErr, "cache is active") {
 		t.Fatalf("cache rm protected stderr = %q", protectedErr)
+	}
+
+	failedOut, failedErr, _, failedCode := executeCLICommand("cache", "rm", "--host", server.URL, "--force", "cache-remove-failed")
+	if failedCode != exitCodeUsage {
+		t.Fatalf("cache rm remove-failed exit code = %d, want usage; stderr=%q", failedCode, failedErr)
+	}
+	if !strings.Contains(failedOut, "Skipped") || !strings.Contains(failedOut, "cache-remove-failed") {
+		t.Fatalf("cache rm remove-failed stdout = %q", failedOut)
+	}
+	if !strings.Contains(failedErr, "permission denied") {
+		t.Fatalf("cache rm remove-failed stderr = %q", failedErr)
 	}
 
 	connectOut, connectErr, _, connectCode := executeCLICommand("cache", "rm", "--host", server.URL, "--force", "cache-connect-protected")
@@ -3999,8 +4020,8 @@ func TestIntegrationCLICacheRemoveDryRunForceProtectedAndJSON(t *testing.T) {
 	if !strings.Contains(connectErr, "failed_precondition") {
 		t.Fatalf("cache rm connect protected stderr = %q", connectErr)
 	}
-	if calls != 4 {
-		t.Fatalf("RemoveCache calls = %d, want 4", calls)
+	if calls != 5 {
+		t.Fatalf("RemoveCache calls = %d, want 5", calls)
 	}
 }
 

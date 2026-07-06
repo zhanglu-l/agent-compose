@@ -391,8 +391,8 @@ func (r boxliteRuntimeDerivedRemover) Remove(ctx context.Context, item runtimeca
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(safe.Target); err != nil {
-		return fmt.Errorf("remove boxlite runtime cache item %s: %w", safe.Target, err)
+	if err := os.RemoveAll(safe.CanonicalTarget); err != nil {
+		return fmt.Errorf("remove boxlite runtime cache item %s: %w", safe.CanonicalTarget, err)
 	}
 	return nil
 }

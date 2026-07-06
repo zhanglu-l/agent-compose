@@ -210,8 +210,8 @@ func (r microsandboxSessionEphemeralRemover) Remove(ctx context.Context, item ru
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(safe.Target); err != nil {
-		return fmt.Errorf("remove microsandbox session cache item %s: %w", safe.Target, err)
+	if err := os.RemoveAll(safe.CanonicalTarget); err != nil {
+		return fmt.Errorf("remove microsandbox session cache item %s: %w", safe.CanonicalTarget, err)
 	}
 	return nil
 }

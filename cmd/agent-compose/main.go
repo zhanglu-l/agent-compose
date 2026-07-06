@@ -2111,9 +2111,54 @@ func runComposeCacheRemoveCommand(cmd *cobra.Command, cli cliOptions, options co
 		return err
 	}
 	if options.Force && len(output.Removed) == 0 && len(output.Skipped) > 0 {
-		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("remove cache %s: cache is protected", cacheID)}
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("remove cache %s: %s", cacheID, cacheRemoveFailureReason(cacheID, output))}
 	}
 	return nil
+}
+
+func cacheRemoveFailureReason(cacheID string, output composeCacheOperationOutput) string {
+	for _, skipped := range output.Skipped {
+		if skipped.CacheID != cacheID {
+			continue
+		}
+		if cacheStringListContains(skipped.BlockedReasons, "remove failed") {
+			if warning := firstCacheRemoveWarning(cacheID, output.Warnings); warning != "" {
+				return warning
+			}
+			return "remove failed"
+		}
+		if len(skipped.BlockedReasons) > 0 {
+			return strings.Join(skipped.BlockedReasons, "; ")
+		}
+		if len(skipped.Warnings) > 0 {
+			return strings.Join(skipped.Warnings, "; ")
+		}
+	}
+	if warning := firstCacheRemoveWarning(cacheID, output.Warnings); warning != "" {
+		return warning
+	}
+	if len(output.Warnings) > 0 {
+		return output.Warnings[0]
+	}
+	return "cache is protected"
+}
+
+func firstCacheRemoveWarning(cacheID string, warnings []string) string {
+	for _, warning := range warnings {
+		if strings.Contains(warning, cacheID) {
+			return warning
+		}
+	}
+	return ""
+}
+
+func cacheStringListContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func runComposePullCommand(cmd *cobra.Command, cli cliOptions, options composeImagePullOptions, args []string) error {

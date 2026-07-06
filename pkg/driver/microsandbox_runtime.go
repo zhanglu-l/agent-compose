@@ -357,7 +357,10 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 	if _, err := os.Stat(r.config.MicrosandboxLibPath); err != nil {
 		return fmt.Errorf("microsandbox Go FFI library missing at %s: %w", r.config.MicrosandboxLibPath, err)
 	}
-	libkrunfwPath := r.resolveLibkrunfwPath()
+	libkrunfwPath, err := r.resolveLibkrunfwPath()
+	if err != nil {
+		return err
+	}
 	if libkrunfwPath == "" {
 		return fmt.Errorf("microsandbox libkrunfw not found next to %s", r.config.MicrosandboxLibPath)
 	}
@@ -375,12 +378,16 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 	return nil
 }
 
-func (r *microsandboxRuntime) resolveLibkrunfwPath() string {
+func (r *microsandboxRuntime) resolveLibkrunfwPath() (string, error) {
 	libDir := filepath.Dir(r.config.MicrosandboxLibPath)
-	matches, _ := filepath.Glob(filepath.Join(libDir, "libkrunfw.so.*"))
 	var selected string
 	var selectedVersion []int
-	for _, match := range matches {
+	entries, err := os.ReadDir(libDir)
+	if err != nil {
+		return "", fmt.Errorf("read microsandbox lib directory %s: %w", libDir, err)
+	}
+	for _, entry := range entries {
+		match := filepath.Join(libDir, entry.Name())
 		info, err := os.Lstat(match)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			continue
@@ -395,15 +402,15 @@ func (r *microsandboxRuntime) resolveLibkrunfwPath() string {
 		}
 	}
 	if selected != "" {
-		return selected
+		return selected, nil
 	}
 	for _, name := range []string{"libkrunfw.so.5", "libkrunfw.so"} {
 		path := filepath.Join(libDir, name)
 		if _, err := os.Stat(path); err == nil {
-			return path
+			return path, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func parseLibkrunfwVersion(name string) ([]int, bool) {
