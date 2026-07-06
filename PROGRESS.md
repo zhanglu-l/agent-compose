@@ -306,7 +306,7 @@
 
 参考文档：[proto/agentcompose/v2/agentcompose.proto](proto/agentcompose/v2/agentcompose.proto)、[proto-client/package.json](proto-client/package.json)
 
-- [ ] 4.1 升级 v2 proto schema 并生成 Go/Connect 代码
+- [x] 4.1 升级 v2 proto schema 并生成 Go/Connect 代码
   - 依赖：1.1、3.1。
   - 工作内容：
     - 在 `proto/agentcompose/v2/agentcompose.proto` 新增 `StdioStream` enum。
@@ -314,8 +314,8 @@
     - 不修改 `proto/agentcompose/v1/agentcompose.proto`。
     - 使用 `protoc` 重新生成 Go proto 和 Connect 代码。
   - 可并行子任务：
-    - [ ] 可并行：审计 v2 proto 字段号和生成代码影响面。
-    - [ ] 可并行：确认 generator 版本和 `protoc` 可用性。
+    - [x] 可并行：审计 v2 proto 字段号和生成代码影响面。
+    - [x] 可并行：确认 generator 版本和 `protoc` 可用性。
   - 测试方案：
     - `go tool protoc-gen-go --version`
     - `go tool protoc-gen-connect-go --version`
@@ -326,10 +326,26 @@
     - v1 proto 和 v1 generated code 保持历史兼容。
     - Go generated code 可编译。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `proto/agentcompose/v2/agentcompose.proto` 新增 `StdioStream` enum，包含 `STDIO_STREAM_UNSPECIFIED`、`STDIO_STREAM_STDOUT`、`STDIO_STREAM_STDERR`。
+      - v2 `RunAgentStreamResponse.is_stderr` 已迁移为 `StdioStream stream = 5`。
+      - v2 `ExecStreamResponse.is_stderr` 已迁移为 `StdioStream stream = 6`。
+      - v2 `TranscriptEvent.kind/is_stderr` 已迁移为 `StdioStream stream = 1`，保留 `text/name/payload_json/created_at` 字段。
+      - 使用 repo-root source path 约定重新生成 `proto/agentcompose/v2/agentcompose.pb.go`；`proto/agentcompose/v2/agentcomposev2connect/agentcompose.connect.go` 重新生成后无内容差异。
+    - 验证：
+      - `go tool protoc-gen-go --version`：`protoc-gen-go v1.36.11`。
+      - `go tool protoc-gen-connect-go --version`：`1.19.2`。
+      - `protoc --version`：`libprotoc 3.21.12`。
+      - `protoc -I . --go_out=. --go_opt=paths=source_relative --connect-go_out=. --connect-go_opt=paths=source_relative proto/agentcompose/v2/agentcompose.proto`：生成成功。
+      - `./scripts/with-go-toolchain.sh go test ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect`：通过。
+      - `rg -n "StdioStream|STDIO_STREAM|stream =|GetStream\\(" proto/agentcompose/v2/agentcompose.proto proto/agentcompose/v2/agentcompose.pb.go`：确认 v2 proto/generated code 暴露 `StdioStream` enum 和三个 stream getter。
+      - `rg -n "is_stderr|IsStderr|GetIsStderr|kind = 1|Kind" proto/agentcompose/v2/agentcompose.proto proto/agentcompose/v2/agentcompose.pb.go`：无 v2 stream response 或 `TranscriptEvent` legacy stream 字段命中，剩余为无关 `TriggerSpec.Kind` 和 `ImageStoreKind`。
+    - 审计与例外：
+      - `proto/agentcompose/v1/agentcompose.proto` 未修改；v1 generated code 最终也未修改，历史 `is_stderr` 兼容面保持不变。
+      - 首次按文档中广义 proto generation 思路生成时产生了 v1/health source path metadata churn；已还原 v1/health 生成文件，并改用只覆盖 v2 的 repo-root generation 命令，避免 4.1 引入无关差异。
+      - 本任务只完成 v2 schema 和 Go proto 产物；API/app/CLI 调用点仍会因旧 `IsStderr` 字段引用在后续编译门禁中失败，按 4.2 迁移。
+      - `proto-client` TypeScript 生成产物按 4.3 单独更新。
     - 下一目标：4.2 迁移 API/app/CLI v2 stream 使用。
 
 - [ ] 4.2 迁移 API、app 和 CLI 到 v2 `stream`

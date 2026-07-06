@@ -99,6 +99,12 @@ enum ExecStreamEventType {
   EXEC_STREAM_EVENT_TYPE_COMPLETED = 3;
 }
 
+enum StdioStream {
+  STDIO_STREAM_UNSPECIFIED = 0;
+  STDIO_STREAM_STDOUT = 1;
+  STDIO_STREAM_STDERR = 2;
+}
+
 enum ImageStoreKind {
   IMAGE_STORE_KIND_UNSPECIFIED = 0;
   IMAGE_STORE_KIND_DOCKER_DAEMON = 1;
@@ -378,16 +384,15 @@ message RunAgentStreamResponse {
   RunSummary run = 2;
   string run_id = 3;
   string chunk = 4;
-  bool is_stderr = 5;
+  StdioStream stream = 5;
   string created_at = 6;
   repeated string warnings = 7;
   TranscriptEvent transcript = 8;
 }
 
 message TranscriptEvent {
-  string kind = 1;
+  StdioStream stream = 1;
   string text = 2;
-  bool is_stderr = 3;
   string name = 4;
   string payload_json = 5;
   string created_at = 6;
@@ -555,7 +560,7 @@ message ExecStreamResponse {
   string session_id = 3;
   string run_id = 4;
   string chunk = 5;
-  bool is_stderr = 6;
+  StdioStream stream = 6;
   ExecResult result = 7;
   TranscriptEvent transcript = 8;
 }
