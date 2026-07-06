@@ -150,6 +150,35 @@ func TestDaemonHelpDoesNotStartDaemon(t *testing.T) {
 	}
 }
 
+func TestRunHelpHidesOptionalModeFlagSentinel(t *testing.T) {
+	stdout, stderr, runCount, exitCode := executeCLICommand("run", "--help")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run --help code/stderr = %d / %q", exitCode, stderr)
+	}
+	if runCount != 0 {
+		t.Fatalf("daemon runner called %d times, want 0", runCount)
+	}
+	for _, unexpected := range []string{
+		"agent-compose-run-mode",
+		"\x00",
+		`[="`,
+	} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("run --help contains %q:\n%s", unexpected, stdout)
+		}
+	}
+	for _, want := range []string{
+		"--prompt string",
+		"--command string",
+		"Prompt to send to the agent",
+		"Bash command to execute in the agent sandbox",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("run --help does not contain %q:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestUnknownCommandFailsWithoutStartingDaemon(t *testing.T) {
 	_, _, runCount, err := executeCommand("does-not-exist")
 	if err == nil {
