@@ -205,19 +205,32 @@
 
 参考文档：[实施计划 阶段 4](docs/plan/runtime-cache-lifecycle-implementation-plan.md#阶段-4boxlite-和-microsandbox-driver-cache-adapter)
 
-- [ ] 4.1 实现 BoxLite runtime-derived inventory 和安全删除
+- [x] 4.1 实现 BoxLite runtime-derived inventory 和安全删除
   - 依赖：3.2。
   - 工作内容：识别 `BOXLITE_HOME/images/local`、`BOXLITE_HOME/images/disk-images` 和可安全发现的 box/runtime state；将 legacy cleanup 纳入 inventory-aware removal；BoxLite DB/schema 不确定时标记 unknown。
   - 可并行子任务：
-    - [ ] 可并行：审计 `pkg/driver/boxlite_cache_gc.go` 和现有 boxlite cgo tests。
-    - [ ] 可并行：构造 BoxLite home/DB fixture，覆盖 active/stopped/orphaned/unknown。
+    - [x] 可并行：审计 `pkg/driver/boxlite_cache_gc.go` 和现有 boxlite cgo tests。
+    - [x] 可并行：构造 BoxLite home/DB fixture，覆盖 active/stopped/orphaned/unknown。
   - 测试方案：`go test -tags boxlitecgo ./pkg/driver` 和相关 `pkg/runtimecache` tests，覆盖 active 引用阻止删除、stopped/orphaned dry-run/force、DB 表缺失或查询失败为 unknown。
   - 验收标准：BoxLite cache 删除不再按固定目录无条件清空；无法证明安全时不可删。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 在 `pkg/driver/boxlite_cache_gc.go` 新增 BoxLite runtime-derived inventory，扫描 `BOXLITE_HOME/images/local/*` 和 `BOXLITE_HOME/images/disk-images/*`，生成 `runtime-derived-cache` / `boxlite` / `boxlite-local-image`、`boxlite-disk-image` items。
+      - 新增 BoxLite DB active state 检查，只有 `box_state.status` 查询成功且无 active box 时才把 legacy runtime cache 标记为 `orphaned/removable`；active box 标记为 `active` 并附带 DB reference。
+      - DB 缺失、表缺失、status 列缺失、corrupt/query failure、空或相对 `BOXLITE_HOME` 均转为 warning 或 unknown；unknown item 即使 `force=true` 也不可删。
+      - 将 `cleanupLegacyBoxliteImageCaches` 改为调用 inventory-aware prune，不再使用固定目录 `removeAllChildren` 无条件清空。
+      - 新增 BoxLite runtime cache remover，校验 domain/driver/kind/cache_id，持有 `BOXLITE_HOME/.agent-compose-runtime-cache.lock`，并通过 `runtimecache.ValidateCachePath` 限制删除目标位于对应 root 下。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/runtimecache`
+      - 初次 `./scripts/with-go-toolchain.sh go test -count=1 -tags boxlitecgo ./pkg/driver` 因本地缺少 `build/boxlite/include/boxlite.h` 失败。
+      - `./scripts/export-boxlite-dev-artifact.sh ./build/boxlite`
+      - `./scripts/with-go-toolchain.sh go test -count=1 -tags boxlitecgo ./pkg/driver`
+      - `git diff --check`
+    - 审计与例外：
+      - 覆盖 inventory 扫描、active 引用阻止删除、stopped/orphaned dry-run、force 单项删除、DB missing/table missing/status column missing/corrupt DB unknown 不可删、相对 `BOXLITE_HOME` 不删除当前目录、symlink escape 删除失败且不影响外部目标。
+      - `resolveRootfsPath()` 中 `maybeRunCacheGC()` 仍按任务 4.2 处理，本任务未改动 materialized cache TTL 热路径。
+      - 真实 BoxLite smoke 为 opt-in，本任务未运行；补跑命令：`SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke`。
     - 下一目标：4.2 移除 BoxLite 启动热路径隐式清理。
 
 - [ ] 4.2 移除 BoxLite 启动热路径 materialized cache GC
