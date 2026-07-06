@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -852,6 +853,106 @@ func TestRunsProjectRunLogAppendChunk(t *testing.T) {
 	if string(data) != "stdout\nstderr\n" {
 		t.Fatalf("log content = %q", string(data))
 	}
+}
+
+func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
+	PrepareStreamingHeaders(nil)
+	headers := http.Header{}
+	PrepareStreamingHeaders(headers)
+	if headers.Get("Cache-Control") != "no-cache, no-transform" || headers.Get("X-Accel-Buffering") != "no" {
+		t.Fatalf("stream headers = %#v", headers)
+	}
+
+	baseJupyter := sessionstore.CreateSessionOptions{JupyterGuestPort: 8888}
+	if options, err := resolveRunJupyterOptions(baseJupyter, nil); err != nil || options != baseJupyter {
+		t.Fatalf("nil jupyter override options=%#v err=%v", options, err)
+	}
+	if _, err := resolveRunJupyterOptions(baseJupyter, &agentcomposev2.RunJupyterSpec{GuestPort: 65536}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("invalid jupyter guest port err=%v", err)
+	}
+	options, err := resolveRunJupyterOptions(baseJupyter, &agentcomposev2.RunJupyterSpec{Enabled: true, GuestPort: 9000})
+	if err != nil || !options.JupyterEnabled || options.JupyterExpose || options.JupyterGuestPort != 9000 {
+		t.Fatalf("enabled jupyter options=%#v err=%v", options, err)
+	}
+	options, err = resolveRunJupyterOptions(sessionstore.CreateSessionOptions{}, &agentcomposev2.RunJupyterSpec{Expose: true})
+	if err != nil || !options.JupyterEnabled || !options.JupyterExpose {
+		t.Fatalf("exposed jupyter options=%#v err=%v", options, err)
+	}
+
+	if env := execEnvMap(nil); env != nil {
+		t.Fatalf("nil env map = %#v", env)
+	}
+	if env := execEnvMap([]*agentcomposev2.EnvVarSpec{{Name: " "}, nil}); env != nil {
+		t.Fatalf("empty env map = %#v", env)
+	}
+	env := execEnvMap([]*agentcomposev2.EnvVarSpec{
+		{Name: " A ", Value: "1"},
+		{Name: "B", Value: ""},
+		{Name: "A", Value: "2"},
+	})
+	if len(env) != 2 || env["A"] != "2" || env["B"] != "" {
+		t.Fatalf("env map = %#v", env)
+	}
+
+	root := t.TempDir()
+	session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1", WorkspacePath: filepath.Join(root, "sessions", "session-1", "workspace")}}
+	run := domain.ProjectRunRecord{RunID: "run-1"}
+	success := transitionFromCommandResult(run, session, "echo ok", domain.ExecResult{Output: "ok\n", ExitCode: 0, Success: true}, nil)
+	if success.ExitCode != 0 || success.Error != "" || success.Output != "ok\n" || success.ArtifactsDir == "" || !strings.Contains(success.ResultJSON, `"success":true`) {
+		t.Fatalf("success transition = %#v", success)
+	}
+	failed := transitionFromCommandResult(run, session, "exit 7", domain.ExecResult{Stderr: "stderr detail\n", Output: "output detail\n", Stdout: "stdout detail\n", ExitCode: 7, Success: false}, nil)
+	if failed.ExitCode != 7 || !strings.Contains(failed.Error, "stderr detail") {
+		t.Fatalf("failed transition = %#v", failed)
+	}
+	execFailed := transitionFromCommandResult(run, session, "boom", domain.ExecResult{ExitCode: 0, Success: false}, errors.New("exec boom"))
+	if execFailed.ExitCode != 1 || !strings.Contains(execFailed.Error, "exec boom") {
+		t.Fatalf("exec failed transition = %#v", execFailed)
+	}
+	if got := projectRunCommandArtifactsDir(run, session); !strings.Contains(got, filepath.Join("state", "runs", "run-1")) {
+		t.Fatalf("artifacts dir = %q", got)
+	}
+	if got := projectRunAgentCellOutputPath(nil, "cell-1"); got != "" {
+		t.Fatalf("nil session cell output path = %q", got)
+	}
+	if got := projectRunAgentCellOutputPath(session, " "); got != "" {
+		t.Fatalf("blank cell output path = %q", got)
+	}
+	if got := projectRunAgentCellOutputPath(session, " cell-1 "); !strings.Contains(got, filepath.Join("state", "cells", "cell-1", "output.txt")) {
+		t.Fatalf("cell output path = %q", got)
+	}
+	if err := appendProjectRunLogChunk("", domain.ExecChunk{Text: "ignored"}); err != nil {
+		t.Fatalf("blank append returned error: %v", err)
+	}
+	fileParent := filepath.Join(root, "not-a-dir")
+	if err := os.WriteFile(fileParent, []byte("file"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := appendProjectRunLogChunk(filepath.Join(fileParent, "output.txt"), domain.ExecChunk{Text: "chunk"}); err == nil {
+		t.Fatalf("expected append error under file parent")
+	}
+
+	terminalStore := &fakeRunStore{runs: map[string]domain.ProjectRunRecord{
+		"cancel-run": {RunID: "cancel-run", Status: domain.ProjectRunStatusPending},
+		"fail-run":   {RunID: "fail-run", Status: domain.ProjectRunStatusPending},
+	}}
+	coordinator := NewCoordinator(terminalStore, nil)
+	canceled, err := markProjectRunTerminalError(context.Background(), coordinator, TransitionRequest{RunID: "cancel-run", Error: "canceled"}, context.Canceled)
+	if err != nil || canceled.Status != domain.ProjectRunStatusCanceled {
+		t.Fatalf("canceled terminal run=%#v err=%v", canceled, err)
+	}
+	failedRun, err := markProjectRunTerminalError(context.Background(), coordinator, TransitionRequest{RunID: "fail-run", Error: "failed"}, errors.New("failed"))
+	if err != nil || failedRun.Status != domain.ProjectRunStatusFailed {
+		t.Fatalf("failed terminal run=%#v err=%v", failedRun, err)
+	}
+}
+
+func TestIntegrationRunsControllerHelperEdgeWorkflows(t *testing.T) {
+	TestRunsControllerHelperEdgeWorkflows(t)
+}
+
+func TestE2ERunsControllerHelperEdgeWorkflows(t *testing.T) {
+	TestRunsControllerHelperEdgeWorkflows(t)
 }
 
 func containsString(values []string, want string) bool {

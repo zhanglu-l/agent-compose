@@ -11,6 +11,7 @@ func TestRuntimeDriverWorkflow(t *testing.T) {
 	testDockerImageRefMatchingInternals(t)
 	testConsumeDockerPullStream(t)
 	testExecOutputFilterWorkflows(t)
+	testJupyterGuestCoverageWorkflow(t)
 }
 
 func TestIntegrationRuntimeDriverWorkflow(t *testing.T) {
@@ -22,6 +23,7 @@ func TestIntegrationRuntimeDriverWorkflow(t *testing.T) {
 	testDockerImageRefMatchingInternals(t)
 	testConsumeDockerPullStream(t)
 	testExecOutputFilterWorkflows(t)
+	testJupyterGuestCoverageWorkflow(t)
 }
 
 func TestE2ERuntimeDriverWorkflow(t *testing.T) {
@@ -33,4 +35,5 @@ func TestE2ERuntimeDriverWorkflow(t *testing.T) {
 	testDockerImageRefMatchingInternals(t)
 	testConsumeDockerPullStream(t)
 	testExecOutputFilterWorkflows(t)
+	testJupyterGuestCoverageWorkflow(t)
 }

@@ -80,6 +80,41 @@ func TestImageBackendAndMappingCoverageWorkflows(t *testing.T) {
 	if _, err := (*DockerBackend)(nil).ListImages(ctx, ListRequest{}); err == nil {
 		t.Fatalf("expected nil docker backend error")
 	}
+
+	cache, err := imagecache.New(imagecache.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("create OCI cache: %v", err)
+	}
+	now := time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC)
+	ociBackend := NewOCIBackend(cache, WithOCIClock(func() time.Time { return now }))
+	if !ociBackend.HasCache() || ociBackend.CacheRoot() != cache.Root() || ociBackend.inspectedAt() != now.Format(time.RFC3339Nano) {
+		t.Fatalf("OCI backend metadata root=%q inspected=%q", ociBackend.CacheRoot(), ociBackend.inspectedAt())
+	}
+	ociList, err := ociBackend.ListImages(ctx, ListRequest{All: true})
+	if err != nil || len(ociList.Images) != 0 || ociList.StoreStatus.GetStore() != agentcomposev2.ImageStoreKind_IMAGE_STORE_KIND_OCI_CACHE {
+		t.Fatalf("OCI ListImages list=%#v err=%v", ociList, err)
+	}
+	if _, err := ociBackend.InspectImage(ctx, InspectRequest{ImageRef: "missing:latest"}); err == nil {
+		t.Fatalf("expected OCI inspect missing error")
+	} else if backendErr, kind, ok := ClassifyBackendError(err); !ok || kind != ErrorKindNotFound || backendErr.ImageRef != "missing:latest" || !IsNotFound(err) {
+		t.Fatalf("ClassifyBackendError backendErr=%#v kind=%v ok=%v err=%v", backendErr, kind, ok, err)
+	}
+	if _, err := (*OCIBackend)(nil).PullImage(ctx, PullRequest{ImageRef: "guest:latest"}); err == nil {
+		t.Fatalf("expected nil OCI pull error")
+	} else if _, kind, ok := ClassifyBackendError(err); !ok || kind != ErrorKindUnavailable {
+		t.Fatalf("OCI pull nil-cache error kind=%v ok=%v err=%v", kind, ok, err)
+	}
+	if _, err := (*OCIBackend)(nil).RemoveImage(ctx, RemoveRequest{ImageRef: "guest:latest"}); err == nil {
+		t.Fatalf("expected nil OCI backend error")
+	}
+	status := ociBackend.storeStatus()
+	if !status.GetAvailable() || !strings.HasSuffix(status.GetEndpoint(), "/oci") {
+		t.Fatalf("OCI store status = %#v", status)
+	}
+	platform := ImageCachePlatform(&agentcomposev2.ImagePlatform{Os: " linux ", Architecture: " amd64 ", Variant: " v3 ", OsVersion: " 1 "})
+	if platform.OS != "linux" || platform.Architecture != "amd64" || platform.Variant != "v3" || platform.OSVersion != "1" {
+		t.Fatalf("ImageCachePlatform = %#v", platform)
+	}
 }
 
 func TestIntegrationImageBackendAndMappingCoverageWorkflows(t *testing.T) {

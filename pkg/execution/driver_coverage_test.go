@@ -51,6 +51,24 @@ func TestDriverConversionWorkflows(t *testing.T) {
 	if result.ExitCode != 2 || result.Output != "outerr" || result.Success {
 		t.Fatalf("exec result = %#v", result)
 	}
+	metricValue := 12.5
+	stats := FromDriverSandboxStats(driverpkg.SandboxStats{
+		SandboxID:        "sandbox-1",
+		Driver:           "docker",
+		SampledAt:        now,
+		CPUPercent:       driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitPercent, Status: driverpkg.MetricStatusOK, Message: "cpu"},
+		MemoryUsageBytes: driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitBytes, Status: driverpkg.MetricStatusOK},
+		MemoryLimitBytes: driverpkg.MetricValue{Status: driverpkg.MetricStatusUnknown, Unit: driverpkg.MetricUnitBytes, Message: "unknown"},
+		MemoryPercent:    driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitPercent, Status: driverpkg.MetricStatusOK},
+		NetworkRxBytes:   driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitBytes, Status: driverpkg.MetricStatusOK},
+		NetworkTxBytes:   driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitBytes, Status: driverpkg.MetricStatusOK},
+		BlockReadBytes:   driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitBytes, Status: driverpkg.MetricStatusOK},
+		BlockWriteBytes:  driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitBytes, Status: driverpkg.MetricStatusOK},
+		UptimeSeconds:    driverpkg.MetricValue{Value: &metricValue, Unit: driverpkg.MetricUnitSeconds, Status: driverpkg.MetricStatusOK},
+	})
+	if stats.SandboxID != "sandbox-1" || stats.CPUPercent.Value == nil || *stats.CPUPercent.Value != metricValue || stats.MemoryLimitBytes.Status != driverpkg.MetricStatusUnknown {
+		t.Fatalf("sandbox stats = %#v", stats)
+	}
 
 	config := &appconfig.Config{GuestWorkspacePath: "/workspace", GuestStateRoot: "/state", GuestRuntimeRoot: "/runtime", Version: "v-test"}
 	commandReq := RuntimeCommandRequestPayload(config, domain.LoaderCommandRequest{

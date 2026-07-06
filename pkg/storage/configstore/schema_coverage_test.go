@@ -567,6 +567,7 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.DeleteLLMFacadeToken(ctx, rawToken); err != nil {
 		t.Fatalf("DeleteLLMFacadeToken returned error: %v", err)
 	}
+	testConfigStoreLLMBootstrapResolveCoverage(t, ctx)
 
 	if err := store.DeleteLoader(ctx, loader.Summary.ID); err != nil {
 		t.Fatalf("DeleteLoader returned error: %v", err)
@@ -579,6 +580,76 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	}
 	if err := store.DeleteWorkspaceConfig(ctx, workspace.ID); err != nil {
 		t.Fatalf("DeleteWorkspaceConfig returned error: %v", err)
+	}
+}
+
+func testConfigStoreLLMBootstrapResolveCoverage(t *testing.T, ctx context.Context) {
+	t.Helper()
+	store := &ConfigStore{db: newMemoryDB(t)}
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("initSchema for LLM bootstrap returned error: %v", err)
+	}
+	config := &appconfig.Config{LLMAPIEndpoint: "https://config.example/v1", LLMAPIProtocol: "chat_completions", LLMAPIKey: "config-key", LLMModel: "config-model"}
+	if lookup := DefaultLLMEnvProviderLookup(ctx, config, store); lookup("LLM_API_ENDPOINT") != "https://config.example/v1" {
+		t.Fatalf("config LLM lookup failed")
+	}
+	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SessionEnvVar{
+		{Name: "LLM_API_ENDPOINT", Value: "https://global.example/v1"},
+		{Name: "LLM_API_PROTOCOL", Value: "chat_completions"},
+		{Name: "LLM_API_KEY", Value: "global-key", Secret: true},
+		{Name: "LLM_MODEL", Value: "global-model"},
+	}); err != nil {
+		t.Fatalf("ReplaceGlobalEnv for LLM returned error: %v", err)
+	}
+	target, err := ResolveLLMTarget(ctx, config, store, "")
+	if err != nil {
+		t.Fatalf("ResolveLLMTarget returned error: %v", err)
+	}
+	if target.Provider.ID != llms.ProviderIDDefaultOpenAI || target.Provider.APIKey != "global-key" || target.Model.ID != "global-model" || target.WireAPI != llms.APIProtocolChatCompletions {
+		t.Fatalf("OpenAI resolved target = %#v", target)
+	}
+	runtimeTarget, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, "session-1", llms.ProviderFamilyOpenAI, "session-model", "", []SessionEnvVar{
+		{Name: "LLM_API_ENDPOINT", Value: "https://session.example/v1"},
+		{Name: "LLM_API_KEY", Value: "session-key", Secret: true},
+		{Name: "LLM_MODEL", Value: "session-model"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntimeLLMTargetWithEnv OpenAI returned error: %v", err)
+	}
+	if runtimeTarget.Provider.ID == target.Provider.ID || runtimeTarget.Provider.Scope != llms.ProviderScopeSessionEnv || runtimeTarget.Model.ID != "session-model" {
+		t.Fatalf("session OpenAI target = %#v", runtimeTarget)
+	}
+	if HasEnabledLLMProviderID(ctx, store, runtimeTarget.Provider.ID) != true {
+		t.Fatalf("expected session provider to be enabled")
+	}
+	reusedRuntimeTarget, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, "session-1", llms.ProviderFamilyOpenAI, "session-model", "", nil)
+	if err != nil || reusedRuntimeTarget.Provider.ID != runtimeTarget.Provider.ID {
+		t.Fatalf("reused session OpenAI target=%#v err=%v", reusedRuntimeTarget, err)
+	}
+	if _, err := ResolveRuntimeLLMTarget(ctx, config, store, "missing-model", "missing-provider"); err == nil {
+		t.Fatalf("expected missing runtime LLM target error")
+	}
+
+	anthropicStore := &ConfigStore{db: newMemoryDB(t)}
+	if err := anthropicStore.initSchema(ctx); err != nil {
+		t.Fatalf("initSchema for Anthropic returned error: %v", err)
+	}
+	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-key")
+	t.Setenv("ANTHROPIC_MODEL", "claude-test")
+	anthropicTarget, err := ResolveLLMTargetForProviderFamily(ctx, &appconfig.Config{}, anthropicStore, llms.ProviderFamilyAnthropic, "")
+	if err != nil {
+		t.Fatalf("ResolveLLMTargetForProviderFamily Anthropic returned error: %v", err)
+	}
+	if anthropicTarget.Provider.ProviderType != llms.ProviderFamilyAnthropic || anthropicTarget.WireAPI != llms.APIProtocolMessages || anthropicTarget.Model.ID != "claude-test" {
+		t.Fatalf("Anthropic target = %#v", anthropicTarget)
+	}
+	sessionAnthropicID, err := EnsureSessionAnthropicEnvProvider(ctx, anthropicStore, "session-2", "claude-session", []SessionEnvVar{
+		{Name: "ANTHROPIC_API_KEY", Value: "session-anthropic-key", Secret: true},
+		{Name: "ANTHROPIC_MODEL", Value: "claude-session"},
+	})
+	if err != nil || sessionAnthropicID == "" {
+		t.Fatalf("EnsureSessionAnthropicEnvProvider id=%q err=%v", sessionAnthropicID, err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/capability"
+	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
 	"agent-compose/pkg/execution"
 	"agent-compose/pkg/imagecache"
@@ -173,6 +174,81 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 	}
 	if FormatProjectTime(time.Time{}) != "" || FormatProjectTime(now) == "" {
 		t.Fatalf("project time mapping failed")
+	}
+
+	project := domain.ProjectRecord{ID: "project-1", Name: "Project", SourcePath: "/repo/agent-compose.yml", CurrentRevision: 2, SpecHash: "hash", CreatedAt: now, UpdatedAt: now}
+	projectAgent := domain.ProjectAgentRecord{ProjectID: project.ID, AgentName: "worker", ManagedAgentID: "agent-1", Provider: "codex", Model: "gpt", Image: "guest:latest", Driver: "docker", SchedulerEnabled: true}
+	projectScheduler := domain.ProjectSchedulerRecord{ProjectID: project.ID, AgentName: "worker", SchedulerID: "scheduler-1", ManagedLoaderID: "loader-1", Enabled: true, TriggerCount: 2}
+	projectProto := ProjectToProto(project, &agentcomposev2.ProjectSpec{Name: "Project"}, []domain.ProjectAgentRecord{projectAgent}, []domain.ProjectSchedulerRecord{projectScheduler})
+	if projectProto.GetSummary().GetProjectId() != project.ID || projectProto.GetAgents()[0].GetManagedAgentId() != "agent-1" || projectProto.GetSchedulers()[0].GetManagedLoaderId() != "loader-1" {
+		t.Fatalf("project proto = %#v", projectProto)
+	}
+	revision := domain.ProjectRevisionRecord{ProjectID: project.ID, Revision: 2, SpecHash: "hash", CreatedAt: now}
+	if ProjectRevisionToProto(revision, projectProto.GetSpec()).GetRevision() != 2 {
+		t.Fatalf("project revision mapping failed")
+	}
+	changes := ProjectApplyChanges(project, domain.ProjectRecord{ID: project.ID, Name: "Old", SourcePath: project.SourcePath}, true, revision, true)
+	if changes[0].GetAction() != agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED || changes[1].GetAction() != agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED {
+		t.Fatalf("ProjectApplyChanges updated = %#v", changes)
+	}
+	createdChanges := ProjectApplyChanges(project, domain.ProjectRecord{}, false, revision, false)
+	if createdChanges[0].GetAction() != agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED || createdChanges[1].GetAction() != agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED {
+		t.Fatalf("ProjectApplyChanges created = %#v", createdChanges)
+	}
+	dryRun := DryRunProjectChanges(project, []domain.ProjectAgentRecord{projectAgent}, []domain.AgentDefinition{agent}, []domain.ProjectSchedulerRecord{projectScheduler}, []domain.Loader{loader})
+	if len(dryRun) != 5 || dryRun[4].GetResourceType() != "loader" {
+		t.Fatalf("DryRunProjectChanges = %#v", dryRun)
+	}
+	normalizedSpec := &compose.NormalizedProjectSpec{
+		Name:      "Project",
+		Variables: map[string]compose.EnvVarSpec{"B": {Value: "2"}, "A": {Value: "1", Secret: true}},
+		Workspace: &compose.WorkspaceSpec{Provider: "git", URL: "https://example.test/repo.git", Branch: "main", Path: "src"},
+		Network:   &compose.NetworkSpec{Mode: "host"},
+		Agents: []compose.NormalizedAgentSpec{{
+			Name: "worker", Provider: "codex", Model: "gpt", SystemPrompt: "system", Image: "guest:latest", CapsetIDs: []string{"dev"},
+			Driver:    &compose.NormalizedDriverSpec{Name: compose.DriverDocker, Docker: &compose.DockerDriverSpec{Host: "unix:///docker.sock"}},
+			Env:       map[string]compose.EnvVarSpec{"TOKEN": {Value: "secret", Secret: true}},
+			Workspace: &compose.WorkspaceSpec{Provider: "file", Path: "work"},
+			Jupyter:   &compose.JupyterSpec{Enabled: true, GuestPort: 8888},
+			Scheduler: &compose.NormalizedSchedulerSpec{Enabled: true, Script: "function main(){}", Triggers: []compose.NormalizedTriggerSpec{
+				{Name: "cron", Kind: "cron", Cron: "*/5 * * * *"},
+				{Name: "interval", Kind: "interval", Interval: "5m"},
+				{Name: "timeout", Kind: "timeout", Timeout: "1m"},
+				{Name: "event", Kind: "event", Event: &compose.EventTriggerSpec{Topic: "runtime.test"}, Prompt: "go"},
+			}},
+		}},
+	}
+	specProto := ProjectSpecToProto(normalizedSpec)
+	if specProto.GetAgents()[0].GetDriver().GetDocker().GetHost() != "unix:///docker.sock" || specProto.GetAgents()[0].GetScheduler().GetTriggers()[3].GetEvent().GetTopic() != "runtime.test" {
+		t.Fatalf("ProjectSpecToProto = %#v", specProto)
+	}
+	shape, issues := ProjectSpecYAMLShape(specProto)
+	if len(issues) != 0 || shape["name"] != "Project" {
+		t.Fatalf("ProjectSpecYAMLShape shape=%#v issues=%#v", shape, issues)
+	}
+	if _, issues := EnvVarYAMLMap("env", []*agentcomposev2.EnvVarSpec{{Name: "A"}, {Name: " A "}}); len(issues) != 1 {
+		t.Fatalf("expected duplicate env issue")
+	}
+	if _, issues := AgentYAMLMap([]*agentcomposev2.AgentSpec{{Name: "worker"}, {Name: " worker "}}); len(issues) != 1 {
+		t.Fatalf("expected duplicate agent issue")
+	}
+	if _, issues := DriverYAMLShape("driver", &agentcomposev2.DriverSpec{Name: "docker", Boxlite: &agentcomposev2.BoxliteDriverSpec{}}); len(issues) != 1 {
+		t.Fatalf("expected conflicting driver issue")
+	}
+	if _, issues := DriverYAMLShape("driver", &agentcomposev2.DriverSpec{Name: "bad"}); len(issues) != 1 {
+		t.Fatalf("expected unsupported driver issue")
+	}
+	if sourcePath := ProjectServiceSourcePath(&agentcomposev2.ProjectSource{ProjectDir: "/repo"}); sourcePath != filepath.Join("/repo", "agent-compose.yml") {
+		t.Fatalf("ProjectServiceSourcePath = %q", sourcePath)
+	}
+	if issue := IssueFromComposeError(&compose.ValidationError{Path: "agents.worker", Message: "bad"}); issue.GetPath() != "agents.worker" {
+		t.Fatalf("validation issue = %#v", issue)
+	}
+	if issue := IssueFromComposeError(&compose.ParseError{Path: "name", Message: "parse bad"}); issue.GetPath() != "name" {
+		t.Fatalf("parse issue = %#v", issue)
+	}
+	if issue := ProjectValidationIssue("", "generic"); issue.GetPath() != "spec" {
+		t.Fatalf("default validation issue = %#v", issue)
 	}
 }
 

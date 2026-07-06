@@ -11,6 +11,8 @@ import (
 	domain "agent-compose/pkg/model"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
+
+	"github.com/spf13/cobra"
 )
 
 func TestCLIConfigAndOutputWorkflow(t *testing.T) {
@@ -50,6 +52,7 @@ func testCLIConfigAndOutputWorkflow(t *testing.T) {
 	testComposeProjectPureHelpers(t)
 	testComposeProjectOutputHelpers(t)
 	testComposeRunLogAndExecHelpers(t)
+	testComposeRunExecAndLogsEdgeHelpers(t)
 	testComposeImageStatsAndSessionHelpers(t)
 }
 
@@ -278,6 +281,27 @@ func testComposeProjectOutputHelpers(t *testing.T) {
 	if tags := sessionTagsMap(session.GetTags()); tags["project_id"] != "project-1" {
 		t.Fatalf("sessionTagsMap = %#v", tags)
 	}
+	if composePSSessionBelongsToProject(
+		&agentcomposev1.SessionSummary{SessionId: "session-by-name", Tags: []*agentcomposev1.SessionTag{{Name: "project", Value: "Project"}}},
+		project,
+		map[string]*agentcomposev2.RunSummary{},
+	) != true {
+		t.Fatalf("expected project-name tag to match project")
+	}
+	if composePSSessionBelongsToProject(
+		&agentcomposev1.SessionSummary{SessionId: "session-by-source", TriggerSource: "started from /repo/agent-compose.yml"},
+		project,
+		map[string]*agentcomposev2.RunSummary{},
+	) != false {
+		t.Fatalf("source-path-only trigger source should not match project")
+	}
+	if composePSSessionBelongsToProject(
+		&agentcomposev1.SessionSummary{SessionId: "session-no-match", Tags: []*agentcomposev1.SessionTag{{Name: "project_id", Value: "other"}}},
+		project,
+		map[string]*agentcomposev2.RunSummary{},
+	) {
+		t.Fatalf("unexpected session/project match")
+	}
 
 	var out bytes.Buffer
 	psOutput := composePSOutput{Project: output.Project, Sandboxes: []composePSSandboxOutput{{
@@ -404,6 +428,179 @@ func testComposeRunLogAndExecHelpers(t *testing.T) {
 	}
 	if got := appendUniqueStrings([]string{" first ", "second"}, "second", "", "third"); len(got) != 3 || got[0] != "first" || got[2] != "third" {
 		t.Fatalf("appendUniqueStrings = %#v", got)
+	}
+}
+
+func testComposeRunExecAndLogsEdgeHelpers(t *testing.T) {
+	t.Helper()
+	project := &compose.NormalizedProjectSpec{
+		Name: "Project",
+		Agents: []compose.NormalizedAgentSpec{{
+			Name:     "reviewer",
+			Provider: "gemini",
+			Scheduler: &compose.NormalizedSchedulerSpec{Triggers: []compose.NormalizedTriggerSpec{
+				{Name: "nightly"},
+			}},
+		}},
+	}
+	if _, ok := composeRunAgentSpec(nil, "reviewer"); ok {
+		t.Fatalf("nil project unexpectedly matched agent")
+	}
+	if agent, ok := composeRunAgentSpec(project, " reviewer "); !ok || agent.Name != "reviewer" {
+		t.Fatalf("composeRunAgentSpec agent=%#v ok=%v", agent, ok)
+	}
+	if _, err := resolveComposeRunTriggerName(project, "project-1", "reviewer", "nightly"); err != nil {
+		t.Fatalf("resolveComposeRunTriggerName returned error: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		project *compose.NormalizedProjectSpec
+		agent   string
+		trigger string
+		want    string
+	}{
+		{name: "empty trigger", project: project, agent: "reviewer", trigger: " ", want: "trigger name cannot be empty"},
+		{name: "missing agent", project: project, agent: "missing", trigger: "nightly", want: "is not configured"},
+		{name: "missing trigger", project: project, agent: "reviewer", trigger: "hourly", want: "is not configured"},
+		{name: "no scheduler", project: &compose.NormalizedProjectSpec{Agents: []compose.NormalizedAgentSpec{{Name: "reviewer"}}}, agent: "reviewer", trigger: "nightly", want: "has no configured triggers"},
+	} {
+		if _, err := resolveComposeRunTriggerName(tc.project, "project-1", tc.agent, tc.trigger); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s error = %v, want containing %q", tc.name, err, tc.want)
+		}
+	}
+	if normalizeOptionalRunModeValue(optionalRunModeFlagNoValue) != "" ||
+		normalizeOptionalRunModeValue(" prompt ") != "prompt" {
+		t.Fatalf("normalizeOptionalRunModeValue returned unexpected values")
+	}
+	if normalizeInteractivePromptProvider("claude_code") != "claude" ||
+		normalizeInteractivePromptProvider("open-code") != "opencode" ||
+		normalizeInteractivePromptProvider(" Gemini ") != "gemini" {
+		t.Fatalf("normalizeInteractivePromptProvider returned unexpected values")
+	}
+	if err := validateInteractivePromptProvider(project, "reviewer"); commandExitCode(err) != exitCodeUnsupported {
+		t.Fatalf("validateInteractivePromptProvider err=%v code=%d", err, commandExitCode(err))
+	}
+	project.Agents[0].Provider = "claude-code"
+	if err := validateInteractivePromptProvider(project, "reviewer"); err != nil {
+		t.Fatalf("validateInteractivePromptProvider claude-code returned error: %v", err)
+	}
+
+	failed := &agentcomposev2.RunSummary{RunId: "run-failed", Status: agentcomposev2.RunStatus_RUN_STATUS_FAILED, ExitCode: 9, Error: "boom"}
+	failedDetail := &agentcomposev2.RunDetail{Summary: failed, CleanupError: "cleanup boom"}
+	if err := composeRunCompletionError("Project", "reviewer", failed, failedDetail); commandExitCode(err) != 9 || !strings.Contains(err.Error(), "cleanup warning") {
+		t.Fatalf("failed completion err=%v code=%d", err, commandExitCode(err))
+	}
+	succeeded := &agentcomposev2.RunSummary{RunId: "run-ok", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED}
+	if err := composeRunCompletionError("Project", "reviewer", succeeded, &agentcomposev2.RunDetail{Summary: succeeded, CleanupError: " cleanup failed "}); commandExitCode(err) != exitCodeGeneral {
+		t.Fatalf("cleanup completion err=%v code=%d", err, commandExitCode(err))
+	}
+	if err := composeRunCompletionError("Project", "reviewer", succeeded, &agentcomposev2.RunDetail{Summary: succeeded}); err != nil {
+		t.Fatalf("successful completion returned error: %v", err)
+	}
+	if runDetailCleanupError(nil) != "" {
+		t.Fatalf("nil run detail cleanup error should be empty")
+	}
+	var out bytes.Buffer
+	if err := writeRunWarnings(&out, []string{" first ", "first", "", "second"}); err != nil {
+		t.Fatalf("writeRunWarnings returned error: %v", err)
+	}
+	if out.String() != "warning: first\nwarning: second\n" {
+		t.Fatalf("warnings output = %q", out.String())
+	}
+	out.Reset()
+	if err := writeDetachedRunText(&out, &agentcomposev2.RunSummary{Status: agentcomposev2.RunStatus_RUN_STATUS_PENDING}, "agent-compose logs"); err != nil {
+		t.Fatalf("writeDetachedRunText returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Run: -") || !strings.Contains(out.String(), "Status: pending") {
+		t.Fatalf("detached output = %q", out.String())
+	}
+
+	logsCmd := &cobra.Command{Use: "logs"}
+	logsCmd.Flags().String("agent", "", "")
+	if err := logsCmd.Flags().Set("agent", "reviewer"); err != nil {
+		t.Fatalf("set agent flag: %v", err)
+	}
+	if _, err := normalizeComposeLogsOptions(logsCmd, composeLogsOptions{}, []string{"writer"}); commandExitCode(err) != exitCodeUsage {
+		t.Fatalf("logs agent conflict err=%v code=%d", err, commandExitCode(err))
+	}
+	logsCmd = &cobra.Command{Use: "logs"}
+	logsCmd.Flags().String("session-id", "", "")
+	if err := logsCmd.Flags().Set("session-id", "legacy-session"); err != nil {
+		t.Fatalf("set session-id flag: %v", err)
+	}
+	out.Reset()
+	logsCmd.SetErr(&out)
+	logOptions, err := normalizeComposeLogsOptions(logsCmd, composeLogsOptions{SessionID: "legacy-session", TailLines: -1}, nil)
+	if err != nil || logOptions.SessionID != "legacy-session" || !strings.Contains(out.String(), "deprecated") {
+		t.Fatalf("normalizeComposeLogsOptions options=%#v err=%v stderr=%q", logOptions, err, out.String())
+	}
+	if _, err := normalizeComposeLogsOptions(&cobra.Command{Use: "logs"}, composeLogsOptions{TailLines: -2}, nil); commandExitCode(err) != exitCodeUsage {
+		t.Fatalf("logs invalid tail err=%v code=%d", err, commandExitCode(err))
+	}
+
+	execCmd := &cobra.Command{Use: "exec"}
+	if err := composeExecArgs(execCmd, nil); err == nil {
+		t.Fatalf("composeExecArgs without target returned nil error")
+	}
+	execCmd.Flags().String("session-id", "", "")
+	if err := execCmd.Flags().Set("session-id", "session-1"); err != nil {
+		t.Fatalf("set exec session-id: %v", err)
+	}
+	if err := composeExecArgs(execCmd, nil); err != nil {
+		t.Fatalf("composeExecArgs with legacy target returned error: %v", err)
+	}
+
+	defaultCommand, err := composeExecCommandFromArgs(composeExecOptions{}, nil)
+	if err != nil || defaultCommand.GetCommand() != "sh" {
+		t.Fatalf("default exec command=%#v err=%v", defaultCommand, err)
+	}
+	if _, err := composeExecCommandFromArgs(composeExecOptions{Command: "echo ok"}, []string{"pwd"}); commandExitCode(err) != exitCodeUsage {
+		t.Fatalf("exec command conflict err=%v code=%d", err, commandExitCode(err))
+	}
+	req, err := normalizeComposeExecRequest(&cobra.Command{Use: "exec"}, "Project", "project-1", composeExecOptions{Cwd: " /repo "}, []string{" sandbox-1 ", "bash", "-lc", "pwd"})
+	if err != nil || req.GetSessionId() != "sandbox-1" || req.GetCwd() != "/repo" || req.GetCommand().GetCommand() != "bash" {
+		t.Fatalf("normalizeComposeExecRequest req=%#v err=%v", req, err)
+	}
+	for _, tc := range []struct {
+		name    string
+		setup   func(*cobra.Command) composeExecOptions
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "multiple legacy targets",
+			setup: func(cmd *cobra.Command) composeExecOptions {
+				cmd.Flags().String("session-id", "", "")
+				cmd.Flags().String("run-id", "", "")
+				_ = cmd.Flags().Set("session-id", "session-1")
+				_ = cmd.Flags().Set("run-id", "run-1")
+				return composeExecOptions{SessionID: "session-1", RunID: "run-1"}
+			},
+			wantErr: "target can only be specified once",
+		},
+		{
+			name: "empty session flag",
+			setup: func(cmd *cobra.Command) composeExecOptions {
+				cmd.Flags().String("session-id", "", "")
+				_ = cmd.Flags().Set("session-id", " ")
+				return composeExecOptions{SessionID: " "}
+			},
+			wantErr: "requires a value",
+		},
+		{
+			name: "empty sandbox positional",
+			setup: func(cmd *cobra.Command) composeExecOptions {
+				return composeExecOptions{}
+			},
+			args:    []string{" "},
+			wantErr: "requires non-empty sandbox",
+		},
+	} {
+		cmd := &cobra.Command{Use: "exec"}
+		options := tc.setup(cmd)
+		if _, err := normalizeComposeExecRequest(cmd, "Project", "project-1", options, tc.args); commandExitCode(err) != exitCodeUsage || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Fatalf("%s err=%v code=%d", tc.name, err, commandExitCode(err))
+		}
 	}
 }
 
