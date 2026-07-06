@@ -125,19 +125,28 @@
       - 读取失败对保护状态的 `unknown/removable=false` 聚合将在 2.3 的 prune/remove 结果计算中接入；本任务已提供 warning helper。
     - 下一目标：2.3 实现保护状态和 dry-run/prune。
 
-- [ ] 2.3 实现保护规则、dry-run 和 prune/remove 核心
+- [x] 2.3 实现保护规则、dry-run 和 prune/remove 核心
   - 依赖：2.2。
   - 工作内容：实现 active、referenced、unused、expired、orphaned、unknown 的 removable 计算；实现 `force=false` dry-run、`force=true` 删除、`include_referenced` 语义。
   - 可并行子任务：
-    - [ ] 可并行：构建 fake reference source，模拟 running/resuming/stopped session、project image refs、image metadata refs、driver active state。
-    - [ ] 可并行：构建 prune/remove table tests，覆盖 matched/removed/skipped/warnings。
+    - [x] 可并行：构建 fake reference source，模拟 running/resuming/stopped session、project image refs、image metadata refs、driver active state。
+    - [x] 可并行：构建 prune/remove table tests，覆盖 matched/removed/skipped/warnings。
   - 测试方案：`go test ./pkg/runtimecache`，覆盖所有 status、force/dry-run、include-referenced、active/unknown force 下仍不删除。
   - 验收标准：保护规则保守优先；unknown 永不可删；dry-run 不改文件系统。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 新增 `EvaluateProtection`，按 active、referenced、unused、expired、orphaned、unknown 计算 `Removable` 和 `BlockedReasons`。
+      - 新增 `PruneItems`，基于 inventory items、filter、`force`、`include_referenced` 和 caller-provided remover 生成 `dry_run`、`matched`、`removed`、`skipped`、`warnings`。
+      - 新增 `RemoveItem`，要求合法 `cache_id`，只在 inventory 精确命中后复用 prune 核心执行 dry-run/force。
+      - 增加 tests 覆盖所有保护状态、referenced include 语义、dry-run 不调用 remover、force 删除、active/unknown force 下仍跳过、remove error warning 和继续处理。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/runtimecache`
+      - `rg -n "connectrpc|connect\\." pkg/runtimecache || true`
+    - 审计与例外：
+      - tests 通过 `Item.References` 和 status fixtures 模拟 running/resuming/stopped session、project image refs、image metadata refs、driver active/unknown state；真实事实源接入按后续 materialized/driver/app 任务实现。
+      - `PruneItems` 和 `RemoveItem` 只操作传入 inventory items 并调用注入 remover，不接受任意 filesystem path。
+      - 实际 materialized image cache scanner 和 driver adapters 从阶段 3/4 开始接入。
     - 下一目标：3.1 materialized image cache inventory。
 
 ## 阶段 3：materialized image cache inventory 和 prune
