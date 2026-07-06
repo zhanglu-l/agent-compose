@@ -4449,24 +4449,46 @@ agents:
 	}
 }
 
-func TestIntegrationCLIImageBuildDirectAndLegacy(t *testing.T) {
-	tmp := t.TempDir()
-	dockerfile := filepath.Join(tmp, "Dockerfile.agent")
-	if err := os.WriteFile(dockerfile, []byte("FROM scratch\n"), 0o600); err != nil {
+func TestIntegrationCLIImageBuildLegacyProject(t *testing.T) {
+	dir := t.TempDir()
+	contextDir := filepath.Join(dir, "agent")
+	if err := os.Mkdir(contextDir, 0o700); err != nil {
+		t.Fatalf("create context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(contextDir, "Dockerfile.agent"), []byte("FROM scratch\n"), 0o600); err != nil {
 		t.Fatalf("write Dockerfile: %v", err)
 	}
+	composePath := writeComposeFile(t, dir, `
+name: cli-legacy-build-project
+agents:
+  reviewer:
+    provider: codex
+    image: reviewer:dev
+    build:
+      context: agent
+      dockerfile: Dockerfile.agent
+      target: runtime
+      args:
+        NODE_ENV: production
+      platforms:
+        - linux/amd64
+      tags:
+        - reviewer:latest
+      no_cache: true
+      pull: true
+`)
 	calls := 0
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		image: imageServiceStub{
 			buildImage: func(ctx context.Context, req *connect.Request[agentcomposev2.BuildImageRequest], stream *connect.ServerStream[agentcomposev2.BuildImageEvent]) error {
 				calls++
-				if req.Msg.GetContextDir() != tmp {
-					t.Fatalf("BuildImage context_dir = %q, want %q", req.Msg.GetContextDir(), tmp)
+				if req.Msg.GetContextDir() != contextDir {
+					t.Fatalf("BuildImage context_dir = %q, want %q", req.Msg.GetContextDir(), contextDir)
 				}
 				if req.Msg.GetDockerfile() != "Dockerfile.agent" {
 					t.Fatalf("BuildImage dockerfile = %q", req.Msg.GetDockerfile())
 				}
-				if got := req.Msg.GetTags(); len(got) != 1 || got[0] != "agent:dev" {
+				if got := req.Msg.GetTags(); len(got) != 3 || got[0] != "reviewer:dev" || got[1] != "reviewer:latest" || got[2] != "reviewer:ci" {
 					t.Fatalf("BuildImage tags = %#v", got)
 				}
 				if req.Msg.GetBuildArgs()["NODE_ENV"] != "development" {
@@ -4481,44 +4503,32 @@ func TestIntegrationCLIImageBuildDirectAndLegacy(t *testing.T) {
 				if err := stream.Send(&agentcomposev2.BuildImageEvent{
 					Status:   agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_RUNNING,
 					Message:  "build step",
-					ImageRef: "agent:dev",
+					ImageRef: "reviewer:dev",
 				}); err != nil {
 					return err
 				}
 				return stream.Send(&agentcomposev2.BuildImageEvent{
 					Status:      agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED,
-					Message:     "Built agent:dev",
-					ImageRef:    "agent:dev",
-					ResolvedRef: "agent:dev@sha256:built",
-					Image:       testCLIImage("sha256:built", "agent:dev"),
+					Message:     "Built reviewer:dev",
+					ImageRef:    "reviewer:dev",
+					ResolvedRef: "reviewer:dev@sha256:built",
+					Image:       testCLIImage("sha256:built", "reviewer:dev"),
 				})
 			},
 		},
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("build", "--host", server.URL, "--json", "-t", "agent:dev", "--dockerfile", "Dockerfile.agent", "--target", "runtime", "--build-arg", "NODE_ENV=development", "--platform", "linux/amd64", "--no-cache", "--pull", tmp)
-	if exitCode != 0 || stderr != "" {
-		t.Fatalf("build --json code/stderr = %d / %q", exitCode, stderr)
-	}
-	var decoded composeImageBuildOutput
-	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
-		t.Fatalf("build JSON decode failed: %v\n%s", err, stdout)
-	}
-	if decoded.ImageRef != "agent:dev" || decoded.ResolvedRef != "agent:dev@sha256:built" || decoded.Status != "succeeded" {
-		t.Fatalf("build JSON = %#v", decoded)
-	}
-
-	textOut, textErr, _, textCode := executeCLICommand("image", "build", "--host", server.URL, "-t", "agent:dev", "--dockerfile", "Dockerfile.agent", "--target", "runtime", "--build-arg", "NODE_ENV=development", "--platform", "linux/amd64", "--no-cache", "--pull", tmp)
+	textOut, textErr, _, textCode := executeCLICommand("image", "build", "--host", server.URL, "--file", composePath, "-t", "reviewer:ci", "--dockerfile", "Dockerfile.agent", "--target", "runtime", "--build-arg", "NODE_ENV=development", "--platform", "linux/amd64", "--no-cache", "--pull", "reviewer")
 	if textCode != 0 {
 		t.Fatalf("image build code/stderr = %d / %q", textCode, textErr)
 	}
 	assertDeprecatedWarning(t, textErr, "agent-compose build")
-	if !strings.Contains(textOut, "build step") || !strings.Contains(textOut, "Built agent:dev") {
+	if !strings.Contains(textOut, "build step") || !strings.Contains(textOut, "Built reviewer:dev") {
 		t.Fatalf("image build output = %q", textOut)
 	}
-	if calls != 2 {
-		t.Fatalf("BuildImage calls = %d, want 2", calls)
+	if calls != 1 {
+		t.Fatalf("BuildImage calls = %d, want 1", calls)
 	}
 }
 
@@ -4567,7 +4577,7 @@ agents:
 				if req.Msg.GetBuildArgs()["NODE_ENV"] != "development" {
 					t.Fatalf("CLI build arg did not override compose args: %#v", req.Msg.GetBuildArgs())
 				}
-				if got := req.Msg.GetTags(); len(got) != 2 || got[0] != "reviewer:dev" || got[1] != "reviewer:latest" {
+				if got := req.Msg.GetTags(); len(got) != 3 || got[0] != "reviewer:dev" || got[1] != "reviewer:latest" || got[2] != "reviewer:ci" {
 					t.Fatalf("BuildImage tags = %#v", got)
 				}
 				if !req.Msg.GetNoCache() || !req.Msg.GetPull() {
@@ -4585,7 +4595,7 @@ agents:
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("build", "--host", server.URL, "--file", composePath, "--json", "--build-arg", "NODE_ENV=development")
+	stdout, stderr, _, exitCode := executeCLICommand("build", "--host", server.URL, "--file", composePath, "--json", "--build-arg", "NODE_ENV=development", "-t", "reviewer:ci")
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("project build --json code/stderr = %d / %q", exitCode, stderr)
 	}

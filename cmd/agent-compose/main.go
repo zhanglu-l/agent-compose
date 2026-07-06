@@ -740,8 +740,8 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 
 	buildOptions := composeImageBuildOptions{}
 	buildCmd := &cobra.Command{
-		Use:   "build [context|agent...]",
-		Short: "Build an image or project agent images",
+		Use:   "build [agent...]",
+		Short: "Build project agent images",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runComposeBuildCommand(cmd, options, buildOptions, args)
@@ -750,8 +750,8 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	addImageBuildFlags(buildCmd, &buildOptions)
 	imageBuildOptions := composeImageBuildOptions{}
 	imageBuildCmd := &cobra.Command{
-		Use:   "build [context|agent...]",
-		Short: "Build an image or project agent images",
+		Use:   "build [agent...]",
+		Short: "Build project agent images",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose image build", "agent-compose build"); err != nil {
@@ -2300,40 +2300,7 @@ func runComposeImagePullCommand(cmd *cobra.Command, cli cliOptions, options comp
 }
 
 func runComposeBuildCommand(cmd *cobra.Command, cli cliOptions, options composeImageBuildOptions, args []string) error {
-	if len(options.Tags) > 0 {
-		return runComposeDirectBuildCommand(cmd, cli, options, args)
-	}
 	return runComposeProjectBuildCommand(cmd, cli, options, args)
-}
-
-func runComposeDirectBuildCommand(cmd *cobra.Command, cli cliOptions, options composeImageBuildOptions, args []string) error {
-	if len(args) > 1 {
-		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("direct build accepts at most one context argument")}
-	}
-	contextDir := "."
-	if len(args) == 1 {
-		contextDir = args[0]
-	}
-	req, err := buildImageRequestFromOptions(options, contextDir, options.Tags)
-	if err != nil {
-		return commandExitError{Code: exitCodeUsage, Err: err}
-	}
-	clients, err := newCLIServiceClients(cli)
-	if err != nil {
-		return err
-	}
-	output, err := buildImage(cmd.Context(), cmd.OutOrStdout(), cli.JSON, clients.image, req)
-	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("build image %s: %w", firstNonEmptyString(output.ImageRef, firstNonEmptyString(req.GetTags()...)), err))
-	}
-	if cli.JSON {
-		data, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return err
-		}
-		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
-	}
-	return nil
 }
 
 func runComposeProjectBuildCommand(cmd *cobra.Command, cli cliOptions, options composeImageBuildOptions, agentNames []string) error {
@@ -2412,32 +2379,6 @@ func buildImage(ctx context.Context, out io.Writer, jsonOutput bool, client agen
 		return output, err
 	}
 	return output, nil
-}
-
-func buildImageRequestFromOptions(options composeImageBuildOptions, contextDir string, tags []string) (*agentcomposev2.BuildImageRequest, error) {
-	buildArgs, err := parseBuildArgs(options.BuildArgs)
-	if err != nil {
-		return nil, err
-	}
-	platform, err := parseImagePlatform(options.Platform)
-	if err != nil {
-		return nil, err
-	}
-	tags = normalizeCLIStringList(tags)
-	if len(tags) == 0 {
-		return nil, fmt.Errorf("at least one --tag is required")
-	}
-	return &agentcomposev2.BuildImageRequest{
-		ContextDir: strings.TrimSpace(contextDir),
-		Dockerfile: strings.TrimSpace(options.Dockerfile),
-		Tags:       tags,
-		BuildArgs:  buildArgs,
-		Target:     strings.TrimSpace(options.Target),
-		Store:      agentcomposev2.ImageStoreKind_IMAGE_STORE_KIND_DOCKER_DAEMON,
-		Platform:   platform,
-		NoCache:    options.NoCache,
-		Pull:       options.Pull,
-	}, nil
 }
 
 func parseBuildArgs(values []string) (map[string]string, error) {
