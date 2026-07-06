@@ -3082,6 +3082,83 @@ agents:
 	}
 }
 
+func TestIntegrationCLISandboxPruneTextOutput(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-prune-text
+agents:
+  reviewer:
+    provider: codex
+  worker:
+    provider: codex
+`)
+	project := testCLIProject("project-cli-prune-text", "cli-prune-text", composePath)
+	sessions := []*agentcomposev1.SessionSummary{
+		testCLISessionSummary("session-text-a", "STOPPED", "project-cli-prune-text", "reviewer", ""),
+		testCLISessionSummary("session-text-b", "FAILED", "project-cli-prune-text", "worker", ""),
+	}
+	var fail bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			getProject: func(ctx context.Context, req *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: project}), nil
+			},
+		},
+		run: runServiceStub{
+			listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+				return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{}}), nil
+			},
+		},
+		session: sessionServiceStub{
+			listSessions: func(ctx context.Context, req *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
+				return connect.NewResponse(&agentcomposev1.ListSessionsResponse{Sessions: sessions}), nil
+			},
+		},
+		sandbox: sandboxServiceStub{
+			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+				if fail && req.Msg.GetSandboxId() == "session-text-b" {
+					return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("delete denied"))
+				}
+				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{SandboxId: req.Msg.GetSandboxId(), Removed: true}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	dryOut, dryErr, _, dryCode := executeCLICommand("sandbox", "prune", "--host", server.URL, "--file", composePath)
+	if dryCode != 0 || dryErr != "" {
+		t.Fatalf("sandbox prune text dry-run code/stderr = %d / %q", dryCode, dryErr)
+	}
+	for _, want := range []string{"Dry-run: 2 matched, 0 skipped, 2 would be removed.", "Use --force", "Matched:", "SANDBOX", "AGENT", "STATUS", "DRIVER", "UPDATED", "REASON", "session-text-a", "would remove"} {
+		if !strings.Contains(dryOut, want) {
+			t.Fatalf("sandbox prune dry-run output %q does not contain %q", dryOut, want)
+		}
+	}
+
+	forceOut, forceErr, _, forceCode := executeCLICommand("sandbox", "prune", "--host", server.URL, "--file", composePath, "--force")
+	if forceCode != 0 || forceErr != "" {
+		t.Fatalf("sandbox prune text force code/stderr = %d / %q", forceCode, forceErr)
+	}
+	for _, want := range []string{"Removed 2 sandbox(es); 2 matched, 0 skipped.", "Removed:", "session-text-a", "session-text-b", "Matched:", "matched"} {
+		if !strings.Contains(forceOut, want) {
+			t.Fatalf("sandbox prune force output %q does not contain %q", forceOut, want)
+		}
+	}
+
+	fail = true
+	skippedOut, skippedErr, _, skippedCode := executeCLICommand("sandbox", "prune", "--host", server.URL, "--file", composePath, "--force")
+	if skippedCode != exitCodeGeneral {
+		t.Fatalf("sandbox prune text skipped code = %d, want general; stderr=%q", skippedCode, skippedErr)
+	}
+	if !strings.Contains(skippedErr, "sandbox prune skipped 1 sandbox") {
+		t.Fatalf("sandbox prune text skipped stderr = %q", skippedErr)
+	}
+	for _, want := range []string{"Removed 1 sandbox(es); 2 matched, 1 skipped.", "Skipped:", "session-text-b", "remove failed"} {
+		if !strings.Contains(skippedOut, want) {
+			t.Fatalf("sandbox prune skipped output %q does not contain %q", skippedOut, want)
+		}
+	}
+}
+
 func TestIntegrationCLISandboxPruneRejectsUnsafeStatuses(t *testing.T) {
 	for _, status := range []string{"running", "pending"} {
 		t.Run(status, func(t *testing.T) {

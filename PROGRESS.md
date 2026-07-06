@@ -139,20 +139,29 @@
 
 参考文档：[docs/plan/sandbox-cli-prune-implementation-plan.md](docs/plan/sandbox-cli-prune-implementation-plan.md) 阶段 4。
 
-- [ ] 4.1 实现 prune 输出格式
+- [x] 4.1 实现 prune 输出格式
   - 依赖：3.1。
   - 工作内容：新增 `writeSandboxPruneOutput`；支持 text 和 JSON；文本 dry-run 输出 matched/skipped/would remove 并提示 `--force`；文本 forced 输出 removed/matched/skipped；表格展示 `SANDBOX`、`AGENT`、`STATUS`、`DRIVER`、`UPDATED`、`REASON`。
   - 可并行子任务：
-    - [ ] 可并行：对比 `writeCacheOperationOutput` 的输出风格，保持提示语和表格密度一致。
-    - [ ] 可并行：检查 `--json` 路径不向 stderr 写普通提示。
+    - [x] 可并行：对比 `writeCacheOperationOutput` 的输出风格，保持提示语和表格密度一致。
+    - [x] 可并行：检查 `--json` 路径不向 stderr 写普通提示。
   - 测试方案：新增文本输出测试和 JSON 解码测试，验证 dry-run、forced、skipped、warnings 字段。
   - 验收标准：`--json` stdout 是合法 JSON；文本输出能明确区分 dry-run 与实际删除；字段名与 spec 保持一致。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 新增 `writeSandboxPruneOutput`，统一处理 text 和 JSON 输出。
+      - dry-run 文本输出展示 matched/skipped/would remove 数量，并在存在匹配项时提示使用 `--force` 实际删除。
+      - forced 文本输出展示 removed/matched/skipped 数量，并输出 removed 列表、matched 表格、skipped 表格和 warnings。
+      - matched/skipped 表格包含 `SANDBOX`、`AGENT`、`STATUS`、`DRIVER`、`UPDATED`、`REASON` 字段；skipped 项因 JSON 模型只保留 sandbox/reason，其余列显示 `-`。
+      - JSON 路径继续输出 `composeSandboxPruneOutput`，字段为 `dry_run`、`matched`、`removed`、`skipped`、`warnings`。
+    - 验证：
+      - `go test ./cmd/agent-compose -run 'TestIntegrationCLI(PSTableAndJSON|RemoveSandboxes|Sandbox)|TestParseOlderThanSeconds|TestComposeSandboxPruneOutputJSONShape' -count=1`
+    - 审计与例外：
+      - JSON dry-run 和 forced success 路径不向 stderr 写普通提示；forced partial failure 仅在输出 JSON 后向 stderr 写非零退出错误。
+      - 输出实现未改变 candidate selection、删除顺序或 `RemoveSandbox(force=false)` 安全语义。
+      - 未修改 proto、generated Connect 文件、runtime driver、部署 compose 或 image build 行为。
+    - 下一目标：4.2 更新中英文 CLI 手册。
 
 - [ ] 4.2 更新中英文 CLI 手册
   - 依赖：4.1。

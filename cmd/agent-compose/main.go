@@ -1379,31 +1379,8 @@ func runComposeSandboxPruneCommand(cmd *cobra.Command, cli cliOptions, options c
 			output.Removed = append(output.Removed, sandbox.Sandbox)
 		}
 	}
-	if cli.JSON {
-		data, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := writeCommandOutput(cmd.OutOrStdout(), append(data, '\n')); err != nil {
-			return err
-		}
-	} else if output.DryRun {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Dry-run: %d matched, 0 skipped, %d would be removed.\n", len(output.Matched), len(output.Matched)); err != nil {
-			return err
-		}
-		if err := writeStringListSection(cmd.OutOrStdout(), "Warnings", output.Warnings); err != nil {
-			return err
-		}
-	} else {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Removed %d sandbox(es); %d matched, %d skipped.\n", len(output.Removed), len(output.Matched), len(output.Skipped)); err != nil {
-			return err
-		}
-		if err := writeStringListSection(cmd.OutOrStdout(), "Removed", output.Removed); err != nil {
-			return err
-		}
-		if err := writeStringListSection(cmd.OutOrStdout(), "Warnings", output.Warnings); err != nil {
-			return err
-		}
+	if err := writeSandboxPruneOutput(cmd.OutOrStdout(), cli.JSON, output); err != nil {
+		return err
 	}
 	if len(output.Skipped) > 0 {
 		return commandExitError{Code: exitCodeGeneral, Err: fmt.Errorf("sandbox prune skipped %d sandbox(es)", len(output.Skipped))}
@@ -4765,6 +4742,90 @@ func writeCacheOperationOutput(out io.Writer, asJSON bool, output composeCacheOp
 		}
 	}
 	return writeStringListSection(out, "Warnings", output.Warnings)
+}
+
+func writeSandboxPruneOutput(out io.Writer, asJSON bool, output composeSandboxPruneOutput) error {
+	if asJSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(out, append(data, '\n'))
+	}
+	if output.DryRun {
+		if _, err := fmt.Fprintf(out, "Dry-run: %d matched, %d skipped, %d would be removed.\n", len(output.Matched), len(output.Skipped), len(output.Matched)); err != nil {
+			return err
+		}
+		if len(output.Matched) > 0 {
+			if _, err := fmt.Fprintln(out, "Use --force to remove matched sandboxes."); err != nil {
+				return err
+			}
+		}
+	} else {
+		if _, err := fmt.Fprintf(out, "Removed %d sandbox(es); %d matched, %d skipped.\n", len(output.Removed), len(output.Matched), len(output.Skipped)); err != nil {
+			return err
+		}
+	}
+	if len(output.Removed) > 0 {
+		if err := writeStringListSection(out, "Removed", output.Removed); err != nil {
+			return err
+		}
+	}
+	if len(output.Matched) > 0 {
+		if _, err := fmt.Fprintln(out, "Matched:"); err != nil {
+			return err
+		}
+		reason := "matched"
+		if output.DryRun {
+			reason = "would remove"
+		}
+		if err := writeSandboxPruneMatchedTable(out, output.Matched, reason); err != nil {
+			return err
+		}
+	}
+	if len(output.Skipped) > 0 {
+		if _, err := fmt.Fprintln(out, "Skipped:"); err != nil {
+			return err
+		}
+		if err := writeSandboxPruneSkippedTable(out, output.Skipped); err != nil {
+			return err
+		}
+	}
+	return writeStringListSection(out, "Warnings", output.Warnings)
+}
+
+func writeSandboxPruneMatchedTable(out io.Writer, sandboxes []composePSSandboxOutput, reason string) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "SANDBOX\tAGENT\tSTATUS\tDRIVER\tUPDATED\tREASON"); err != nil {
+		return err
+	}
+	for _, sandbox := range sandboxes {
+		updated := firstNonEmptyString(sandbox.UpdatedAt, sandbox.CreatedAt)
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			firstNonEmptyString(sandbox.Sandbox, "-"),
+			firstNonEmptyString(sandbox.Agent, "-"),
+			firstNonEmptyString(sandbox.Status, "-"),
+			firstNonEmptyString(sandbox.Driver, "-"),
+			firstNonEmptyString(updated, "-"),
+			reason,
+		); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
+}
+
+func writeSandboxPruneSkippedTable(out io.Writer, skipped []composeSandboxPruneSkipped) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "SANDBOX\tAGENT\tSTATUS\tDRIVER\tUPDATED\tREASON"); err != nil {
+		return err
+	}
+	for _, item := range skipped {
+		if _, err := fmt.Fprintf(tw, "%s\t-\t-\t-\t-\t%s\n", firstNonEmptyString(item.Sandbox, "-"), firstNonEmptyString(item.Reason, "-")); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }
 
 func writeCacheOperationTable(out io.Writer, caches []composeCacheOutput) error {
