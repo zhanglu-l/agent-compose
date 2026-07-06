@@ -177,19 +177,28 @@
       - scanner 使用 `pkg/imagecache` 当前 ready flag 和 temp dir 命名：`.ready`、`.rootfs.ready`、`oci.tmp`、`rootfs.tmp`。
     - 下一目标：3.2 materialized cache 删除和 image remove 非回归。
 
-- [ ] 3.2 实现 materialized cache prune/remove 和非回归测试
+- [x] 3.2 实现 materialized cache prune/remove 和非回归测试
   - 依赖：3.1。
   - 工作内容：使用 `imagecache.Lock` 或同级 lock 保护删除；删除 layout/rootfs 时同步移除对应 ready flag；删除 temp dir 不影响完整 cache；保持 `pkg/imagecache.Cache.Remove` 和 `agent-compose rmi` 不删除 materialized/runtime cache。
   - 可并行子任务：
-    - [ ] 可并行：实现删除一致性测试。
-    - [ ] 可并行：实现 `Cache.Remove(PruneChildren=true)` 非回归测试。
+    - [x] 可并行：实现删除一致性测试。
+    - [x] 可并行：实现 `Cache.Remove(PruneChildren=true)` 非回归测试。
   - 测试方案：`go test ./pkg/runtimecache ./pkg/imagecache`，覆盖 referenced 默认不可删、include-referenced 可删、orphaned/temp/expired force 删除、ready flag 同步删除。
   - 验收标准：不会误删 OCI image store root 或其他 image 的完整 cache；image domain 与 runtime cache domain 分离。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 新增 `runtimecache.MaterializedRemover`，使用 `imagecache.Cache.Lock()` 保护 materialized cache 删除。
+      - 删除 `materialized-oci-layout` 时同步删除同 image dir 下 `.ready`；删除 `materialized-rootfs` 时同步删除 `.rootfs.ready`。
+      - 删除 `materialized-temp-dir` 或 ready flag 时只删除目标 item，不删除 sibling layout/rootfs。
+      - remover 校验 materialized domain、合法 `cache_id`、cache id 与 inventory item 一致，并用 `ValidateCachePath` 限制目标位于 `MaterializationRoot()` 下。
+      - 增加 `pkg/imagecache.Cache.Remove(PruneChildren=true)` 非回归测试，证明 image metadata 删除不删除 materialized layout/rootfs。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/runtimecache ./pkg/imagecache`
+      - `rg -n "connectrpc|connect\\." pkg/runtimecache || true`
+    - 审计与例外：
+      - 覆盖 referenced 默认不可删、`include_referenced` 可删、orphaned/temp/expired force 删除、ready flag 同步删除、temp dir 不影响完整 cache。
+      - `ImageService`/CLI `rmi` 路径尚未接入 runtime cache；本任务通过 `pkg/imagecache.Cache.Remove` owner regression 保持 image domain 与 materialized/runtime cache domain 分离。
     - 下一目标：4.1 BoxLite cache adapter。
 
 ## 阶段 4：BoxLite 和 Microsandbox driver cache adapter

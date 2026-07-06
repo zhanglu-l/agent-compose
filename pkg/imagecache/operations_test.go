@@ -3,6 +3,8 @@ package imagecache
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -117,6 +119,34 @@ func TestRemoveForceDeletesAllRefsSharingImage(t *testing.T) {
 	}
 	if len(list.Images) != 1 || list.Images[0].RequestedRef != "registry.example/db:1.0" {
 		t.Fatalf("remaining images = %#v", list.Images)
+	}
+}
+
+func TestRemovePruneChildrenDoesNotDeleteMaterializedCache(t *testing.T) {
+	cache := newCacheWithImages(t, []ImageMetadata{sampleImages()[2]})
+	imageID := "sha256:config-db"
+	layoutPath := cache.MaterializedOCILayoutPath(imageID)
+	rootfsPath := cache.MaterializedRootFSPath(imageID)
+	for _, path := range []string{layoutPath, rootfsPath} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("mkdir materialized path %s: %v", path, err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "sentinel"), []byte("keep"), 0o644); err != nil {
+			t.Fatalf("write sentinel %s: %v", path, err)
+		}
+	}
+
+	result, err := cache.Remove(context.Background(), RemoveRequest{Reference: "registry.example/db:1.0", Force: true, PruneChildren: true})
+	if err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatalf("Remove warnings = %#v, want prune warning", result.Warnings)
+	}
+	for _, path := range []string{layoutPath, rootfsPath} {
+		if _, err := os.Stat(filepath.Join(path, "sentinel")); err != nil {
+			t.Fatalf("materialized cache was removed at %s: %v", path, err)
+		}
 	}
 }
 
