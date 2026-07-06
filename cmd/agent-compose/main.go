@@ -647,14 +647,16 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	}
 	sandboxRMCmd.Flags().BoolVar(&sandboxRemoveOptions.Force, "force", false, "Force remove running sandboxes")
 
+	sandboxPruneOptions := composeSandboxPruneOptions{}
 	sandboxPruneCmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Prune stopped or failed sandboxes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return commandExitError{Code: exitCodeUnsupported, Err: fmt.Errorf("sandbox prune is not implemented yet")}
+			return runComposeSandboxPruneCommand(cmd, options, sandboxPruneOptions)
 		},
 	}
+	addSandboxPruneFlags(sandboxPruneCmd, &sandboxPruneOptions)
 
 	sandboxCmd := &cobra.Command{
 		Use:   "sandbox",
@@ -947,6 +949,14 @@ type composeSandboxRemoveOptions struct {
 	Force bool
 }
 
+type composeSandboxPruneOptions struct {
+	Status    string
+	Agent     string
+	Driver    string
+	OlderThan string
+	Force     bool
+}
+
 type composeImageListOptions struct {
 	Query string
 	All   bool
@@ -1029,6 +1039,14 @@ func addCachePruneFlags(cmd *cobra.Command, options *composeCachePruneOptions) {
 	cmd.Flags().StringVar(&options.OlderThan, "older-than", "", "Only match caches older than a duration such as 7d or 24h")
 	cmd.Flags().BoolVar(&options.IncludeReferenced, "include-referenced", false, "Allow referenced caches to be removed")
 	cmd.Flags().BoolVar(&options.Force, "force", false, "Actually remove matched caches")
+}
+
+func addSandboxPruneFlags(cmd *cobra.Command, options *composeSandboxPruneOptions) {
+	cmd.Flags().StringVar(&options.Status, "status", "", "Filter sandboxes by status, comma-separated")
+	cmd.Flags().StringVar(&options.Agent, "agent", "", "Filter sandboxes by agent name")
+	cmd.Flags().StringVar(&options.Driver, "driver", "", "Filter sandboxes by driver: docker, boxlite, or microsandbox")
+	cmd.Flags().StringVar(&options.OlderThan, "older-than", "", "Only match sandboxes older than a duration such as 7d or 24h")
+	cmd.Flags().BoolVar(&options.Force, "force", false, "Actually remove matched sandboxes")
 }
 
 func addCacheRemoveFlags(cmd *cobra.Command, options *composeCacheRemoveOptions) {
@@ -1315,6 +1333,15 @@ func runComposeSandboxRemoveCommand(cmd *cobra.Command, cli cliOptions, options 
 		}
 	}
 	return nil
+}
+
+func runComposeSandboxPruneCommand(_ *cobra.Command, _ cliOptions, options composeSandboxPruneOptions) error {
+	if strings.TrimSpace(options.OlderThan) != "" {
+		if _, err := parseOlderThanSeconds(options.OlderThan); err != nil {
+			return commandExitError{Code: exitCodeUsage, Err: err}
+		}
+	}
+	return commandExitError{Code: exitCodeUnsupported, Err: fmt.Errorf("sandbox prune is not implemented yet")}
 }
 
 func removeSandbox(ctx context.Context, client agentcomposev2connect.SandboxServiceClient, sandboxID string, force bool) error {
@@ -3242,6 +3269,19 @@ type composePSSandboxOutput struct {
 	Workspace string `json:"workspace,omitempty"`
 }
 
+type composeSandboxPruneOutput struct {
+	DryRun   bool                         `json:"dry_run"`
+	Matched  []composePSSandboxOutput     `json:"matched"`
+	Removed  []string                     `json:"removed"`
+	Skipped  []composeSandboxPruneSkipped `json:"skipped"`
+	Warnings []string                     `json:"warnings,omitempty"`
+}
+
+type composeSandboxPruneSkipped struct {
+	Sandbox string `json:"sandbox"`
+	Reason  string `json:"reason"`
+}
+
 type composeStatsOutput struct {
 	Sandbox          string              `json:"sandbox"`
 	Driver           string              `json:"driver"`
@@ -5029,7 +5069,7 @@ func cacheFilterFromPruneOptions(options composeCachePruneOptions) (*agentcompos
 		base.Status = status
 	}
 	if strings.TrimSpace(options.OlderThan) != "" {
-		seconds, err := parseCacheOlderThanSeconds(options.OlderThan)
+		seconds, err := parseOlderThanSeconds(options.OlderThan)
 		if err != nil {
 			return nil, err
 		}
@@ -5065,7 +5105,7 @@ func cachePruneShortcutStatus(options composeCachePruneOptions) (agentcomposev2.
 	return status, nil
 }
 
-func parseCacheOlderThanSeconds(value string) (uint64, error) {
+func parseOlderThanSeconds(value string) (uint64, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, nil

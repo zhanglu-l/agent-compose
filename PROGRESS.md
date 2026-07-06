@@ -57,20 +57,30 @@
 
 参考文档：[docs/plan/sandbox-cli-prune-implementation-plan.md](docs/plan/sandbox-cli-prune-implementation-plan.md) 阶段 2。
 
-- [ ] 2.1 增加 prune 数据结构、flags 和通用 duration 解析
+- [x] 2.1 增加 prune 数据结构、flags 和通用 duration 解析
   - 依赖：1.1。
   - 工作内容：新增 `composeSandboxPruneOptions`、`composeSandboxPruneOutput`、`composeSandboxPruneSkipped`；在 `sandbox prune` 挂载 `--status`、`--agent`、`--driver`、`--older-than`、`--force`；复用或重命名 `parseCacheOlderThanSeconds` 为通用 duration helper，并保持 `cache prune` 行为不变。
   - 可并行子任务：
-    - [ ] 可并行：审计 `parseCacheOlderThanSeconds` 的错误消息和测试覆盖，确保复用后不破坏 cache prune。
-    - [ ] 可并行：设计 `composeSandboxPruneOutput` JSON 字段与 spec 一致性检查。
+    - [x] 可并行：审计 `parseCacheOlderThanSeconds` 的错误消息和测试覆盖，确保复用后不破坏 cache prune。
+    - [x] 可并行：设计 `composeSandboxPruneOutput` JSON 字段与 spec 一致性检查。
   - 测试方案：新增 duration helper 相关 CLI 测试或复用 cache prune 现有测试，确保 `7d`、`168h`、非法值、0、负数、亚秒行为不回归。
   - 验收标准：`cache prune --older-than` 现有测试通过；`sandbox prune --older-than` 使用同一解析规则；JSON struct tag 与 spec 字段一致。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 新增 `composeSandboxPruneOptions`，包含 `Status`、`Agent`、`Driver`、`OlderThan`、`Force`。
+      - 新增 `composeSandboxPruneOutput` 和 `composeSandboxPruneSkipped`，JSON 字段与 spec 的 `dry_run`、`matched`、`removed`、`skipped`、`warnings` 一致。
+      - 为 `sandbox prune` 挂载 `--status`、`--agent`、`--driver`、`--older-than`、`--force`。
+      - 将 `parseCacheOlderThanSeconds` 重命名为通用 `parseOlderThanSeconds`，并让 `cache prune` 与 `sandbox prune` 共享该解析规则。
+      - 新增 parser edge case 测试和 prune JSON shape 测试，覆盖 `7d`、`168h`、非法值、0、负数、亚秒行为。
+    - 验证：
+      - `go test ./cmd/agent-compose -run 'TestIntegrationCLI(PSTableAndJSON|RemoveSandboxes|Sandbox|CachePrune)|TestParseOlderThanSeconds|TestComposeSandboxPruneOutputJSONShape' -count=1`
+      - `go test ./cmd/agent-compose -run 'TestIntegrationCLI(PSTableAndJSON|RemoveSandboxes|Sandbox)' -count=1`
+    - 审计与例外：
+      - `sandbox prune` 当前只完成 flags、数据结构和 `--older-than` 解析；候选选择、dry-run 输出和删除路径留给 2.2、3.1、4.1。
+      - `sandbox prune --older-than 7d` 会通过共享 duration parser 后返回 unsupported 占位错误，避免提前实现依赖未满足的行为。
+      - 未修改 proto、generated Connect 文件、runtime driver、部署 compose 或 image build 行为。
+    - 下一目标：2.2 实现 prune 候选选择和安全过滤。
 
 - [ ] 2.2 实现 prune 候选选择和安全过滤
   - 依赖：2.1。

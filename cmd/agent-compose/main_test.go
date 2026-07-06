@@ -2801,6 +2801,34 @@ func TestIntegrationCLISandboxCommandGroupHelp(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLISandboxPruneFlagsAndOlderThanUsage(t *testing.T) {
+	helpOut, helpErr, runCount, helpCode := executeCLICommand("sandbox", "prune", "--help")
+	if helpCode != 0 || helpErr != "" || runCount != 0 {
+		t.Fatalf("sandbox prune --help code/stderr/runCount = %d / %q / %d", helpCode, helpErr, runCount)
+	}
+	for _, want := range []string{"--status", "--agent", "--driver", "--older-than", "--force"} {
+		if !strings.Contains(helpOut, want) {
+			t.Fatalf("sandbox prune --help output %q does not contain %q", helpOut, want)
+		}
+	}
+
+	stdout, stderr, _, exitCode := executeCLICommand("sandbox", "prune", "--older-than", "0")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("sandbox prune invalid older-than exit code = %d, want usage; stderr=%q", exitCode, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, `invalid --older-than "0": duration must be positive`) {
+		t.Fatalf("sandbox prune invalid older-than stdout/stderr = %q / %q", stdout, stderr)
+	}
+
+	stdout, stderr, _, exitCode = executeCLICommand("sandbox", "prune", "--older-than", "7d")
+	if exitCode != exitCodeUnsupported {
+		t.Fatalf("sandbox prune valid older-than exit code = %d, want unsupported; stderr=%q", exitCode, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "sandbox prune is not implemented yet") {
+		t.Fatalf("sandbox prune valid older-than stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
 func TestIntegrationCLIProjectCommandsMissingProjectAreFriendly(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-ps-missing
@@ -3864,6 +3892,76 @@ func TestCLICacheInspectUsageErrors(t *testing.T) {
 				t.Fatalf("%v stderr = %q, want %q", tc.args, stderr, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseOlderThanSeconds(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    uint64
+		wantErr string
+	}{
+		{name: "empty", value: "", want: 0},
+		{name: "days", value: "7d", want: 7 * 24 * 3600},
+		{name: "hours", value: "168h", want: 7 * 24 * 3600},
+		{name: "fractional seconds", value: "1500ms", want: 1},
+		{name: "invalid", value: "later", wantErr: "expected a positive duration"},
+		{name: "zero", value: "0", wantErr: "duration must be positive"},
+		{name: "negative", value: "-1h", wantErr: "duration must be positive"},
+		{name: "subsecond", value: "500ms", wantErr: "duration must be at least 1s"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseOlderThanSeconds(tc.value)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("parseOlderThanSeconds(%q) error = %v, want %q", tc.value, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseOlderThanSeconds(%q) unexpected error: %v", tc.value, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseOlderThanSeconds(%q) = %d, want %d", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestComposeSandboxPruneOutputJSONShape(t *testing.T) {
+	output := composeSandboxPruneOutput{
+		DryRun: true,
+		Matched: []composePSSandboxOutput{{
+			Sandbox:   "sandbox-match",
+			Agent:     "worker",
+			Status:    "stopped",
+			UpdatedAt: "2026-06-11T00:00:00Z",
+			Driver:    "boxlite",
+		}},
+		Removed: []string{"sandbox-removed"},
+		Skipped: []composeSandboxPruneSkipped{{
+			Sandbox: "sandbox-skipped",
+			Reason:  "remove failed: denied",
+		}},
+		Warnings: []string{"scan warning"},
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("marshal composeSandboxPruneOutput: %v", err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("decode composeSandboxPruneOutput JSON: %v\n%s", err, data)
+	}
+	for _, key := range []string{"dry_run", "matched", "removed", "skipped", "warnings"} {
+		if _, ok := decoded[key]; !ok {
+			t.Fatalf("composeSandboxPruneOutput JSON %s missing key %q", data, key)
+		}
+	}
+	if strings.Contains(string(data), "DryRun") || strings.Contains(string(data), "Sandbox") || strings.Contains(string(data), "Reason") {
+		t.Fatalf("composeSandboxPruneOutput JSON uses Go field names: %s", data)
 	}
 }
 
