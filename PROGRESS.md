@@ -137,15 +137,15 @@
       - 全仓其他 `IsStderr` 命中属于后续 adapter/API/session/proto/CLI 迁移范围，未在本任务提前处理。
     - 下一目标：2.2 迁移 driver output filter 和噪声过滤测试。
 
-- [ ] 2.2 迁移 seccomp warning filter 和 driver stream 测试
+- [x] 2.2 迁移 seccomp warning filter 和 driver stream 测试
   - 依赖：2.1。
   - 工作内容：
     - 更新 `pkg/driver/exec_output_filter.go`，只按 stderr stream 过滤 driver/runtime 噪声。
     - 更新 `pkg/driver/exec_output_filter_test.go`，断言真实 stderr 保留 `StdioStderr`。
     - 增加或更新 driver collector tests，覆盖 stdout/stderr stream 映射。
   - 可并行子任务：
-    - [ ] 可并行：补充 seccomp warning filter 测试。
-    - [ ] 可并行：补充 stdout/stderr stream collector 测试。
+    - [x] 可并行：补充 seccomp warning filter 测试。
+    - [x] 可并行：补充 stdout/stderr stream collector 测试。
   - 测试方案：
     - `./scripts/with-go-toolchain.sh go test ./pkg/driver`
   - 验收标准：
@@ -153,10 +153,18 @@
     - driver 层没有 `__AGENT_RESULT__` 或 `__COMMAND_RESULT__` 解析逻辑。
     - focused driver tests 通过。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/driver/exec_output_filter.go` 已按 `NormalizeStdioStream(chunk.Stream) == StdioStderr` 判断是否进入 seccomp warning 过滤。
+      - `pkg/driver/exec_output_filter_test.go` 覆盖 stderr seccomp warning 过滤、split warning 过滤、真实 stderr 保留 `StdioStderr`、warning 文本出现在 stdout 时不被过滤。
+      - driver collector stream 映射测试已覆盖 docker、microsandbox；boxlite cgo collector 测试已在 `boxlitecgo` tag 下补充。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./pkg/driver`：通过。
+      - `rg -n "IsStderr|isStderr|GetIsStderr" pkg/driver`：无命中。
+      - `rg -n "__AGENT_RESULT__|__COMMAND_RESULT__|AgentResultPrefix|CommandResultPrefix" pkg/driver`：无命中。
+    - 审计与例外：
+      - 默认 focused gate 未启用 `boxlitecgo` tag，因此 `TestBoxliteExecCollectorMapsStdioStreams` 未在本地默认门禁中运行；需要 boxlite cgo artifacts 的专项门禁在后续完整收口时按环境能力处理。
+      - 本阶段未迁移 adapter/API/session/proto 层剩余 `IsStderr`，这些调用点按阶段三和阶段四任务处理。
     - 下一目标：3.1 迁移 adapter stream 映射。
 
 ## 3. 阶段三：迁移 adapter、agent、command、loader 和 session stream 路径
