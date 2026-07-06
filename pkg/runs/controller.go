@@ -125,6 +125,7 @@ type RunAgentRequest struct {
 	ClientRequestID  string
 	Env              []*agentcomposev2.EnvVarSpec
 	SessionID        string
+	Driver           string
 	OutputSchemaJSON string
 	CleanupPolicy    agentcomposev2.RunSessionCleanupPolicy
 	Jupyter          *agentcomposev2.RunJupyterSpec
@@ -157,6 +158,9 @@ func (c *Controller) StartProjectRun(ctx context.Context, req RunAgentRequest) (
 	if commandText != "" && (strings.TrimSpace(req.Prompt) != "" || strings.TrimSpace(req.TriggerID) != "") {
 		return StartedProjectRun{}, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
 	}
+	if strings.TrimSpace(req.SessionID) != "" && strings.TrimSpace(req.Driver) != "" {
+		return StartedProjectRun{}, fmt.Errorf("%w: run driver cannot be combined with an existing sandbox", ErrInvalidRequest)
+	}
 	resolved, err := c.resolveTriggerForManualRun(ctx, req)
 	if err != nil {
 		return StartedProjectRun{}, err
@@ -171,6 +175,7 @@ func (c *Controller) StartProjectRun(ctx context.Context, req RunAgentRequest) (
 		SchedulerID:     req.SchedulerID,
 		TriggerID:       req.TriggerID,
 		Prompt:          req.Prompt,
+		Driver:          req.Driver,
 		ClientRequestID: req.ClientRequestID,
 	})
 	if err != nil {

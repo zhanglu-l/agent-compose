@@ -2924,6 +2924,7 @@ type RunAgentRequest struct {
 	ClientRequestId  string                  `protobuf:"bytes,11,opt,name=client_request_id,json=clientRequestId,proto3" json:"client_request_id,omitempty"`
 	Command          string                  `protobuf:"bytes,12,opt,name=command,proto3" json:"command,omitempty"`
 	Jupyter          *RunJupyterSpec         `protobuf:"bytes,13,opt,name=jupyter,proto3" json:"jupyter,omitempty"`
+	Driver           string                  `protobuf:"bytes,14,opt,name=driver,proto3" json:"driver,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -3047,6 +3048,13 @@ func (x *RunAgentRequest) GetJupyter() *RunJupyterSpec {
 		return x.Jupyter
 	}
 	return nil
+}
+
+func (x *RunAgentRequest) GetDriver() string {
+	if x != nil {
+		return x.Driver
+	}
+	return ""
 }
 
 type RunAgentResponse struct {
@@ -6514,7 +6522,7 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\x10DockerDriverSpec\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\"2\n" +
 	"\x16MicrosandboxDriverSpec\x12\x18\n" +
-	"\aprofile\x18\x01 \x01(\tR\aprofile\"\xab\x04\n" +
+	"\aprofile\x18\x01 \x01(\tR\aprofile\"\xc3\x04\n" +
 	"\x0fRunAgentRequest\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x1d\n" +
@@ -6533,7 +6541,8 @@ const file_proto_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	" \x01(\tR\x10outputSchemaJson\x12*\n" +
 	"\x11client_request_id\x18\v \x01(\tR\x0fclientRequestId\x12\x18\n" +
 	"\acommand\x18\f \x01(\tR\acommand\x129\n" +
-	"\ajupyter\x18\r \x01(\v2\x1f.agentcompose.v2.RunJupyterSpecR\ajupyter\"\\\n" +
+	"\ajupyter\x18\r \x01(\v2\x1f.agentcompose.v2.RunJupyterSpecR\ajupyter\x12\x16\n" +
+	"\x06driver\x18\x0e \x01(\tR\x06driver\"\\\n" +
 	"\x10RunAgentResponse\x12,\n" +
 	"\x03run\x18\x01 \x01(\v2\x1a.agentcompose.v2.RunDetailR\x03run\x12\x1a\n" +
 	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\xf0\x02\n" +

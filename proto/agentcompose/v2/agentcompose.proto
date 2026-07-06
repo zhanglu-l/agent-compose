@@ -372,6 +372,7 @@ message RunAgentRequest {
   string client_request_id = 11;
   string command = 12;
   RunJupyterSpec jupyter = 13;
+  string driver = 14;
 }
 
 message RunAgentResponse {

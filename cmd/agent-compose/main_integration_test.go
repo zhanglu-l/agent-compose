@@ -36,7 +36,7 @@ func testDaemonListenConfigWorkflow(t *testing.T) {
 	t.Run("cli up applies project first repeated modified and json", testCLIUpAppliesProjectFirstRepeatedModifiedAndJSON)
 	t.Run("cli up applies scheduler script and ps json", TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON)
 	t.Run("cli down first repeated partial and json", testCLIDownFirstRepeatedPartialAndJSON)
-	t.Run("cli run streams output and supports session reuse", TestIntegrationCLIRunStreamsOutputAndSupportsSessionReuse)
+	t.Run("cli run streams output and supports sandbox reuse", TestIntegrationCLIRunStreamsOutputAndSupportsSandboxReuse)
 	t.Run("cli run detach starts background run", TestIntegrationCLIRunDetachStartsBackgroundRun)
 	t.Run("cli run detach json", TestIntegrationCLIRunDetachJSON)
 	t.Run("cli run detach command logs follow", TestIntegrationCLIRunDetachCommandCanBeFollowedByLogs)

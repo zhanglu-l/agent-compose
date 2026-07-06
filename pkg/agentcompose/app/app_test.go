@@ -76,9 +76,10 @@ func TestRunAgentRequestFromProtoPreservesCommand(t *testing.T) {
 		Prompt:    "prompt",
 		Command:   "echo hi",
 		TriggerId: "trigger-1",
+		Driver:    "microsandbox",
 		Jupyter:   &agentcomposev2.RunJupyterSpec{Enabled: true, Expose: true},
 	})
-	if req.ProjectID != "project-1" || req.AgentName != "worker" || req.Prompt != "prompt" || req.Command != "echo hi" || req.TriggerID != "trigger-1" {
+	if req.ProjectID != "project-1" || req.AgentName != "worker" || req.Prompt != "prompt" || req.Command != "echo hi" || req.TriggerID != "trigger-1" || req.Driver != "microsandbox" {
 		t.Fatalf("mapped request = %#v", req)
 	}
 	if req.Jupyter == nil || !req.Jupyter.GetEnabled() || !req.Jupyter.GetExpose() {

@@ -41,6 +41,7 @@ import (
 	"agent-compose/pkg/auth"
 	"agent-compose/pkg/compose"
 	"agent-compose/pkg/config"
+	driverpkg "agent-compose/pkg/driver"
 	"agent-compose/pkg/health"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/projects"
@@ -525,9 +526,8 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	}
 	runCmd.Flags().StringVar(&runOptions.Prompt, "prompt", "", "Prompt to send to the agent")
 	runCmd.Flags().StringVar(&runOptions.Command, "command", "", "Bash command to execute in the agent sandbox")
-	runCmd.Flags().StringVar(&runOptions.SandboxID, "sandbox", "", "Reuse an existing sandbox")
-	// Deprecated: use --sandbox instead.
-	runCmd.Flags().StringVar(&runOptions.SessionID, "session-id", "", "Reuse an existing session")
+	runCmd.Flags().StringVar(&runOptions.SandboxID, "sandbox-id", "", "Reuse an existing sandbox")
+	runCmd.Flags().StringVar(&runOptions.Driver, "driver", "", "Runtime driver override for a new sandbox")
 	runCmd.Flags().BoolVar(&runOptions.KeepRunning, "keep-running", false, "Keep the session runtime running after completion")
 	runCmd.Flags().BoolVar(&runOptions.Remove, "rm", false, "Remove the sandbox after a successful run")
 	runCmd.Flags().BoolVar(&runOptions.Jupyter, "jupyter", false, "Enable Jupyter for this run")
@@ -761,8 +761,8 @@ type composeListProjectsOptions struct {
 type composeRunOptions struct {
 	Prompt        string
 	Command       string
-	SessionID     string
 	SandboxID     string
+	Driver        string
 	KeepRunning   bool
 	Remove        bool
 	Jupyter       bool
@@ -1274,7 +1274,8 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		Prompt:          prompt,
 		Command:         commandText,
 		Source:          agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
-		SessionId:       strings.TrimSpace(normalizedOptions.SessionID),
+		SessionId:       strings.TrimSpace(normalizedOptions.SandboxID),
+		Driver:          strings.TrimSpace(normalizedOptions.Driver),
 		TriggerId:       triggerID,
 		CleanupPolicy:   cleanupPolicy,
 		ClientRequestId: manualRunClientRequestID(normalized.Name, agentName, firstNonEmptyString(prompt, triggerID, commandText)),
@@ -1435,6 +1436,9 @@ func runInteractiveComposeRun(cmd *cobra.Command, options composeRunOptions, pro
 		}
 		runReq := proto.Clone(baseReq).(*agentcomposev2.RunAgentRequest)
 		runReq.SessionId = sessionID
+		if strings.TrimSpace(sessionID) != "" {
+			runReq.Driver = ""
+		}
 		runReq.ClientRequestId = manualRunClientRequestID(projectName, baseReq.GetAgentName(), input)
 		if promptMode {
 			runReq.Prompt = input
@@ -1531,16 +1535,17 @@ func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCom
 }
 
 func normalizeComposeRunOptions(cmd *cobra.Command, options composeRunOptions) (composeRunOptions, error) {
-	if cmd.Flags().Changed("session-id") {
-		if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose run --session-id", "agent-compose run --sandbox"); err != nil {
-			return options, err
+	options.SandboxID = strings.TrimSpace(options.SandboxID)
+	options.Driver = strings.TrimSpace(options.Driver)
+	if options.Driver != "" {
+		driver, err := driverpkg.ResolveSessionRuntimeDriver(options.Driver, "")
+		if err != nil {
+			return options, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run --driver: %w", err)}
 		}
-		if strings.TrimSpace(options.SandboxID) == "" {
-			options.SandboxID = options.SessionID
-		}
+		options.Driver = driver
 	}
-	if strings.TrimSpace(options.SandboxID) != "" {
-		options.SessionID = options.SandboxID
+	if options.SandboxID != "" && options.Driver != "" {
+		return options, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run --driver cannot be combined with --sandbox-id")}
 	}
 	return options, nil
 }

@@ -14,6 +14,7 @@ import (
 
 	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
+	driverpkg "agent-compose/pkg/driver"
 	"agent-compose/pkg/execution"
 	"agent-compose/pkg/images"
 	"agent-compose/pkg/loaders"
@@ -48,6 +49,20 @@ func TestRunsCoordinatorAndHelperWorkflows(t *testing.T) {
 	}
 	if existing, err := coord.BeginRun(ctx, StartRequest{ProjectID: "project-1", AgentName: "worker", Source: domain.ProjectRunSourceAPI, ClientRequestID: "request-1"}); err != nil || existing.RunID != run.RunID {
 		t.Fatalf("idempotent BeginRun existing=%#v err=%v", existing, err)
+	}
+	if override, err := coord.BeginRun(ctx, StartRequest{ProjectID: "project-1", AgentName: "worker", Source: domain.ProjectRunSourceAPI, ClientRequestID: "request-driver", Driver: "msb"}); err != nil || override.Driver != driverpkg.RuntimeDriverMicrosandbox {
+		t.Fatalf("driver override run=%#v err=%v", override, err)
+	}
+	store.agent.Driver = ""
+	if fallback, err := coord.BeginRun(ctx, StartRequest{ProjectID: "project-1", AgentName: "worker", Source: domain.ProjectRunSourceAPI, ClientRequestID: "request-project-driver"}); err != nil || fallback.Driver != driverpkg.RuntimeDriverBoxlite {
+		t.Fatalf("project driver fallback run=%#v err=%v", fallback, err)
+	}
+	beforeInvalid := len(store.runs)
+	if _, err := coord.BeginRun(ctx, StartRequest{ProjectID: "project-1", AgentName: "worker", Source: domain.ProjectRunSourceAPI, ClientRequestID: "request-bad-driver", Driver: "bad"}); err == nil {
+		t.Fatalf("expected invalid driver error")
+	}
+	if len(store.runs) != beforeInvalid {
+		t.Fatalf("invalid driver created run: before=%d after=%d", beforeInvalid, len(store.runs))
 	}
 	if running, err := coord.MarkRunning(ctx, run.RunID, "session-1"); err != nil || running.Status != domain.ProjectRunStatusRunning || running.SessionID != "session-1" {
 		t.Fatalf("MarkRunning run=%#v err=%v", running, err)
@@ -695,6 +710,17 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		}
 		if run.SessionID != session.Summary.ID || loaded.Summary.VMStatus != domain.VMStatusStopped {
 			t.Fatalf("run=%#v loaded session=%#v", run, loaded.Summary)
+		}
+	})
+
+	t.Run("driver cannot be combined with existing session", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, func(req *RunAgentRequest) {
+			req.SessionID = "existing"
+			req.Driver = "docker"
+		})
+		if !errors.Is(err, ErrInvalidRequest) || execErr != nil {
+			t.Fatalf("RunProjectAgent run=%#v err=%v execErr=%v", run, err, execErr)
 		}
 	})
 }

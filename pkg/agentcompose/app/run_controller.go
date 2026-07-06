@@ -139,6 +139,7 @@ func runAgentRequestFromProto(msg *agentcomposev2.RunAgentRequest) runs.RunAgent
 		ClientRequestID:  msg.GetClientRequestId(),
 		Env:              msg.GetEnv(),
 		SessionID:        msg.GetSessionId(),
+		Driver:           msg.GetDriver(),
 		OutputSchemaJSON: msg.GetOutputSchemaJson(),
 		CleanupPolicy:    msg.GetCleanupPolicy(),
 		Jupyter:          msg.GetJupyter(),

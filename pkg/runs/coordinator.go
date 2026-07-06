@@ -1,6 +1,7 @@
 package runs
 
 import (
+	driverpkg "agent-compose/pkg/driver"
 	domain "agent-compose/pkg/model"
 	"context"
 	"database/sql"
@@ -19,6 +20,7 @@ type StartRequest struct {
 	SchedulerID     string
 	TriggerID       string
 	Prompt          string
+	Driver          string
 	ClientRequestID string
 }
 
@@ -91,6 +93,7 @@ func (c *Coordinator) BeginRun(ctx context.Context, req StartRequest) (domain.Pr
 	req.Source = NormalizeSource(req.Source)
 	req.SchedulerID = strings.TrimSpace(req.SchedulerID)
 	req.TriggerID = strings.TrimSpace(req.TriggerID)
+	req.Driver = strings.TrimSpace(req.Driver)
 	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
 	if req.ProjectID == "" || req.AgentName == "" {
 		return domain.ProjectRunRecord{}, fmt.Errorf("project id and agent name are required")
@@ -116,6 +119,13 @@ func (c *Coordinator) BeginRun(ctx context.Context, req StartRequest) (domain.Pr
 	if agent.ManagedProjectID != project.ID || agent.ManagedAgentName != projectAgent.AgentName {
 		return domain.ProjectRunRecord{}, fmt.Errorf("managed agent definition %s does not belong to project agent %s/%s", agent.ID, project.ID, projectAgent.AgentName)
 	}
+	driver := firstNonEmpty(req.Driver, agent.Driver, projectAgent.Driver)
+	if driver != "" {
+		driver, err = driverpkg.ResolveSessionRuntimeDriver(driver, "")
+		if err != nil {
+			return domain.ProjectRunRecord{}, err
+		}
+	}
 	runID, err := c.stableRunID(project.ID, projectAgent.AgentName, req.Source, req.ClientRequestID)
 	if err != nil {
 		return domain.ProjectRunRecord{}, err
@@ -132,7 +142,7 @@ func (c *Coordinator) BeginRun(ctx context.Context, req StartRequest) (domain.Pr
 		TriggerID:       req.TriggerID,
 		Status:          domain.ProjectRunStatusPending,
 		Prompt:          req.Prompt,
-		Driver:          firstNonEmpty(agent.Driver, projectAgent.Driver),
+		Driver:          driver,
 		ImageRef:        firstNonEmpty(agent.GuestImage, projectAgent.Image),
 		ResultJSON:      "{}",
 	}

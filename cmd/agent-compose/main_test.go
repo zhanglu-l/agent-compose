@@ -1132,7 +1132,7 @@ agents:
 	})
 }
 
-func TestIntegrationCLIRunStreamsOutputAndSupportsSessionReuse(t *testing.T) {
+func TestIntegrationCLIRunStreamsOutputAndSupportsSandboxReuse(t *testing.T) {
 	dir := t.TempDir()
 	composePath := writeComposeFile(t, dir, `
 name: cli-run-demo
@@ -1181,7 +1181,7 @@ agents:
 	})
 	defer server.Close()
 
-	stdout, stderr, runCount, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--sandbox", "session-reuse", "--keep-running", "reviewer", "--prompt", "check this")
+	stdout, stderr, runCount, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--sandbox-id", "session-reuse", "--keep-running", "reviewer", "--prompt", "check this")
 	if exitCode != 0 {
 		t.Fatalf("run success exit code = %d, stderr=%q", exitCode, stderr)
 	}
@@ -1195,12 +1195,22 @@ agents:
 		t.Fatal("RunAgentStream was not called")
 	}
 
-	legacyOut, legacyErr, _, legacyCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--session-id", "session-reuse", "--keep-running", "reviewer", "--prompt", "check this")
-	if legacyCode != 0 {
-		t.Fatalf("run --session-id exit code = %d, stderr=%q", legacyCode, legacyErr)
-	}
-	if legacyOut != "live output\n" || !strings.Contains(legacyErr, "agent-compose run --session-id is deprecated") || strings.Contains(legacyOut, "deprecated") {
-		t.Fatalf("run --session-id stdout/stderr = %q / %q", legacyOut, legacyErr)
+	for _, tc := range []struct {
+		name string
+		flag string
+	}{
+		{name: "legacy sandbox flag", flag: "--sandbox"},
+		{name: "legacy session flag", flag: "--session-id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			legacyOut, legacyErr, _, legacyCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, tc.flag, "session-reuse", "--keep-running", "reviewer", "--prompt", "check this")
+			if legacyCode != exitCodeUsage {
+				t.Fatalf("run %s exit code = %d, want %d; stderr=%q", tc.flag, legacyCode, exitCodeUsage, legacyErr)
+			}
+			if legacyOut != "" || !strings.Contains(legacyErr, "unknown flag: "+tc.flag) {
+				t.Fatalf("run %s stdout/stderr = %q / %q", tc.flag, legacyOut, legacyErr)
+			}
+		})
 	}
 }
 
@@ -1217,7 +1227,7 @@ agents:
 			startRun: func(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
 				sawStart = true
 				runReq := req.Msg.GetRun()
-				if runReq.GetAgentName() != "reviewer" || runReq.GetCommand() != "echo detached" || runReq.GetSessionId() != "sandbox-detached" {
+				if runReq.GetAgentName() != "reviewer" || runReq.GetCommand() != "echo detached" || runReq.GetSessionId() != "" || runReq.GetDriver() != "microsandbox" {
 					t.Fatalf("StartRun request = %#v", runReq)
 				}
 				if runReq.GetSource() != agentcomposev2.RunSource_RUN_SOURCE_MANUAL {
@@ -1245,7 +1255,7 @@ agents:
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("run", "-d", "--host", server.URL, "--file", composePath, "--sandbox", "sandbox-detached", "reviewer", "--command", "echo detached")
+	stdout, stderr, _, exitCode := executeCLICommand("run", "-d", "--host", server.URL, "--file", composePath, "--driver", "msb", "reviewer", "--command", "echo detached")
 	if exitCode != 0 {
 		t.Fatalf("run -d exit code = %d, stderr=%q", exitCode, stderr)
 	}
@@ -1530,6 +1540,70 @@ agents:
 	}
 }
 
+func TestIntegrationCLIRunInteractiveDriverOnlySentForInitialSandbox(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-driver
+agents:
+  reviewer:
+    provider: codex
+`)
+	var drivers []string
+	var prompts []string
+	var sessions []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				drivers = append(drivers, req.Msg.GetDriver())
+				prompts = append(prompts, req.Msg.GetPrompt())
+				sessions = append(sessions, req.Msg.GetSessionId())
+				if req.Msg.GetCommand() != "" || req.Msg.GetTriggerId() != "" {
+					t.Fatalf("RunAgentStream interactive prompt request = %#v", req.Msg)
+				}
+				runID := fmt.Sprintf("run-driver-repl-%d", len(prompts))
+				if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+					RunId:      runID,
+					Transcript: &agentcomposev2.TranscriptEvent{Text: fmt.Sprintf("driver %d output\n", len(prompts))},
+				}); err != nil {
+					return err
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     runID,
+					Run: &agentcomposev2.RunSummary{
+						RunId:     runID,
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-driver-repl",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-driver-repl", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("second prompt\n/exit\n", "run", "--host", server.URL, "--file", composePath, "--driver", "msb", "reviewer", "-i", "--prompt", "first prompt")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -i --driver --prompt code/stderr = %d / %q", exitCode, stderr)
+	}
+	if stdout != "driver 1 output\ndriver 2 output\n" {
+		t.Fatalf("run -i --driver --prompt stdout = %q", stdout)
+	}
+	if strings.Join(prompts, "|") != "first prompt|second prompt" {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+	if strings.Join(sessions, "|") != "|sandbox-driver-repl" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+	if strings.Join(drivers, "|") != "microsandbox|" {
+		t.Fatalf("drivers = %#v", drivers)
+	}
+}
+
 func TestIntegrationCLIRunInteractiveCommandReusesSession(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-interactive-command
@@ -1678,9 +1752,9 @@ agents:
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommandWithInput("", "run", "--host", server.URL, "--file", composePath, "--rm", "--sandbox", "sandbox-existing", "reviewer", "-i", "--prompt", "first")
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("", "run", "--host", server.URL, "--file", composePath, "--rm", "--sandbox-id", "sandbox-existing", "reviewer", "-i", "--prompt", "first")
 	if exitCode != 0 || stdout != "" || stderr != "" {
-		t.Fatalf("run -i --rm --sandbox code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+		t.Fatalf("run -i --rm --sandbox-id code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
 	}
 }
 
@@ -1871,6 +1945,26 @@ agents:
 			name: "trigger flag unsupported",
 			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "nightly"},
 			want: "unknown flag: --trigger",
+		},
+		{
+			name: "legacy sandbox flag unsupported",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--sandbox", "sandbox-1", "--prompt", "check"},
+			want: "unknown flag: --sandbox",
+		},
+		{
+			name: "legacy session flag unsupported",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--session-id", "sandbox-1", "--prompt", "check"},
+			want: "unknown flag: --session-id",
+		},
+		{
+			name: "bad driver",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--driver", "bad", "--prompt", "check"},
+			want: "unsupported agent-compose runtime driver",
+		},
+		{
+			name: "driver with sandbox id",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--sandbox-id", "sandbox-1", "--driver", "docker", "--prompt", "check"},
+			want: "run --driver cannot be combined with --sandbox-id",
 		},
 		{
 			name: "command and prompt flags",
