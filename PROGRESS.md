@@ -191,13 +191,13 @@
 
 参考文档：[docs/plan/sandbox-cli-prune-implementation-plan.md](docs/plan/sandbox-cli-prune-implementation-plan.md) 阶段 5。
 
-- [ ] 5.1 运行 focused 测试并审计范围
+- [x] 5.1 运行 focused 测试并审计范围
   - 依赖：4.2。
   - 工作内容：检查 `git diff`，确认未修改 proto、generated Connect 文件、runtime driver、compose deployment 配置；运行 focused CLI tests 和相关 package tests。
   - 可并行子任务：
-    - [ ] 可并行：代码范围审计。
-    - [ ] 可并行：文档范围审计。
-    - [ ] 可并行：focused tests 运行和结果整理。
+    - [x] 可并行：代码范围审计。
+    - [x] 可并行：文档范围审计。
+    - [x] 可并行：focused tests 运行和结果整理。
   - 测试方案：
 
 ```bash
@@ -207,11 +207,20 @@ go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/storage/sessionstore -c
 
   - 验收标准：focused tests 通过；diff 范围符合 spec；如果有失败，完成总结记录命令、错误和下一步。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 未新增功能变更；本任务完成 focused 验证和 branch diff 范围审计。
+    - 验证：
+      - `go test ./cmd/agent-compose -run 'TestIntegrationCLI(PSTableAndJSON|RemoveSandboxes|Sandbox)' -count=1`
+      - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/storage/sessionstore -count=1`
+      - `git diff --name-only origin/main...HEAD`
+      - `git diff --stat origin/main...HEAD`
+      - `changed=$(git diff --name-only origin/main...HEAD); printf '%s\n' "$changed" | rg -n '^(proto/|pkg/driver/|docker-compose\.yml|docker-compose\.override\.yml|Dockerfile|Dockerfile\.|guest-images/|build_docker\.sh)' || true`
+    - 审计与例外：
+      - branch diff 文件范围：`PROGRESS.md`、`README.md`、`cmd/agent-compose/main.go`、`cmd/agent-compose/main_test.go`、`docs/command-line-manual.md`、`docs/plan/sandbox-cli-prune-implementation-plan.md`、`docs/spec/sandbox-cli-prune-spec.md`、`docs/zh-CN/command-line-manual.md`。
+      - 未修改 proto、generated Connect 文件、runtime driver、部署 compose、image build 行为或 runtime cache 实现。
+      - prohibited-path check 无输出，表示未命中禁止范围。
+    - 下一目标：5.2 运行 harness 门禁。
 
 - [ ] 5.2 运行 harness 门禁
   - 依赖：5.1。
