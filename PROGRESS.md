@@ -19,14 +19,14 @@
 
 ## 执行规则
 
-- [ ] 每个任务完成时必须同时完成对应测试方案和验收标准。
-- [ ] 不跨阶段提前合并依赖未满足的功能；父任务依赖未满足时只能做只读调研。
-- [ ] 涉及生成代码、脚本枚举、质量门禁或覆盖率范围时，必须同步更新相关脚本、文档和生成产物。
-- [ ] 每个行为变更任务至少运行该任务要求的 focused tests；阶段性收口运行 harness 定义的完整门禁。
-- [ ] 完成总结必须使用 `状态`、`变更`、`验证`、`审计与例外`、`下一目标` 五组，多项证据用列表或表格。
-- [ ] 内部 stdio stream 只能表示 stdout/stderr 原始通道；host payload 判断只能依赖 `__AGENT_RESULT__` 和 `__COMMAND_RESULT__` marker。
-- [ ] `proto/agentcompose/v1` 保持历史 `is_stderr` 字段；v2 可以破坏性迁移到 `StdioStream stream`。
-- [ ] 主合并门禁是 `task lint`、`task build`、`task test`；涉及 runtime/proto client 时同步运行对应 npm/package 命令。
+- [x] 每个任务完成时必须同时完成对应测试方案和验收标准。
+- [x] 不跨阶段提前合并依赖未满足的功能；父任务依赖未满足时只能做只读调研。
+- [x] 涉及生成代码、脚本枚举、质量门禁或覆盖率范围时，必须同步更新相关脚本、文档和生成产物。
+- [x] 每个行为变更任务至少运行该任务要求的 focused tests；阶段性收口运行 harness 定义的完整门禁。
+- [x] 完成总结必须使用 `状态`、`变更`、`验证`、`审计与例外`、`下一目标` 五组，多项证据用列表或表格。
+- [x] 内部 stdio stream 只能表示 stdout/stderr 原始通道；host payload 判断只能依赖 `__AGENT_RESULT__` 和 `__COMMAND_RESULT__` marker。
+- [x] `proto/agentcompose/v1` 保持历史 `is_stderr` 字段；v2 可以破坏性迁移到 `StdioStream stream`。
+- [x] 主合并门禁是 `task lint`、`task build`、`task test`；涉及 runtime/proto client 时同步运行对应 npm/package 命令。
 
 ## 1. 阶段一：建立 stdio stream 领域模型和协议过滤入口
 
@@ -623,4 +623,5 @@
       - `git status --ignored --short runtime/javascript proto-client runtime/agent-compose-runtime-sdk` 显示 `proto-client/src`、`proto-client/dist`、`proto-client/node_modules`、`runtime/javascript/node_modules`、`runtime/agent-compose-runtime-sdk/node_modules`、`runtime/agent-compose-runtime-sdk/dist` 均为 ignored 输出；未强制加入版本控制。
       - 本目标未改 Dockerfile、guest image 构建脚本、部署配置或 runtime driver image 行为，因此未运行 Docker image 构建门禁。
       - 没有不可运行命令；所有 6.2 要求的本地门禁和 CI 对齐补充命令均通过。
-    - 下一目标：检查远端 CI 状态并完成目标收口。
+      - 远端 CI 检查：`gh pr view --json number,url,headRefName,baseRefName,state,statusCheckRollup` 返回当前分支无 PR；`gh run list --branch codex/output-protocol-contract --limit 10 --json databaseId,displayTitle,event,status,conclusion,headSha,createdAt,updatedAt,url` 返回空列表。由于 `.github/workflows/ci.yml` 只在 `pull_request` 和 `main` 分支 push 触发，当前分支 push 不产生 CI run；最终远端 CI 策略是在创建 PR 后由 pull_request CI 验证。
+    - 下一目标：无。
