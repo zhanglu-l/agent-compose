@@ -362,7 +362,14 @@ func tarBuildContext(contextDir, dockerfile string, excludes []string) (io.ReadC
 		if err != nil {
 			return err
 		}
-		header, err := tar.FileInfoHeader(info, "")
+		linkTarget := ""
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err = os.Readlink(path)
+			if err != nil {
+				return err
+			}
+		}
+		header, err := tar.FileInfoHeader(info, linkTarget)
 		if err != nil {
 			return err
 		}
