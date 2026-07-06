@@ -462,7 +462,7 @@
 
 参考文档：[runtime/javascript/src/command.ts](runtime/javascript/src/command.ts)、[runtime/javascript/src/transcript.ts](runtime/javascript/src/transcript.ts)、[docs/design/agent-compose-runtime_contract.md](docs/design/agent-compose-runtime_contract.md)
 
-- [ ] 5.1 补充 runtime/javascript stdout/stderr contract 测试
+- [x] 5.1 补充 runtime/javascript stdout/stderr contract 测试
   - 依赖：1.2、3.3。
   - 工作内容：
     - 保持 prompt transcript writer 写 stderr，final prompt result 写 stdout marker。
@@ -470,9 +470,9 @@
     - 覆盖 command stdout/stderr/output artifacts 和 `command-result.json` payload 行为。
     - 覆盖用户命令非零退出仍输出 `__COMMAND_RESULT__`。
   - 可并行子任务：
-    - [ ] 可并行：补充 `command.ts` stdout/stderr/artifact 测试。
-    - [ ] 可并行：补充 `cli.ts` prompt/exec marker 输出测试。
-    - [ ] 可并行：补充 `transcript.ts` stderr transcript 测试。
+    - [x] 可并行：补充 `command.ts` stdout/stderr/artifact 测试。
+    - [x] 可并行：补充 `cli.ts` prompt/exec marker 输出测试。
+    - [x] 可并行：补充 `transcript.ts` stderr transcript 测试。
   - 测试方案：
     - `cd runtime/javascript && npm ci`
     - `cd runtime/javascript && npm run typecheck`
@@ -482,10 +482,21 @@
     - command stdout/stderr 保持原始通道镜像语义。
     - 未新增 runtime 配置项或 CLI 参数。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `runtime/javascript/test/command.test.ts` 扩展 stdout/stderr 分离测试，断言 `stdout.txt`、`stderr.txt`、`output.txt` 和 `command-result.json` 与原始通道语义一致。
+      - 非零命令测试改为同时输出 stdout/stderr 后退出 7，断言 `runExecCommand` 不抛错、保留 stdout/stderr、写入失败 result artifact，并继续在 stderr 打印 exit code 说明。
+      - `runtime/javascript/test/cli.test.ts` 增加 prompt/exec marker stream 断言，确认 prompt 和 exec result marker 写 stdout，不写 stderr。
+      - `cli.test.ts` 新增非零 exec result 用例，确认 `__COMMAND_RESULT__` 仍写 stdout 且 payload 保留 stdout/stderr/exitCode/success。
+    - 验证：
+      - `cd runtime/javascript && npm ci`：通过，安装 171 个包；npm audit 报告 2 个 high severity vulnerabilities。
+      - `cd runtime/javascript && npm run typecheck`：通过。
+      - `cd runtime/javascript && TEST_SHAPE=unit npm run test:unit`：通过，10 个 test files、108 个 tests。
+      - `rg -n "stdin|--stdin|chunk_type|payload_kind|typed payload|config|option\\(" runtime/javascript/src runtime/javascript/test -g '*.ts'`：未发现新增 stdin、typed payload 或 payload kind；命中为既有 CLI options、runner config 测试/实现。
+    - 审计与例外：
+      - 本任务只修改 runtime/javascript tests，未修改 runtime behavior、配置项、CLI 参数或 JSON schema。
+      - `runtime/javascript/test/transcript.test.ts` 已有 `TranscriptWriter` 写 stderr 且记录 transcript 的测试，本任务通过 unit gate 重新验证，未重复增加等价用例。
+      - npm audit vulnerabilities 属于现有依赖审计风险；本任务未升级依赖，后续完整门禁/依赖治理可单独处理。
     - 下一目标：5.2 更新 runtime contract 和 CLI 文档。
 
 - [ ] 5.2 更新 runtime contract、CLI manual 和相关文档

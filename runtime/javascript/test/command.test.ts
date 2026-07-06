@@ -165,8 +165,18 @@ describe("runtime command execution", () => {
       expect(result.stderr).toBe("err");
       expect(result.output).toContain("out");
       expect(result.output).toContain("err");
+      expect(await fs.readFile(result.artifacts.stdout, "utf8")).toBe("out");
+      expect(await fs.readFile(result.artifacts.stderr, "utf8")).toBe("err");
       expect(await fs.readFile(result.artifacts.output, "utf8")).toContain("out");
       expect(await fs.readFile(result.artifacts.output, "utf8")).toContain("err");
+      const savedResult = JSON.parse(await fs.readFile(result.artifacts.result, "utf8"));
+      expect(savedResult).toMatchObject({
+        stdout: "out",
+        stderr: "err",
+        output: expect.stringContaining("out"),
+        exitCode: 0,
+        success: true,
+      });
     });
   });
 
@@ -211,7 +221,7 @@ describe("runtime command execution", () => {
       const requestFile = await writeRequest(root, {
         mode: "exec",
         command: "node",
-        args: ["-e", "process.exit(7)"],
+        args: ["-e", "process.stdout.write('before-fail\\n'); process.stderr.write('error-line\\n'); process.exit(7)"],
         artifactDir: path.join(root, "artifacts"),
       });
 
@@ -220,8 +230,16 @@ describe("runtime command execution", () => {
         const result = await runExecCommand({ requestFile, workspace: root });
         expect(result.success).toBe(false);
         expect(result.exitCode).toBe(7);
-        expect(result.stderr).toBe("");
+        expect(result.stdout).toBe("before-fail\n");
+        expect(result.stderr).toBe("error-line\n");
         expect(stdio.stderr).toContain("command exited with code 7");
+        const savedResult = JSON.parse(await fs.readFile(result.artifacts.result, "utf8"));
+        expect(savedResult).toMatchObject({
+          stdout: "before-fail\n",
+          stderr: "error-line\n",
+          exitCode: 7,
+          success: false,
+        });
       } finally {
         stdio.restore();
       }
