@@ -26,12 +26,15 @@ development branch until versioned release support is documented.
 
 ## Deployment Guidance
 
-- Keep unauthenticated deployments bound to loopback only.
-- Set `AUTH_PASSWORD` and a stable, high-entropy `AUTH_SECRET` when exposing the
-  daemon to other users or systems.
-- Terminate HTTPS before the daemon in production-like deployments.
-- Treat `HTTP_LISTEN=0.0.0.0:7410` as unsafe unless authentication and network
-  controls are in place.
+- Expose browser access through the agent-compose-ui server, not directly
+  through the daemon.
+- Set `AUTH_PASSWORD` and a stable, high-entropy `AUTH_SECRET` for the UI server
+  before exposing the Web UI to other users.
+- Terminate HTTPS before the UI server in production-like deployments.
+- Treat `HTTP_LISTEN=0.0.0.0:7410` as an internal daemon API. Without daemon-side
+  `HTTP_BASIC_AUTH`, startup emits a warning but still proceeds; use container
+  networking, reverse proxies, VPNs, or equivalent controls to avoid direct
+  public access.
 - Do not expose guest Jupyter ports directly. Use the agent-compose proxy.
 - Treat workspace uploads, Git credentials, environment variables, webhook
   tokens, and LLM API keys as secrets.

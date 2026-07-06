@@ -166,7 +166,7 @@ trap cleanup EXIT
 # images/manifest.env only exists in a real installer bundle, so it
 # disambiguates from a source checkout that also has a docker-compose.yml.
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/docker-compose.yml" ] \
-   && [ -f "$SCRIPT_DIR/nginx/nginx.conf" ] && [ -f "$SCRIPT_DIR/images/manifest.env" ]; then
+   && [ -f "$SCRIPT_DIR/images/manifest.env" ]; then
   BUNDLE_SRC="$SCRIPT_DIR"
   log "Running from extracted bundle: $BUNDLE_SRC"
 else
@@ -255,9 +255,8 @@ fi
 # --------------------------------------------------------------------------
 # Lay down files
 # --------------------------------------------------------------------------
-mkdir -p "$INSTALL_DIR/nginx" "$INSTALL_DIR/data/agent-compose"
+mkdir -p "$INSTALL_DIR/data/agent-compose"
 cp "$BUNDLE_SRC/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
-cp "$BUNDLE_SRC/nginx/nginx.conf"   "$INSTALL_DIR/nginx/nginx.conf"
 if [ -f "$BUNDLE_SRC/install.sh" ] && [ "$BUNDLE_SRC/install.sh" -ef "$INSTALL_DIR/install.sh" ] 2>/dev/null; then
   : # already the same file; nothing to copy
 elif [ -f "$BUNDLE_SRC/install.sh" ]; then

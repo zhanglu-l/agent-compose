@@ -24,7 +24,7 @@ The current code facts are anchored by these entry points:
 - Domain model helpers: `pkg/model/`
 - Project/run owner helpers: `pkg/projects/` and `pkg/runs/`
 - Session/execution owner helpers: `pkg/sessions/` and `pkg/execution/`
-- Standalone frontend image: `nginx/Dockerfile`
+- Standalone frontend image: `agent-compose-ui` repository
 
 ## Architecture Goals
 
@@ -697,11 +697,11 @@ registers API, Connect, webhook/workspace, and Jupyter proxy routes.
 
 The current Docker deployment provides an independent frontend service:
 
-- `nginx/Dockerfile` builds `agent-compose-frontend`.
+- The `agent-compose-ui` repository builds the frontend image.
 - Compose has two services: `agent-compose` daemon and
   `agent-compose-frontend`.
-- The frontend service serves `frontend/` build output and reverse proxies the
-  daemon v1/v2 Connect APIs, `/api/`, and Jupyter proxy routes.
+- The frontend service serves the built UI and reverse proxies the daemon v1/v2
+  Connect APIs, `/api/`, and Jupyter proxy routes.
 
 For shared playground build, deployment, and verification flow, see
 [playground_setup.md](playground_setup.md).

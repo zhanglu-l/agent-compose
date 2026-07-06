@@ -44,10 +44,9 @@ Current key configuration for the shared playground `agent-compose-frontend`
 service:
 
 - Listen port: `8000`
-- Independently builds and serves `frontend/` output
+- Uses the independent `agent-compose-ui` image
 - Reverse proxies daemon v1/v2 Connect APIs, `/api/`, and Jupyter proxy routes
-- Data mount: `./data:/data`, used for nginx basic auth files and other
-  frontend service configuration
+- Data mount: `./data:/data`, used for frontend service runtime data
 
 The corresponding host data directory is:
 
@@ -72,7 +71,6 @@ Run from the code directory:
 cd /data/code
 docker build -t debian:bookworm-slim -f guest-images/Dockerfile.agent-compose-guest .
 docker build -t agent-compose:latest -f Dockerfile .
-docker build -t agent-compose-frontend:latest -f nginx/Dockerfile .
 ```
 
 If you prefer Task:
@@ -81,7 +79,6 @@ If you prefer Task:
 cd /data/code
 task image:agent-compose-guest
 task image:agent-compose
-task image:agent-compose-frontend
 ```
 
 ## Deploy To Shared Playground
@@ -320,6 +317,5 @@ Rebuild images and force recreate containers:
 cd /data/code
 docker build -t debian:bookworm-slim -f guest-images/Dockerfile.agent-compose-guest .
 docker build -t agent-compose:latest -f Dockerfile .
-docker build -t agent-compose-frontend:latest -f nginx/Dockerfile .
 docker compose -f /data/playground/docker-compose.yml up -d --force-recreate agent-compose agent-compose-frontend
 ```

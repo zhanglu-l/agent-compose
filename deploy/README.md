@@ -79,11 +79,10 @@ Configuration lives in `<install-dir>/.env`; edit and re-run
 `docker compose up -d` to apply changes. See `SECURITY.md` in the repository
 before exposing the daemon beyond a trusted network.
 
-Re-running the installer refreshes the compose/nginx files and fills missing
-secrets or image refs, but it does not overwrite image refs already set in
-`.env` unless `--upgrade` is passed. Use `--upgrade` with a newer
-installer to update an existing installation to that release and restart the
-stack.
+Re-running the installer refreshes the compose file and fills missing secrets
+or image refs, but it does not overwrite image refs already set in `.env`
+unless `--upgrade` is passed. Use `--upgrade` with a newer installer to update
+an existing installation to that release and restart the stack.
 
 Before changing the installation directory, the installer prints a deployment
 plan and asks for confirmation. Use `--yes` or `AGENT_COMPOSE_YES=1` for

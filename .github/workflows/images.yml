@@ -13,7 +13,6 @@ on:
       - guest-images/**
       - go.mod
       - go.sum
-      - nginx/**
       - pkg/**
       - proto/**
       - runtime/**
@@ -219,9 +218,8 @@ jobs:
           # pins the compose image refs to this release. install.sh pulls the
           # multi-arch images from the registry.
           payload="$(mktemp -d)/agent-compose-installer"
-          mkdir -p "${payload}/nginx" "${payload}/images"
+          mkdir -p "${payload}/images"
           cp docker-compose.yml "${payload}/docker-compose.yml"
-          cp nginx/nginx.conf "${payload}/nginx/nginx.conf"
           cp .env.example deploy/README.md deploy/install.sh "${payload}/"
           chmod +x "${payload}/install.sh"
           {

@@ -25,6 +25,8 @@ services:
     restart: always
     depends_on:
       - agent-compose
+    env_file:
+      - ./.env
     environment:
       JUPYTER_PROXY_BASE: ${JUPYTER_PROXY_BASE:-/jupyter}
       NGINX_JUPYTER_PROXY_BASE: ${JUPYTER_PROXY_BASE:-/jupyter}

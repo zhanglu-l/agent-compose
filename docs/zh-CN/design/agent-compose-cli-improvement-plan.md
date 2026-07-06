@@ -34,7 +34,7 @@ CLI 是 agent-compose daemon 的操作入口。它负责读取本地 project 配
 
 - 使用 `--host` 或 `AGENT_COMPOSE_HOST` 连接 HTTP(S) daemon 时，CLI 从本机环境变量 `AUTH_USERNAME` 和 `AUTH_PASSWORD` 读取 Basic Auth 凭据。
 - Unix socket 本地连接不注入该认证。
-- 如果部署还启用了兼容的外层 `HTTP_BASIC_AUTH`，请求需要同时满足外层认证和 AuthManager 认证。
+- daemon 不再消费浏览器登录用的 `AUTH_*` / `OAUTH_*` 配置；远程 TCP API 如需 Basic Auth 保护，应在 daemon 侧配置 `HTTP_BASIC_AUTH`。
 - warning 和 deprecated 提示写入 stderr，不污染 `--json` stdout。
 
 ## 当前命令体系

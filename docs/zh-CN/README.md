@@ -107,7 +107,7 @@ agent 常用字段：
 
 Web UI 在独立仓库 [agent-compose-ui](https://github.com/chaitin/agent-compose-ui)。它通过已发布的 [`@chaitin-ai/agent-compose-client`](https://www.npmjs.com/package/@chaitin-ai/agent-compose-client) 包消费 API 客户端——该包由本仓库的 `proto/` 经 `proto-client/` 生成发布。
 
-daemon 不托管 Web UI。前端仓库构建一个 nginx 镜像（`ghcr.io/chaitin/agent-compose-ui`），负责托管构建后的前端并把 API、Jupyter proxy 路由反向代理到 daemon。仓库根目录的 `docker-compose.yml` 直接引用该已发布镜像，并作为默认部署入口。
+daemon 不托管 Web UI 或浏览器登录流程。前端仓库构建一个镜像（`ghcr.io/chaitin/agent-compose-ui`），在 nginx 前置后运行 agent-compose-ui server：nginx 托管构建后的前端，UI server 处理浏览器认证/OAuth，并把 API、Jupyter proxy 路由反向代理到 daemon。仓库根目录的 `docker-compose.yml` 直接引用该已发布镜像，并作为默认部署入口。
 
 使用已发布容器镜像部署到服务器：
 
@@ -130,12 +130,12 @@ docker compose --profile with-ui up -d
 
 常用环境变量：
 
-- `AUTH_USERNAME`、`AUTH_PASSWORD`、`AUTH_SECRET`、`AUTH_SESSION_TTL`：密码登录设置。对外部署前应替换示例密码和 secret。
+- `AUTH_USERNAME`、`AUTH_PASSWORD`、`AUTH_SECRET`、`AUTH_SESSION_TTL`：UI server 密码登录设置。对外部署前应替换示例密码和 secret。
 - `AGENT_COMPOSE_HTTP_PORT`：启用 `with-ui` profile 时，Web UI 和反向代理发布到宿主机的端口。
 - `AGENT_COMPOSE_IMAGE`、`AGENT_COMPOSE_FRONTEND_IMAGE`：Docker Compose 服务镜像；前端镜像仅在启用 `with-ui` profile 时使用。
 - `DEFAULT_IMAGE`、`DOCKER_DEFAULT_IMAGE`、`MICROSANDBOX_DEFAULT_IMAGE`：guest 镜像默认值。
 - `RUNTIME_DRIVER`：默认 runtime driver。
-- `OAUTH_*`：OAuth 登录设置。
+- `OAUTH_*`：UI server OAuth 登录设置。
 - `LLM_API_ENDPOINT`、`LLM_API_PROTOCOL`、`LLM_API_KEY`、`OPENAI_API_KEY`、`LLM_MODEL`、`LLM_TIMEOUT`：daemon 侧 OpenAI family LLM 配置，供 `LLMService`、`scheduler.llm` 和 runtime agent LLM facade bootstrap 使用。这些值不会作为 provider key 注入 guest agent runtime。对接 OpenAI 兼容 Chat Completions 后端时设置 `LLM_API_PROTOCOL=chat_completions`。
 - `ANTHROPIC_BASE_URL`、`ANTHROPIC_API_ENDPOINT`、`ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_MODEL`、`CLAUDE_MODEL`：daemon 侧 Anthropic family LLM facade bootstrap 配置。
 - `AGENT_COMPOSE_RUNTIME_BASE_URL`：可选的 runtime 内可访问 daemon base URL，用于生成 Runtime LLM Facade 配置。Docker Compose 默认使用 `http://agent-compose:7410`；宿主机 Docker 场景应配置具体的宿主机 IP/名称和端口。
@@ -186,10 +186,10 @@ LLM_MODEL=your-model
 
 默认配置面向本地开发。公开部署前需要审查并加固：
 
-- 未启用认证时，不要把 daemon 暴露到非 loopback 地址。
-- 启用认证时设置稳定、高熵的 `AUTH_SECRET`。
+- 浏览器入口应通过启用 `with-ui` profile 后的 agent-compose-ui server 暴露。
+- 启用 UI 登录时设置稳定、高熵的 `AUTH_SECRET`。
 - 生产环境建议使用 HTTPS 终止。
-- `HTTP_LISTEN=0.0.0.0:7410` 只应在有认证和网络控制的环境中使用。
+- `HTTP_LISTEN=0.0.0.0:7410` 是 daemon 内部 TCP API；未配置 daemon 侧 `HTTP_BASIC_AUTH` 时只会输出强警告，仍应依赖容器网络、反向代理或其他网络控制避免公网直连。
 - Jupyter 访问应通过 agent-compose proxy，不应直接暴露 guest Jupyter 端口。
 - 对不可信 workload，需要额外审查 runtime driver 的隔离和网络访问行为。
 

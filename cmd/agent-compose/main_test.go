@@ -4273,10 +4273,8 @@ func testDaemonAppBypassesAuthForUnixSocketOnly(t *testing.T) {
 	t.Helper()
 	socketPath := shortUnixSocketPath(t)
 	tcpListen := freeTCPListenAddress(t)
-	t.Setenv("AUTH_PASSWORD", "secret")
-	t.Setenv("AUTH_SECRET", "test-secret")
-	// Both auth layers must honor the local-socket bypass: AuthManager and the
-	// global HTTP_BASIC_AUTH middleware.
+	// The daemon's internal HTTP_BASIC_AUTH middleware must honor the
+	// local-socket bypass while still protecting TCP access.
 	t.Setenv("HTTP_BASIC_AUTH", base64.StdEncoding.EncodeToString([]byte("basic-user:basic-pass")))
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, tcpListen, nil)
 	defer cancel()

@@ -38,7 +38,6 @@ import (
 
 	"agent-compose/pkg/agentcompose/api"
 	agentcomposeapp "agent-compose/pkg/agentcompose/app"
-	"agent-compose/pkg/auth"
 	"agent-compose/pkg/compose"
 	"agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
@@ -161,24 +160,6 @@ func NewDaemonApp(ctx context.Context, opts DaemonOptions) (*DaemonApp, error) {
 func installDaemonMiddleware(app *echo.Echo, conf *config.Config) {
 	app.Use(middleware.RequestLogger())
 	app.Use(middleware.Recover())
-	authManager := auth.NewAuthManager(&auth.Config{
-		AuthUsername:          conf.AuthUsername,
-		AuthPassword:          conf.AuthPassword,
-		AuthSecret:            conf.AuthSecret,
-		AuthSessionTTL:        conf.AuthSessionTTL,
-		OAuthAPIKey:           conf.OAuthAPIKey,
-		OAuthSecret:           conf.OAuthSecret,
-		OAuthScopes:           conf.OAuthScopes,
-		OAuthCallbackURL:      conf.OAuthCallbackURL,
-		OAuthAuthURL:          conf.OAuthAuthURL,
-		OAuthTokenURL:         conf.OAuthTokenURL,
-		OAuthUserInfoURL:      conf.OAuthUserInfoURL,
-		OAuthClientAuthMethod: conf.OAuthClientAuthMethod,
-		Bypass:                isLocalUnixSocketRequest,
-		Skipper:               agentcomposeapp.IsRuntimeLLMFacadeRequest,
-	})
-	authManager.RegisterRoutes(app)
-	app.Use(authManager.Middleware)
 
 	if conf.HTTPBasicAuth != "" {
 		username := conf.HTTPBasicAuth
@@ -188,8 +169,7 @@ func installDaemonMiddleware(app *echo.Echo, conf *config.Config) {
 			password = conf.HTTPBasicAuth[i+1:]
 		}
 		app.Use(middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
-			// Same local-trust rule as AuthManager: CLI requests over the Unix
-			// socket skip basic auth too.
+			// CLI requests over a trusted Unix socket skip daemon HTTP basic auth.
 			Skipper: func(c echo.Context) bool {
 				return isLocalUnixSocketRequest(c.Request()) || agentcomposeapp.IsRuntimeLLMFacadeRequest(c.Request())
 			},

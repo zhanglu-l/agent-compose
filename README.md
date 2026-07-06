@@ -55,7 +55,6 @@ pkg/llms/                      daemon LLM client and runtime facade helpers
 pkg/events/                    event/webhook helpers
 pkg/images/                    daemon image store service helpers
 pkg/driver/                    Docker, BoxLite, and Microsandbox runtime drivers
-pkg/auth/                      authentication middleware and login flows
 pkg/config/                    environment configuration
 pkg/imagecache/                OCI image cache helpers
 proto/                         Connect API definitions and generated Go code
@@ -222,9 +221,11 @@ generated API client from the published
 [`@chaitin-ai/agent-compose-client`](https://www.npmjs.com/package/@chaitin-ai/agent-compose-client)
 package, which is built from this repository's `proto/` via `proto-client/`.
 
-The daemon does not host the Web UI. The frontend repository builds an nginx
-image (`ghcr.io/chaitin/agent-compose-ui`) that serves the built UI and
-reverse-proxies API and Jupyter routes to the daemon. The root
+The daemon does not host the Web UI or browser login flows. The frontend
+repository builds an image (`ghcr.io/chaitin/agent-compose-ui`) that runs nginx
+in front of the agent-compose-ui server: nginx serves the built UI, and the UI
+server handles browser auth/OAuth before proxying API and Jupyter routes to the
+daemon. The root
 `docker-compose.yml` references that published image and is the default
 deployment entrypoint.
 
@@ -263,9 +264,9 @@ Copy `.env.example` to `.env`, edit the values for your environment, then run
 
 Important variables include:
 
-- `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_SECRET`, `AUTH_SESSION_TTL`: password
-  login settings. Replace the example password and secret before exposing a
-  deployment.
+- `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_SECRET`, `AUTH_SESSION_TTL`: UI server
+  password login settings. Replace the example password and secret before
+  exposing a deployment.
 - `AGENT_COMPOSE_HTTP_PORT`: host port for the web UI and reverse proxy when
   the `with-ui` profile is enabled.
 - `AGENT_COMPOSE_IMAGE`, `AGENT_COMPOSE_FRONTEND_IMAGE`: Docker Compose service
@@ -273,7 +274,7 @@ Important variables include:
 - `DEFAULT_IMAGE`, `DOCKER_DEFAULT_IMAGE`, `MICROSANDBOX_DEFAULT_IMAGE`: guest
   image defaults.
 - `RUNTIME_DRIVER`: default runtime driver.
-- `OAUTH_*`: OAuth login settings.
+- `OAUTH_*`: UI server OAuth login settings.
 - `LLM_API_ENDPOINT`, `LLM_API_PROTOCOL`, `LLM_API_KEY`, `OPENAI_API_KEY`,
   `LLM_MODEL`, `LLM_TIMEOUT`: daemon-side OpenAI-family LLM settings for
   `LLMService`, `scheduler.llm`, and runtime agent LLM facade bootstrap. These
@@ -376,13 +377,16 @@ With `outputSchema`, `chat_completions` uses prompt guidance and
 ## Security Notes
 
 The default configuration is designed for local development. Review and harden
-settings before exposing the daemon to a network.
+settings before exposing the deployment to a network.
 
-- Do not expose an unauthenticated daemon on a non-loopback address.
-- Set a stable, high-entropy `AUTH_SECRET` when enabling authentication.
+- Expose browser access through the agent-compose-ui server, not directly
+  through the daemon.
+- Set a stable, high-entropy `AUTH_SECRET` when enabling UI server
+  authentication.
 - Use HTTPS termination in production deployments.
-- `HTTP_LISTEN=0.0.0.0:7410` is only appropriate behind authentication and
-  network controls.
+- `HTTP_LISTEN=0.0.0.0:7410` is an internal daemon API. Without daemon-side
+  `HTTP_BASIC_AUTH`, startup emits a warning but still proceeds; keep it behind
+  container networking, reverse proxies, VPNs, or equivalent controls.
 - Jupyter runs inside guest runtimes and is expected to be reached through the
   agent-compose proxy. Do not expose guest Jupyter ports directly.
 - Runtime drivers may allow network access from guest workloads. Check driver
