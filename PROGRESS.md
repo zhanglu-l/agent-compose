@@ -499,7 +499,7 @@
       - npm audit vulnerabilities 属于现有依赖审计风险；本任务未升级依赖，后续完整门禁/依赖治理可单独处理。
     - 下一目标：5.2 更新 runtime contract 和 CLI 文档。
 
-- [ ] 5.2 更新 runtime contract、CLI manual 和相关文档
+- [x] 5.2 更新 runtime contract、CLI manual 和相关文档
   - 依赖：5.1。
   - 工作内容：
     - 修正 `docs/design/agent-compose-runtime_contract.md` 中 command 输出“都镜像到 wrapper stderr”的过期描述。
@@ -507,9 +507,9 @@
     - 若 `README.md` 或 `docs/command-line-manual.md` 提到 v2 bool stream 或 command transcript 旧语义，按新语义同步。
     - 保持首版不做事项明确：不新增 typed payload event、不改 CLI 参数、不迁移 v1。
   - 可并行子任务：
-    - [ ] 可并行：审计 runtime contract 中 stdout/stderr/payload 相关段落。
-    - [ ] 可并行：审计 CLI manual 的 `run --command`、`exec`、`--json` 描述。
-    - [ ] 可并行：审计 README 中 proto-client 和 command transcript 相关描述。
+    - [x] 可并行：审计 runtime contract 中 stdout/stderr/payload 相关段落。
+    - [x] 可并行：审计 CLI manual 的 `run --command`、`exec`、`--json` 描述。
+    - [x] 可并行：审计 README 中 proto-client 和 command transcript 相关描述。
   - 测试方案：
     - `task docs` 当前为 placeholder，可运行但不作为强门禁。
     - `rg -n "wrapper stderr|streaming output has no dedicated protocol payload filter|is_stderr|isStderr" docs README.md`
@@ -518,10 +518,22 @@
     - 文档不再声称 command 用户 stdout/stderr 必须统一写 stderr。
     - 文档明确 payload 由 marker 判定，不由 stdout/stderr stream 判定。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `docs/design/agent-compose-runtime_contract.md` 修正 command runtime 行为：用户 stdout 镜像到 runtime stdout，用户 stderr 镜像到 runtime stderr，最终 `__COMMAND_RESULT__...` payload 在子进程退出后写 stdout。
+      - `docs/zh-CN/design/agent-compose-runtime_contract.md` 同步中文 runtime contract 语义。
+      - `docs/design/agent-compose-runtime_contract.md` 和中文镜像补充 host streaming marker filter：agent stream 使用 `FilterAgentStreamChunk`，command/exec/run/loader command stream 使用 `FilterCommandStreamChunk`，协议 payload 不进入 transcript/log/cell/CLI text output。
+      - `docs/command-line-manual.md` 更新 `run --command` 与 `exec` 描述：文本模式按 stdout/stderr 本机通道输出，先经过 host marker filtering；`--json` 继续 suppress streaming transcript。
+      - `docs/zh-CN/design/agent-compose-cli-improvement-plan.md` 从旧 `chunk/is_stderr` 表述改为 v2 `chunk`、`stream`、`TranscriptEvent.stream`，并记录 marker filter 进入 CLI/log/cell 前生效。
+      - `docs/spec/output-protocol-contract-spec.md` 和 `docs/plan/output-protocol-contract-implementation-plan.md` 删除过期的“wrapper stderr”措辞，改为当前 stdout/stderr 原始通道语义。
+    - 验证：
+      - `task docs`：通过，当前输出为 `docs not configured`，仍按本任务 placeholder 文档门禁记录。
+      - `rg -n "wrapper stderr|streaming output has no dedicated protocol payload filter|is_stderr|isStderr" docs README.md`：仅剩 spec/plan 中 v2 迁移说明、v1 历史 `is_stderr` 例外和 `agent-compose-ui` 外部迁移提示。
+      - `rg -n "chunk/is_stderr|TranscriptEvent\\.Kind|GetIsStderr|runtime sends the final payload|stdout/stderr.*stderr|stdout is reserved|streaming output has no dedicated protocol payload filter|wrapper stderr" docs README.md docs/spec/output-protocol-contract-spec.md docs/plan/output-protocol-contract-implementation-plan.md`：无 stale runtime contract/CLI wording；剩余命中为 spec/plan 历史背景、迁移步骤、审计命令文本，以及合法的“child stdout/stderr 分别镜像到 runtime stdout/stderr”描述。
+    - 审计与例外：
+      - README 范围无需要同步的 command transcript 或 proto-client 旧语义修改。
+      - 规格和实施计划保留首版边界：不新增 typed payload event、不改 CLI 参数、不迁移 `proto/agentcompose/v1`。
+      - 本任务只更新文档；无 runtime behavior、生成代码、CLI JSON schema 或 npm 产物变更。
     - 下一目标：6.1 全仓旧字段和 marker 审计。
 
 ## 6. 阶段六：全仓清理、兼容审计和质量门禁

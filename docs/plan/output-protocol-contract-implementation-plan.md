@@ -218,7 +218,7 @@
 4. 修正 `docs/design/agent-compose-runtime_contract.md`：
    - command 部分描述为保留用户 stdout/stderr 原始通道。
    - host 通过 marker stripping 保护 transcript。
-   - 删除或改写“用户可见输出都镜像到 wrapper stderr”这类与当前实现不一致的描述。
+   - 删除或改写与当前实现不一致的旧 command 输出描述。
    - 明确 streaming payload filter 已集中在 host helper，不再是缺口。
 5. 如 README 或 `docs/command-line-manual.md` 中提到 v2 stream bool 或 command transcript 行为，按新语义同步。
 
@@ -304,4 +304,3 @@
 - 不迁移 `proto/agentcompose/v1` 的历史 `is_stderr` 字段。
 - 不在 driver 层识别 `__AGENT_RESULT__` 或 `__COMMAND_RESULT__`。
 - 不修改 `docker-compose.yml`、`.env.example` 或部署默认值，除非后续实现发现需要新增部署配置；当前 spec 不需要。
-

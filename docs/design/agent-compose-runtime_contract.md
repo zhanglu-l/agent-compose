@@ -253,10 +253,12 @@ Runtime behavior:
 - `mode=exec` uses `spawn(command, args, { shell: false })`.
 - `mode=shell` uses `spawn("bash", ["-lc", script])`.
 - stdout/stderr are captured separately and merged into output.
-- User command stdout/stderr are mirrored in real time to
-  `agent-compose-runtime exec` stderr for host streaming display.
-  `agent-compose-runtime exec` stdout is reserved for the final command result
-  protocol payload.
+- User command stdout is mirrored in real time to `agent-compose-runtime exec`
+  stdout; user command stderr is mirrored in real time to
+  `agent-compose-runtime exec` stderr. The host preserves these stdio streams
+  when forwarding command transcript chunks.
+- After the child process exits, `agent-compose-runtime exec` writes one final
+  `__COMMAND_RESULT__...` protocol payload line to stdout.
 - By default, each returned stream is capped at `1 MiB`; full
   stdout/stderr/output are written as artifacts.
 
@@ -401,9 +403,11 @@ runtime.ExecStream
 After parsing succeeds, the host strips `__AGENT_RESULT__...` from `Stdout` and
 `Output` so the protocol payload does not appear in final cell artifacts.
 
-Important note: streaming output has no dedicated protocol payload filter. If
-the runtime sends the final payload on stdout, streaming clients may briefly see
-that protocol line. Final persisted results are sanitized.
+Streaming transcript paths also use host-side marker filters. Agent streams use
+`FilterAgentStreamChunk`; command, exec, run, and loader command streams use
+`FilterCommandStreamChunk`. These helpers strip `__AGENT_RESULT__...` and
+`__COMMAND_RESULT__...` protocol payloads before writing human transcript,
+run logs, notebook cell output, or CLI text output.
 
 Loader command host parsing flow:
 

@@ -217,7 +217,8 @@ runtime 行为：
 - `mode=exec` 使用 `spawn(command, args, { shell: false })`。
 - `mode=shell` 使用 `spawn("bash", ["-lc", script])`。
 - stdout/stderr 分流采集，并合并到 output。
-- 用户命令 stdout/stderr 会实时镜像到 `agent-compose-runtime exec` 的 stderr，供 host 流式展示；`agent-compose-runtime exec` 的 stdout 只用于最终 command result 协议 payload。
+- 用户命令 stdout 会实时镜像到 `agent-compose-runtime exec` 的 stdout，用户命令 stderr 会实时镜像到 `agent-compose-runtime exec` 的 stderr。host 转发 command transcript chunk 时保留这些 stdio stream。
+- 子进程退出后，`agent-compose-runtime exec` 会在 stdout 写入一行最终 `__COMMAND_RESULT__...` 协议 payload。
 - 默认每个 stream 返回最多 `1 MiB`；完整 stdout/stderr/output 写入 artifact。
 
 ## 5. 环境变量约定
@@ -347,7 +348,7 @@ runtime.ExecStream
 
 解析成功后，host 会把 `__AGENT_RESULT__...` 从 `Stdout` 和 `Output` 中剥离，避免协议 payload 出现在最终 cell artifact 中。
 
-需要注意：流式输出阶段没有专门过滤协议 payload；如果 runtime 在 stdout 中发送最终 payload，流式客户端可能短暂收到这行协议文本。最终持久化结果会被 sanitize。
+流式 transcript 路径也使用 host 侧 marker filter。agent stream 使用 `FilterAgentStreamChunk`；command、exec、run 和 loader command stream 使用 `FilterCommandStreamChunk`。这些 helper 会在写入人类可读 transcript、run log、notebook cell output 或 CLI text output 前剥离 `__AGENT_RESULT__...` 和 `__COMMAND_RESULT__...` 协议 payload。
 
 loader command 的 host 解析流程：
 

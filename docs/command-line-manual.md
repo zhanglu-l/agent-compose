@@ -148,7 +148,7 @@ Input modes:
 | --- | --- | --- |
 | trigger | `run <agent> --trigger <trigger>` | Run a trigger defined in the project config. |
 | prompt | `run <agent> --prompt "..."` | Send a prompt to the agent provider. |
-| command | `run <agent> --command "..."` | Start or reuse the agent sandbox and execute a shell command through guest `agent-compose-runtime exec`; the command transcript is streamed and persisted to the run record. |
+| command | `run <agent> --command "..."` | Start or reuse the agent sandbox and execute a shell command through guest `agent-compose-runtime exec`; stdout/stderr transcript is streamed and persisted to the run record without protocol payload markers. |
 | prompt REPL | `run <agent> -i --prompt` | Read prompts line by line from stdin. Each non-empty input creates one run and reuses the same sandbox. |
 | command REPL | `run <agent> -i --command` | Read commands line by line from stdin. Each non-empty input creates one run and reuses the same sandbox. |
 | sandbox reuse | `run <agent> --sandbox <sandbox> --prompt "..."` | Continue in a specific sandbox. |
@@ -329,7 +329,7 @@ agent-compose exec sandbox_123 --command "git status --short"
 agent-compose exec sandbox_123 --cwd /workspace --command "pwd"
 ```
 
-`exec` and `run --command` use the same guest `agent-compose-runtime exec` command transcript. Text mode streams the transcript; `--json` suppresses streaming transcript output and prints only the final result. `exec` does not create a `ProjectRun`; use `run --command` when run audit, `logs`, or run artifacts are required.
+`exec` and `run --command` use the same guest `agent-compose-runtime exec` command transcript. Text mode streams stdout to local stdout and stderr to local stderr after host-side marker filtering; `--json` suppresses streaming transcript output and prints only the final result. `exec` does not create a `ProjectRun`; use `run --command` when run audit, `logs`, or run artifacts are required.
 
 ## `logs`: Show Logs
 

@@ -35,7 +35,7 @@
 - `pkg/agentcompose/api/exec.go` 和 `pkg/runs/controller.go` 当前 command/exec 路径使用 `StripCommandResultPayload` 过滤 `__COMMAND_RESULT__`，并保留 stdout/stderr 原始通道。
 - `pkg/agentcompose/adapters/loader_command_executor.go` 当前未对 streaming chunk 剥离 `__COMMAND_RESULT__`，最终 cell 会被解析结果覆盖，但 streaming/interim cell output 可能短暂暴露 payload。
 - `runtime/javascript/src/transcript.ts` 的 agent transcript writer 当前写 stderr。
-- `runtime/javascript/src/command.ts` 当前对 command 子进程 stdout 写 runtime stdout、stderr 写 runtime stderr，并把 stdout/stderr/output 分别写 artifact；这与 `docs/design/agent-compose-runtime_contract.md` 中“用户命令 stdout/stderr 都镜像到 wrapper stderr”的描述不一致。
+- `runtime/javascript/src/command.ts` 当前对 command 子进程 stdout 写 runtime stdout、stderr 写 runtime stderr，并把 stdout/stderr/output 分别写 artifact；这与 `docs/design/agent-compose-runtime_contract.md` 旧版 command 输出描述不一致。
 - `docs/command-line-manual.md` 明确 `run --command` 和 `exec` 使用同一套 command transcript；文本模式实时输出 transcript，`--json` suppress transcript 并只输出最终 result。
 
 ## 核心概念或领域模型
@@ -292,4 +292,4 @@ task test
 - `run --command` 和 `exec` 必须保留用户 stdout/stderr 的原始通道语义。
 - `run --prompt` 可以继续采用“human transcript 写 stderr、final payload 写 stdout”的 guest runtime 约定，但 host 必须用 marker helper 和测试固化该约定。
 - 当前 reviewer 指出的“stdout chunk 静默过滤”风险在 agent prompt path 已存在；如果待合并变更把同类 guard 加到 command/exec path，应拒绝该实现并改为 marker-based filtering。
-- 文档以当前代码为准修正：command 用户输出不是必须统一镜像到 wrapper stderr。
+- 文档以当前代码为准修正：command 用户输出应保留 stdout/stderr 原始通道语义。
