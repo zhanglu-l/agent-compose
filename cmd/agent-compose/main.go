@@ -269,11 +269,6 @@ func isTrustedUnixSocketConn(conn net.Conn) bool {
 	return uid == os.Getuid() || uid == 0
 }
 
-func isLocalUnixSocketRequest(r *http.Request) bool {
-	ok, _ := r.Context().Value(localUnixSocketRequestKey{}).(bool)
-	return ok
-}
-
 func (s *daemonServers) serve(logger *slog.Logger) <-chan error {
 	errCh := make(chan error, len(s.items))
 	for _, item := range s.items {
