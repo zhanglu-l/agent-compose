@@ -5032,6 +5032,16 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 		}
 	}
 
+	aliasOut, aliasErr, _, aliasCode := executeCLICommand("list", "--host", server.URL)
+	if aliasCode != 0 || aliasErr != "" {
+		t.Fatalf("list alias code/stderr = %d / %q", aliasCode, aliasErr)
+	}
+	for _, want := range []string{"PROJECT", "reviewer", "builder"} {
+		if !strings.Contains(aliasOut, want) {
+			t.Fatalf("list alias output %q does not contain %q", aliasOut, want)
+		}
+	}
+
 	verboseOut, verboseErr, _, verboseCode := executeCLICommand("ls", "--host", server.URL, "--verbose")
 	if verboseCode != 0 || verboseErr != "" {
 		t.Fatalf("ls --verbose code/stderr = %d / %q", verboseCode, verboseErr)
@@ -5056,8 +5066,8 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 	if decoded.Projects[0].Name != "reviewer" || decoded.Projects[0].AgentCount != 2 || decoded.Projects[0].SchedulerCount != 1 || decoded.Projects[0].ServiceCount != nil {
 		t.Fatalf("ls first project JSON = %#v", decoded.Projects[0])
 	}
-	if requests != 6 {
-		t.Fatalf("ListProjects requests = %d, want 6", requests)
+	if requests != 8 {
+		t.Fatalf("ListProjects requests = %d, want 8", requests)
 	}
 }
 

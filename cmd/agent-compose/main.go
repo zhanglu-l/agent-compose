@@ -449,9 +449,10 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 
 	listOptions := composeListProjectsOptions{}
 	listCmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List daemon projects",
-		Args:  cobra.NoArgs,
+		Use:     "ls",
+		Aliases: []string{"list"},
+		Short:   "List daemon projects",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runComposeListProjectsCommand(cmd, options, listOptions)
 		},
