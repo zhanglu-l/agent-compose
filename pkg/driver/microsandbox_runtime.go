@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -377,13 +378,78 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 
 func (r *microsandboxRuntime) resolveLibkrunfwPath() string {
 	libDir := filepath.Dir(r.config.MicrosandboxLibPath)
-	for _, name := range []string{"libkrunfw.so.5.2.1", "libkrunfw.so.5", "libkrunfw.so"} {
+	matches, _ := filepath.Glob(filepath.Join(libDir, "libkrunfw.so.*"))
+	var selected string
+	var selectedVersion []int
+	for _, match := range matches {
+		info, err := os.Lstat(match)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		version, ok := parseLibkrunfwVersion(filepath.Base(match))
+		if !ok {
+			continue
+		}
+		if selected == "" || compareIntVersions(version, selectedVersion) > 0 {
+			selected = match
+			selectedVersion = version
+		}
+	}
+	if selected != "" {
+		return selected
+	}
+	for _, name := range []string{"libkrunfw.so.5", "libkrunfw.so"} {
 		path := filepath.Join(libDir, name)
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
 	}
 	return ""
+}
+
+func parseLibkrunfwVersion(name string) ([]int, bool) {
+	const prefix = "libkrunfw.so."
+	versionText, ok := strings.CutPrefix(name, prefix)
+	if !ok || versionText == "" {
+		return nil, false
+	}
+	parts := strings.Split(versionText, ".")
+	version := make([]int, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			return nil, false
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, false
+		}
+		version = append(version, value)
+	}
+	return version, true
+}
+
+func compareIntVersions(left []int, right []int) int {
+	maxLen := len(left)
+	if len(right) > maxLen {
+		maxLen = len(right)
+	}
+	for i := 0; i < maxLen; i++ {
+		var leftValue int
+		if i < len(left) {
+			leftValue = left[i]
+		}
+		var rightValue int
+		if i < len(right) {
+			rightValue = right[i]
+		}
+		if leftValue > rightValue {
+			return 1
+		}
+		if leftValue < rightValue {
+			return -1
+		}
+	}
+	return 0
 }
 
 func (r *microsandboxRuntime) installMicrosandboxRuntime(msbPath string, libkrunfwPath string) error {

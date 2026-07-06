@@ -982,7 +982,16 @@ func (r *cgoBoxRuntime) buildBoxOptions(ctx context.Context, session *Session, v
 	}
 
 	if jupyterEnabled(proxyState) && proxyState.HostPort > 0 {
-		C.boxlite_options_add_port(options, C.int(proxyState.GuestPort), C.int(proxyState.HostPort))
+		code := C.boxlite_options_add_port(
+			options,
+			C.uint16_t(proxyState.HostPort),
+			C.uint16_t(proxyState.GuestPort),
+			C.BoxlitePortProtocolTcp,
+			nil,
+		)
+		if err := boxliteStatusError(code, nil, "add jupyter port forwarding"); err != nil {
+			return nil, err
+		}
 	}
 
 	entrypoint, entrypointLen, freeEntrypoint := cStringArray([]string{"sh", "-lc"})

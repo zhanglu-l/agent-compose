@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 OUT_DIR=${1:-"$ROOT_DIR/build/boxlite"}
 TMP_DIR=${BOXLITE_WORKDIR:-${AGENT_COMPOSE_BOXLITE_WORKDIR:-"$ROOT_DIR/build/.agent-compose-boxlite-src"}}
-BOXLITE_VERSION=${BOXLITE_VERSION:-v0.8.2}
+BOXLITE_VERSION=${BOXLITE_VERSION:-v0.9.7}
 GO_TOOLCHAIN_ENV="$ROOT_DIR/scripts/with-go-toolchain.sh"
 HOST_GOROOT=${HOST_GOROOT:-$("$GO_TOOLCHAIN_ENV" go env GOROOT)}
 HOST_GOPROXY=${HOST_GOPROXY:-$("$GO_TOOLCHAIN_ENV" go env GOPROXY 2>/dev/null || echo 'https://goproxy.cn,direct')}

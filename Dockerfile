@@ -4,7 +4,7 @@ ARG GOPROXY=https://goproxy.cn,direct
 FROM ${REGISTRY_MIRROR}/library/golang:1-alpine AS golang-toolchain
 
 FROM ${REGISTRY_MIRROR}/library/debian:bookworm AS boxlite-build
-ARG BOXLITE_VERSION=v0.9.5
+ARG BOXLITE_VERSION=v0.9.7
 ARG TARGETARCH
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -26,7 +26,7 @@ RUN set -e;     target_arch="${TARGETARCH:-$(dpkg --print-architecture)}";     c
 # published checksums. This keeps the FFI lib in lockstep with the
 # microsandbox/sdk/go module pinned in go.mod.
 FROM ${REGISTRY_MIRROR}/library/debian:bookworm AS microsandbox-fetch
-ARG MICROSANDBOX_VERSION=v0.5.8
+ARG MICROSANDBOX_VERSION=v0.6.4
 ARG TARGETARCH
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -39,7 +39,7 @@ ENV NO_PROXY=${NO_PROXY}
 ENV no_proxy=${NO_PROXY}
 RUN if [ -f /etc/apt/sources.list ]; then       sed -i -e 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list &&       sed -i -e 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list;     fi &&     if [ -f /etc/apt/sources.list.d/debian.sources ]; then       sed -i -e 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources &&       sed -i -e 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources;     fi
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl binutils tar &&     rm -rf /var/lib/apt/lists/*
-RUN set -e;     target_arch="${TARGETARCH:-$(dpkg --print-architecture)}";     case "${target_arch}" in       amd64) MICROSANDBOX_ARCH=x86_64 ;;       arm64) MICROSANDBOX_ARCH=aarch64 ;;       *) echo "unsupported Microsandbox target arch: ${target_arch}" >&2; exit 1 ;;     esac;     base="https://github.com/superradcompany/microsandbox/releases/download/${MICROSANDBOX_VERSION}";     mkdir -p /tmp/microsandbox/extract /out/bin /out/lib;     cd /tmp/microsandbox;     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/microsandbox-linux-${MICROSANDBOX_ARCH}.tar.gz";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/agentd-${MICROSANDBOX_ARCH}";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/libmicrosandbox_go_ffi-linux-${target_arch}.so";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/checksums.sha256";     sha256sum -c --ignore-missing checksums.sha256;     tar -xzf "microsandbox-linux-${MICROSANDBOX_ARCH}.tar.gz" -C /tmp/microsandbox/extract;     install -m755 /tmp/microsandbox/extract/msb /out/bin/msb;     install -m755 "agentd-${MICROSANDBOX_ARCH}" /out/bin/agentd;     install -m644 /tmp/microsandbox/extract/libkrunfw.so.5.2.1 /out/lib/libkrunfw.so.5.2.1;     ln -sf libkrunfw.so.5.2.1 /out/lib/libkrunfw.so.5;     ln -sf libkrunfw.so.5 /out/lib/libkrunfw.so;     install -m644 "libmicrosandbox_go_ffi-linux-${target_arch}.so" /out/lib/libmicrosandbox_go_ffi.so;     strip --strip-unneeded /out/lib/libmicrosandbox_go_ffi.so 2>/dev/null || true
+RUN set -e;     target_arch="${TARGETARCH:-$(dpkg --print-architecture)}";     case "${target_arch}" in       amd64) MICROSANDBOX_ARCH=x86_64 ;;       arm64) MICROSANDBOX_ARCH=aarch64 ;;       *) echo "unsupported Microsandbox target arch: ${target_arch}" >&2; exit 1 ;;     esac;     base="https://github.com/superradcompany/microsandbox/releases/download/${MICROSANDBOX_VERSION}";     mkdir -p /tmp/microsandbox/extract /out/bin /out/lib;     cd /tmp/microsandbox;     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/microsandbox-linux-${MICROSANDBOX_ARCH}.tar.gz";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/agentd-${MICROSANDBOX_ARCH}";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/libmicrosandbox_go_ffi-linux-${target_arch}.so";     curl --http1.1 --retry 5 --retry-all-errors --retry-delay 2 -fsSL -O "${base}/checksums.sha256";     sha256sum -c --ignore-missing checksums.sha256;     tar -xzf "microsandbox-linux-${MICROSANDBOX_ARCH}.tar.gz" -C /tmp/microsandbox/extract;     install -m755 /tmp/microsandbox/extract/msb /out/bin/msb;     install -m755 "agentd-${MICROSANDBOX_ARCH}" /out/bin/agentd;     krunfw="$(find /tmp/microsandbox/extract -maxdepth 1 -type f -name 'libkrunfw.so.*' | sort | tail -n 1)";     test -n "${krunfw}";     krunfw_name="$(basename "${krunfw}")";     install -m644 "${krunfw}" "/out/lib/${krunfw_name}";     ln -sf "${krunfw_name}" /out/lib/libkrunfw.so.5;     ln -sf libkrunfw.so.5 /out/lib/libkrunfw.so;     install -m644 "libmicrosandbox_go_ffi-linux-${target_arch}.so" /out/lib/libmicrosandbox_go_ffi.so;     strip --strip-unneeded /out/lib/libmicrosandbox_go_ffi.so 2>/dev/null || true
 
 FROM ${REGISTRY_MIRROR}/library/debian:bookworm AS go-build
 ARG VERSION=0

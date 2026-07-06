@@ -16,14 +16,12 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/labstack/echo/v4 v4.15.1
 	github.com/lmittmann/tint v1.1.3
-	github.com/moby/docker-image-spec v1.3.1
-	github.com/opencontainers/image-spec v1.1.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/do/v2 v2.0.0
 	github.com/samber/mo v1.16.0
 	github.com/samber/oops v1.21.0
 	github.com/spf13/cobra v1.10.1
-	github.com/superradcompany/microsandbox/sdk/go v0.5.8
+	github.com/superradcompany/microsandbox/sdk/go v0.6.4
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.45.0
@@ -52,6 +50,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/sequential v0.6.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
@@ -60,6 +59,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/samber/go-type-to-string v1.8.0 // indirect
