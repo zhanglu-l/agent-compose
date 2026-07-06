@@ -1,13 +1,17 @@
 package images
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	buildtypes "github.com/docker/docker/api/types/build"
 	typesimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 
@@ -125,6 +129,90 @@ func TestE2EImageBackendAndMappingCoverageWorkflows(t *testing.T) {
 	TestImageBackendAndMappingCoverageWorkflows(t)
 }
 
+func TestDockerBuildContextPreservesSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatalf("write Dockerfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "target.txt"), []byte("target\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	entries := readTarBuildContext(t, dir, "Dockerfile", nil)
+	link := entries["link.txt"]
+	if link == nil {
+		t.Fatalf("link.txt not found in build context: %#v", entries)
+	}
+	if link.Typeflag != tar.TypeSymlink || link.Linkname != "target.txt" {
+		t.Fatalf("link header type/link = %v/%q", link.Typeflag, link.Linkname)
+	}
+}
+
+func TestDockerBuildContextExcludesDockerignoreDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatalf("write Dockerfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".dockerignore"), []byte("node_modules/\n"), 0o600); err != nil {
+		t.Fatalf("write .dockerignore: %v", err)
+	}
+	nodeModules := filepath.Join(dir, "node_modules")
+	if err := os.Mkdir(nodeModules, 0o700); err != nil {
+		t.Fatalf("create node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeModules, "secret.txt"), []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.txt"), []byte("app\n"), 0o600); err != nil {
+		t.Fatalf("write app file: %v", err)
+	}
+
+	reader, err := dockerBuildContext(dir, "Dockerfile")
+	if err != nil {
+		t.Fatalf("dockerBuildContext: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	entries := readTarEntries(t, reader)
+	if entries["node_modules"] != nil || entries["node_modules/secret.txt"] != nil {
+		t.Fatalf("node_modules should be excluded, entries=%#v", entries)
+	}
+	if entries["app.txt"] == nil || entries["Dockerfile"] == nil || entries[".dockerignore"] == nil {
+		t.Fatalf("expected app, Dockerfile, and .dockerignore entries, got %#v", entries)
+	}
+}
+
+func readTarBuildContext(t *testing.T, contextDir, dockerfile string, excludes []string) map[string]*tar.Header {
+	t.Helper()
+	reader, err := tarBuildContext(contextDir, dockerfile, excludes)
+	if err != nil {
+		t.Fatalf("tarBuildContext: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+	return readTarEntries(t, reader)
+}
+
+func readTarEntries(t *testing.T, reader io.Reader) map[string]*tar.Header {
+	t.Helper()
+	tarReader := tar.NewReader(reader)
+	entries := map[string]*tar.Header{}
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		copied := *header
+		entries[header.Name] = &copied
+	}
+	return entries
+}
+
 type fakeImageBackend struct {
 	name string
 }
@@ -153,6 +241,10 @@ func (fakeDockerClient) ImageList(context.Context, typesimage.ListOptions) ([]ty
 
 func (fakeDockerClient) ImagePull(context.Context, string, typesimage.PullOptions) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(`{"id":"layer","status":"done"}` + "\n")), nil
+}
+
+func (fakeDockerClient) ImageBuild(context.Context, io.Reader, buildtypes.ImageBuildOptions) (buildtypes.ImageBuildResponse, error) {
+	return buildtypes.ImageBuildResponse{Body: io.NopCloser(strings.NewReader(`{"stream":"build done"}` + "\n"))}, nil
 }
 
 func (fakeDockerClient) ImageInspect(context.Context, string, ...client.ImageInspectOption) (typesimage.InspectResponse, error) {
