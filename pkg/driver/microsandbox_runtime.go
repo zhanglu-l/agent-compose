@@ -372,7 +372,6 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 	if err := r.writeMicrosandboxConfig(libkrunfwPath); err != nil {
 		return err
 	}
-	r.gcDockerDisks()
 	return nil
 }
 
@@ -636,32 +635,6 @@ func (r *microsandboxRuntime) ensureDockerDisk(sessionID string) (string, error)
 	return path, nil
 }
 
-func (r *microsandboxRuntime) gcDockerDisks() {
-	disksDir := filepath.Join(r.config.MicrosandboxHome, "docker-disks")
-	entries, err := os.ReadDir(disksDir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("agent-compose microsandbox gc docker-disks: cannot read directory", "dir", disksDir, "error", err)
-		}
-		return
-	}
-	removed := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".raw") {
-			continue
-		}
-		p := filepath.Join(disksDir, entry.Name())
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			slog.Warn("agent-compose microsandbox gc docker-disks: failed to remove stale disk", "path", p, "error", err)
-			continue
-		}
-		removed++
-	}
-	if removed > 0 {
-		slog.Info("agent-compose microsandbox gc docker-disks: removed stale disk images on startup", "count", removed)
-	}
-}
-
 func (r *microsandboxRuntime) removeDockerDisk(sessionID string) {
 	path := r.dockerDiskPath(sessionID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -859,8 +832,8 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	}
 	// If the sandbox never comes up, remove the disk we just provisioned:
 	// StopSession is not guaranteed to run for a session that never started,
-	// so without this the .raw would linger until the next daemon restart
-	// (gcDockerDisks). On success the flag below disarms the cleanup.
+	// so without this the .raw would linger until explicit cache prune. On
+	// success the flag below disarms the cleanup.
 	sandboxCreated := false
 	defer func() {
 		if !sandboxCreated {

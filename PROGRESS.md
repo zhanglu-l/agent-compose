@@ -259,19 +259,33 @@
       - 真实 BoxLite smoke 为 opt-in，本任务未运行；补跑命令：`SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke`。
     - 下一目标：4.3 Microsandbox session-ephemeral adapter。
 
-- [ ] 4.3 实现 Microsandbox session-ephemeral inventory 和移除 startup sweep
+- [x] 4.3 实现 Microsandbox session-ephemeral inventory 和移除 startup sweep
   - 依赖：3.2。
   - 工作内容：识别 `MICROSANDBOX_HOME/docker-disks/*.raw`、`MICROSANDBOX_HOME/sandboxes/*`；从 `prepareEnvironment()` 移除 `gcDockerDisks()`；保留 `createSandbox` 失败 rollback 和 `StopSession` 当前 session 清理。
   - 可并行子任务：
-    - [ ] 可并行：构造 Microsandbox home fixture，覆盖 running/stopped/orphaned/unknown。
-    - [ ] 可并行：补充 session 创建失败和 StopSession cleanup 回归测试。
+    - [x] 可并行：构造 Microsandbox home fixture，覆盖 running/stopped/orphaned/unknown。
+    - [x] 可并行：补充 session 创建失败和 StopSession cleanup 回归测试。
   - 测试方案：`go test ./pkg/driver` 和相关 `pkg/runtimecache` tests，覆盖 prepareEnvironment 不删除已有 `.raw`、创建失败只删除当前 disk、StopSession 删除当前 disk、orphaned disk 可显式 prune。
   - 验收标准：Microsandbox startup 不再全量删除其他 session `.raw`；显式 prune 才清理 orphaned/stopped state。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 从 `pkg/driver/microsandbox_runtime.go` 的 `prepareEnvironment()` 移除 startup `docker-disks/*.raw` sweep，并删除 `gcDockerDisks()`。
+      - 保留 `createSandbox` 失败 rollback 的 `removeDockerDisk(sessionID)`，并保留 `StopSession` 对当前 session disk 和 stopped/stale sandbox state 的 best-effort cleanup。
+      - 新增 `pkg/driver/microsandbox_cache.go`，扫描 `MICROSANDBOX_HOME/docker-disks/*.raw` 和 `MICROSANDBOX_HOME/sandboxes/*`，生成 `session-ephemeral-state` / `microsandbox` items。
+      - 支持 active、referenced、orphaned、unknown reference state；active/unknown 不可删，referenced 需 `include_referenced`，orphaned 可 dry-run/force prune。
+      - 新增 Microsandbox session cache remover，校验 domain/driver/kind/cache_id，持有 `MICROSANDBOX_HOME/.agent-compose-session-cache.lock`，并通过 `runtimecache.ValidateCachePath` 限制删除目标位于 `docker-disks` 或 `sandboxes` root 下。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/runtimecache`
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/driver`
+      - `./scripts/with-go-toolchain.sh go test -count=1 -tags boxlitecgo ./pkg/driver`
+      - `git diff --check`
+      - `rg -n "gcDockerDisks|removed stale disk images on startup|prepareEnvironment\\(\\).*docker-disks" pkg/driver docs PROGRESS.md`
+    - 审计与例外：
+      - 覆盖 `prepareEnvironment()` 保留既有 `.raw`、非 `.raw` 文件和子目录；`removeDockerDisk` 只删除当前 session disk；inventory 扫描 active/referenced/orphaned；dry-run 不删除；force 删除 orphaned；referenced 默认跳过且 `include_referenced` 后删除；unknown 和 symlink escape 均不可删。
+      - grep 中 `gcDockerDisks` 只剩 spec/plan/progress 描述，不再存在于 `pkg/driver` 代码。
+      - 显式 prune 当前删除 inventory state path；后续 API/app 集成可在 controller 层继续组合 SDK-level `microsandbox.RemoveSandbox`。
+      - 真实 Microsandbox smoke 为 opt-in，本任务未运行；补跑命令：`SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke`。
     - 下一目标：5.1 API handler。
 
 ## 阶段 5：daemon CacheService 和 route 注册
