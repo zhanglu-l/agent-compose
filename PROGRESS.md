@@ -512,13 +512,13 @@
       - 真实 BoxLite/Microsandbox smoke 为 opt-in，本任务未运行；补跑命令：`SMOKE_RUNTIME_DRIVERS=all task test:runtime-smoke`。
     - 下一目标：8.2 全量门禁和 smoke。
 
-- [ ] 8.2 运行全量质量门禁和 runtime smoke
+- [x] 8.2 运行全量质量门禁和 runtime smoke
   - 依赖：8.1。
   - 工作内容：检查所有生成物已提交；运行局部和全量质量门禁；具备依赖时运行 BoxLite/Microsandbox runtime smoke。
   - 可并行子任务：
-    - [ ] 可并行：执行 proto-client 生成和 build 验证。
-    - [ ] 可并行：执行 Go focused test 和 full task gates。
-    - [ ] 可并行：在具备 runtime 依赖环境执行 smoke。
+    - [x] 可并行：执行 proto-client 生成和 build 验证。
+    - [x] 可并行：执行 Go focused test 和 full task gates。
+    - [x] 可并行：在具备 runtime 依赖环境执行 smoke。
   - 测试方案：
     - `go test ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runtimecache ./pkg/driver ./pkg/imagecache`
     - `cd proto-client && npm ci && npm run gen && npm run build`
@@ -529,10 +529,29 @@
     - `SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke`
   - 验收标准：`task lint`、`task build`、`task test` 通过；coverage 满足 `TESTING.md` baseline；无法运行的 smoke 有明确原因和补跑命令。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 未改动功能代码；本任务完成最终生成物、质量门禁、coverage、runtime smoke 尝试和 CI 收口准备。
+      - `proto-client` 生成物审计确认 `proto-client/src/`、`proto-client/dist/` 和 `proto-client/node_modules/` 按 `.gitignore` 与 `proto-client/README.md` 策略为 ignored validation artifacts，不提交；tracked proto/Connect Go 生成物已在前序任务提交且本轮无 tracked drift。
+      - 更新本任务 `PROGRESS.md` 完成总结，记录所有最终验证证据、smoke 环境阻塞和补跑命令。
+    - 验证：
+      - `git status --short --branch`（开始 8.2 时 worktree clean）
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./cmd/agent-compose ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runtimecache ./pkg/driver ./pkg/imagecache`
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect`
+      - `cd proto-client && npm ci && npm run gen && npm run build`
+      - `git status --short --ignored proto-client`（仅 `proto-client/dist/`、`proto-client/node_modules/`、`proto-client/src/` 为 ignored artifacts）
+      - `task lint`
+      - `task build`
+      - `task test`（coverage summary：unit 71.94%、integration 67.63%、E2E 67.11%、combined 74.62%，满足 `TESTING.md` baseline）
+      - `SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke`（已尝试，host `/dev/kvm` permission denied，BoxLite real runtime start 未通过；OCI image variant 因未设置 `SMOKE_OCI_IMAGE_REF` 跳过）
+      - `SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke`（已尝试，Microsandbox sandbox process SIGABRT before agent relay became available；OCI image variant 因未设置 `SMOKE_OCI_IMAGE_REF` 跳过）
+      - `git diff --check`
+    - 审计与例外：
+      - BoxLite smoke 未通过的直接原因是当前主机 `/dev/kvm: permission denied`；需要在具备 KVM 权限的环境补跑：`SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke`。
+      - Microsandbox smoke 未通过的直接表现是 sandbox process `SIGABRT` 且 agent relay 未就绪；需要在具备 Microsandbox runtime/虚拟化依赖的环境补跑：`SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke`。可加 `SMOKE_KEEP_TMP=1` 保留临时目录排查。
+      - Go/CLI/API/runtimecache/imagecache focused tests、proto-client 生成/build、`task lint`、`task build`、`task test` 均已通过；残余风险仅限当前本机无法证明真实 BoxLite/Microsandbox runtime smoke。
+      - `task test:runtime-smoke` 即使只指定单 driver，也会先执行 BoxLite 和 Microsandbox dev artifact prepare deps；本轮 artifact prepare 成功或命中 up-to-date。
+      - `SMOKE_OCI_IMAGE_REF` 未设置，因此 go-containerregistry OCI image consumption smoke variants按测试设计跳过；补跑 OCI variants 需要设置可启动的 agent-compose guest image ref。
     - 下一目标：无。
 
 ## 停止条件
