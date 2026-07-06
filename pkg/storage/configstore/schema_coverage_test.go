@@ -254,6 +254,17 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if err != nil || duplicate.ID != event.ID {
 		t.Fatalf("idempotent CreateEvent duplicate=%#v err=%v", duplicate, err)
 	}
+	if _, err := store.CreateEvent(ctx, domain.TopicEventRecord{
+		ID:             "event-conflict",
+		Topic:          event.Topic,
+		Source:         domain.TopicEventSourceWebhook,
+		CorrelationID:  "corr-1",
+		IdempotencyKey: event.IdempotencyKey,
+		PayloadJSON:    `{"branch":"other"}`,
+		DispatchStatus: domain.TopicEventDispatchPending,
+	}); err == nil {
+		t.Fatalf("CreateEvent idempotency conflict returned nil error")
+	}
 	child, err := store.CreateEvent(ctx, domain.TopicEventRecord{
 		ID:             "event-child",
 		Topic:          event.Topic,
@@ -269,8 +280,17 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if got, err := store.GetEvent(ctx, event.ID); err != nil || got.ID != event.ID {
 		t.Fatalf("GetEvent got=%#v err=%v", got, err)
 	}
+	if _, err := store.GetEvent(ctx, ""); err == nil {
+		t.Fatalf("GetEvent empty id returned nil error")
+	}
+	if _, err := store.GetEvent(ctx, "missing"); err == nil {
+		t.Fatalf("GetEvent missing id returned nil error")
+	}
 	if got, found, err := store.FindEventByIdempotencyKey(ctx, event.Topic, event.IdempotencyKey); err != nil || !found || got.ID != event.ID {
 		t.Fatalf("FindEventByIdempotencyKey got=%#v found=%v err=%v", got, found, err)
+	}
+	if got, found, err := store.FindEventByIdempotencyKey(ctx, "", event.IdempotencyKey); err != nil || found || got.ID != "" {
+		t.Fatalf("FindEventByIdempotencyKey empty topic got=%#v found=%v err=%v", got, found, err)
 	}
 	if pending, err := store.ListPendingEvents(ctx, 10); err != nil || len(pending) != 2 {
 		t.Fatalf("ListPendingEvents pending=%#v err=%v", pending, err)
@@ -278,16 +298,43 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if events, err := store.ListEvents(ctx, domain.TopicEventFilter{Topic: event.Topic, CorrelationID: "corr-1", Limit: 10}); err != nil || len(events) != 2 {
 		t.Fatalf("ListEvents events=%#v err=%v", events, err)
 	}
+	if events, err := store.ListEvents(ctx, domain.TopicEventFilter{Topic: event.Topic, AfterSequence: event.Sequence, DispatchStatus: domain.TopicEventDispatchPending, Limit: 1000}); err != nil || len(events) != 1 {
+		t.Fatalf("ListEvents filtered events=%#v err=%v", events, err)
+	}
+	if _, err := store.ListEvents(ctx, domain.TopicEventFilter{}); err == nil {
+		t.Fatalf("ListEvents empty filter returned nil error")
+	}
+	if _, err := store.ListEvents(ctx, domain.TopicEventFilter{Topic: "bad topic"}); err == nil {
+		t.Fatalf("ListEvents invalid topic returned nil error")
+	}
 	if err := store.UpdateEventPayload(ctx, event.ID, `{"branch":"dev"}`); err != nil {
 		t.Fatalf("UpdateEventPayload returned error: %v", err)
+	}
+	if err := store.UpdateEventPayload(ctx, "", `{}`); err == nil {
+		t.Fatalf("UpdateEventPayload empty id returned nil error")
+	}
+	if err := store.UpdateEventPayload(ctx, event.ID, " "); err == nil {
+		t.Fatalf("UpdateEventPayload empty payload returned nil error")
+	}
+	if err := store.UpdateEventPayload(ctx, "missing", `{}`); err == nil {
+		t.Fatalf("UpdateEventPayload missing event returned nil error")
 	}
 	dispatchable, err := store.ListDispatchableEvents(ctx, now, 10)
 	if err != nil || len(dispatchable) != 2 {
 		t.Fatalf("ListDispatchableEvents events=%#v err=%v", dispatchable, err)
 	}
+	if _, err := store.ClaimEvent(ctx, "", "claim", now, now.Add(time.Minute)); err == nil {
+		t.Fatalf("ClaimEvent empty id returned nil error")
+	}
 	claimed, err := store.ClaimEvent(ctx, event.ID, "claim-1", now, now.Add(time.Minute))
 	if err != nil || !claimed {
 		t.Fatalf("ClaimEvent claimed=%v err=%v", claimed, err)
+	}
+	if claimed, err := store.ClaimEvent(ctx, event.ID, "claim-ignored", now, now.Add(time.Minute)); err != nil || claimed {
+		t.Fatalf("ClaimEvent active claim claimed=%v err=%v", claimed, err)
+	}
+	if err := store.ReleaseEventClaim(ctx, "", "claim", domain.TopicEventDispatchRetrying, "", time.Time{}); err == nil {
+		t.Fatalf("ReleaseEventClaim empty id returned nil error")
 	}
 	if err := store.ReleaseEventClaim(ctx, event.ID, "claim-1", domain.TopicEventDispatchRetrying, "retry", now.Add(time.Millisecond)); err != nil {
 		t.Fatalf("ReleaseEventClaim returned error: %v", err)
@@ -299,12 +346,24 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if err := store.MarkEventPublished(ctx, event.ID, "claim-2", now); err != nil {
 		t.Fatalf("MarkEventPublished returned error: %v", err)
 	}
+	if err := store.MarkEventPublished(ctx, "missing", "claim-missing", time.Time{}); err == nil {
+		t.Fatalf("MarkEventPublished missing event returned nil error")
+	}
+	if err := store.MarkEventPublished(ctx, event.ID, "wrong-claim", time.Time{}); err != nil {
+		t.Fatalf("MarkEventPublished stale claim returned error: %v", err)
+	}
 	claimed, err = store.ClaimEvent(ctx, child.ID, "claim-child", now, now.Add(time.Minute))
 	if err != nil || !claimed {
 		t.Fatalf("ClaimEvent child claimed=%v err=%v", claimed, err)
 	}
+	if err := store.MarkEventNoSubscriber(ctx, "", "claim-child", time.Time{}); err == nil {
+		t.Fatalf("MarkEventNoSubscriber empty id returned nil error")
+	}
 	if err := store.MarkEventNoSubscriber(ctx, child.ID, "claim-child", now); err != nil {
 		t.Fatalf("MarkEventNoSubscriber returned error: %v", err)
+	}
+	if err := store.MarkEventNoSubscriber(ctx, "missing", "claim-missing", time.Time{}); err == nil {
+		t.Fatalf("MarkEventNoSubscriber missing event returned nil error")
 	}
 	if ids, err := store.ListDescendantEventIDs(ctx, event.ID, 10); err != nil || len(ids) != 2 {
 		t.Fatalf("ListDescendantEventIDs ids=%#v err=%v", ids, err)
@@ -313,11 +372,17 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if err := store.UpsertEventDelivery(ctx, domain.EventDelivery{EventID: event.ID, LoaderID: "loader-1", TriggerID: "trigger-1", RunID: "run-1", Status: domain.EventDeliveryStatusRunSucceeded}); err != nil {
 		t.Fatalf("UpsertEventDelivery returned error: %v", err)
 	}
+	if err := store.UpsertEventDelivery(ctx, domain.EventDelivery{}); err == nil {
+		t.Fatalf("UpsertEventDelivery empty delivery returned nil error")
+	}
 	if deliveries, err := store.ListEventDeliveries(ctx, []string{"", event.ID, event.ID}); err != nil || len(deliveries) != 1 {
 		t.Fatalf("ListEventDeliveries deliveries=%#v err=%v", deliveries, err)
 	}
 	if err := store.AddEventSessionLink(ctx, domain.EventSessionLink{EventID: event.ID, SessionID: "session-1", Relation: "created", LoaderID: "loader-1", RunID: "run-1", TriggerID: "trigger-1", LoaderEventID: "loader-event-1"}); err != nil {
 		t.Fatalf("AddEventSessionLink returned error: %v", err)
+	}
+	if err := store.AddEventSessionLink(ctx, domain.EventSessionLink{}); err == nil {
+		t.Fatalf("AddEventSessionLink empty link returned nil error")
 	}
 	if links, err := store.ListEventSessionLinks(ctx, []string{event.ID}); err != nil || len(links) != 1 {
 		t.Fatalf("ListEventSessionLinks links=%#v err=%v", links, err)
@@ -478,11 +543,20 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.SetLoaderTriggerEnabled(ctx, loader.Summary.ID, "interval", false); err != nil {
 		t.Fatalf("SetLoaderTriggerEnabled returned error: %v", err)
 	}
+	if err := store.SetLoaderTriggerEnabled(ctx, loader.Summary.ID, "interval", true); err != nil {
+		t.Fatalf("SetLoaderTriggerEnabled true returned error: %v", err)
+	}
+	if err := store.SetLoaderTriggerEnabled(ctx, loader.Summary.ID, "missing", true); err == nil {
+		t.Fatalf("SetLoaderTriggerEnabled missing trigger returned nil error")
+	}
 	if err := store.MarkLoaderTriggerFired(ctx, loader.Summary.ID, "interval", time.Now().UTC(), time.Now().UTC().Add(time.Hour)); err != nil {
 		t.Fatalf("MarkLoaderTriggerFired returned error: %v", err)
 	}
 	if err := store.UpdateLoaderLastError(ctx, loader.Summary.ID, "last error"); err != nil {
 		t.Fatalf("UpdateLoaderLastError returned error: %v", err)
+	}
+	if err := store.UpdateLoaderLastError(ctx, "", "last error"); err == nil {
+		t.Fatalf("UpdateLoaderLastError empty id returned nil error")
 	}
 	loader.Summary.Description = "updated"
 	if _, err := store.UpdateLoader(ctx, loader); err != nil {
@@ -515,14 +589,28 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.UpdateLoaderRun(ctx, run); err != nil {
 		t.Fatalf("UpdateLoaderRun returned error: %v", err)
 	}
+	missingRun := run
+	missingRun.ID = "missing"
+	if err := store.UpdateLoaderRun(ctx, missingRun); err == nil {
+		t.Fatalf("UpdateLoaderRun missing run returned nil error")
+	}
 	if _, err := store.GetLoaderRun(ctx, loader.Summary.ID, run.ID); err != nil {
 		t.Fatalf("GetLoaderRun returned error: %v", err)
+	}
+	if _, err := store.GetLoaderRun(ctx, loader.Summary.ID, "missing"); err == nil {
+		t.Fatalf("GetLoaderRun missing run returned nil error")
 	}
 	if runs, err := store.ListLoaderRuns(ctx, loader.Summary.ID, 10); err != nil || len(runs) != 1 {
 		t.Fatalf("ListLoaderRuns runs=%#v err=%v", runs, err)
 	}
+	if runs, err := store.ListLoaderRuns(ctx, loader.Summary.ID, 0); err != nil || len(runs) != 1 {
+		t.Fatalf("ListLoaderRuns default limit runs=%#v err=%v", runs, err)
+	}
 	if runs, err := store.ListRecentLoaderRuns(ctx, 10); err != nil || len(runs) != 1 {
 		t.Fatalf("ListRecentLoaderRuns runs=%#v err=%v", runs, err)
+	}
+	if runs, err := store.ListRecentLoaderRuns(ctx, 0); err != nil || len(runs) != 1 {
+		t.Fatalf("ListRecentLoaderRuns default limit runs=%#v err=%v", runs, err)
 	}
 	if err := store.AddLoaderEvent(ctx, domain.LoaderEvent{ID: "event-1", LoaderID: loader.Summary.ID, RunID: run.ID, Type: "loader.test", Level: "info", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("AddLoaderEvent returned error: %v", err)
@@ -539,11 +627,23 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.DeleteLoaderState(ctx, loader.Summary.ID, "key"); err != nil {
 		t.Fatalf("DeleteLoaderState returned error: %v", err)
 	}
+	if value, found, err := store.GetLoaderState(ctx, loader.Summary.ID, "key"); err != nil || found || value != "" {
+		t.Fatalf("GetLoaderState deleted value=%q found=%v err=%v", value, found, err)
+	}
+	if err := store.SetLoaderState(ctx, "", "key", `{}`); err == nil {
+		t.Fatalf("SetLoaderState empty loader returned nil error")
+	}
 	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SessionID: "session-1"}); err != nil {
 		t.Fatalf("UpsertLoaderBinding returned error: %v", err)
 	}
 	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID); err != nil || !found || binding.SessionID != "session-1" {
 		t.Fatalf("GetLoaderBinding binding=%#v found=%v err=%v", binding, found, err)
+	}
+	if binding, found, err := store.GetLoaderBinding(ctx, "missing"); err != nil || found || binding.LoaderID != "" {
+		t.Fatalf("GetLoaderBinding missing binding=%#v found=%v err=%v", binding, found, err)
+	}
+	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{}); err == nil {
+		t.Fatalf("UpsertLoaderBinding empty binding returned nil error")
 	}
 	if disabled, err := store.DisableLoadersByDefaultAgent(ctx, agent.ID); err != nil || disabled < 1 {
 		t.Fatalf("DisableLoadersByDefaultAgent disabled=%d err=%v", disabled, err)

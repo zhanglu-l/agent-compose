@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -230,6 +231,213 @@ func TestRuntimeLLMFacadeRejectsInvalidSecurityContext(t *testing.T) {
 	}
 }
 
+func TestRuntimeLLMFacadeHandlerEdgeBranches(t *testing.T) {
+	validToken := llms.FacadeToken{SessionID: "session-1", Model: "gpt", ProviderID: "provider-1", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)}
+	runningSession := &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning}}
+	tests := []struct {
+		name     string
+		path     string
+		body     string
+		tokens   fakeRuntimeLLMTokens
+		sessions fakeRuntimeLLMSessions
+		resolver RuntimeLLMTargetResolver
+		client   *fakeRuntimeLLMHTTPClient
+		want     int
+		contains string
+	}{
+		{
+			name:     "token lookup error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{err: errors.New("token store down")},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusUnauthorized,
+		},
+		{
+			name:     "session lookup error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{err: errors.New("session missing")},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusForbidden,
+		},
+		{
+			name:     "failed session",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusFailed}}},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusForbidden,
+		},
+		{
+			name:     "decode request error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{bad json`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusBadRequest,
+		},
+		{
+			name:     "missing model",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: llms.FacadeToken{SessionID: "session-1", ProviderID: "provider-1", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)}},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusBadRequest,
+			contains: "llm model is required",
+		},
+		{
+			name:     "resolver error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: func(context.Context, string, string) (llms.ResolvedTarget, error) {
+				return llms.ResolvedTarget{}, errors.New("resolver down")
+			},
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusBadRequest,
+			contains: "resolver down",
+		},
+		{
+			name:     "unsupported provider",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: func(context.Context, string, string) (llms.ResolvedTarget, error) {
+				return llms.ResolvedTarget{
+					Provider: llms.Provider{ID: "provider-1", ProviderType: "custom", BaseURL: "http://upstream.test/v1"},
+					Model:    llms.Model{Name: "gpt"},
+					WireAPI:  llms.APIProtocolResponses,
+				}, nil
+			},
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, body: `{"id":"resp-1","model":"gpt","output":[]}`},
+			want:     http.StatusBadRequest,
+			contains: "unsupported llm provider family",
+		},
+		{
+			name:     "transparent upstream transport error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{err: errors.New("dial failed")},
+			want:     http.StatusBadGateway,
+		},
+		{
+			name:     "transparent upstream non success",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusTooManyRequests, body: `{"error":"slow down"}`},
+			want:     http.StatusTooManyRequests,
+			contains: "slow down",
+		},
+		{
+			name:     "translated upstream non success",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMChatTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusServiceUnavailable, body: `{"error":"upstream down"}`},
+			want:     http.StatusServiceUnavailable,
+			contains: "upstream down",
+		},
+		{
+			name:     "translated upstream transport error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMChatTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{err: errors.New("dial failed")},
+			want:     http.StatusBadGateway,
+		},
+		{
+			name:     "translated upstream read error",
+			path:     "/api/runtime/sessions/session-1/llm/openai/v1/responses",
+			body:     `{"model":"gpt","input":"hi"}`,
+			tokens:   fakeRuntimeLLMTokens{token: validToken},
+			sessions: fakeRuntimeLLMSessions{session: runningSession},
+			resolver: fakeRuntimeLLMChatTargetResolver("http://upstream.test/v1"),
+			client:   &fakeRuntimeLLMHTTPClient{status: http.StatusOK, bodyReader: errRuntimeLLMReader{}},
+			want:     http.StatusBadGateway,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			RegisterRuntimeLLMFacadeRoutes(e, RuntimeLLMOptions{
+				Tokens:        tc.tokens,
+				Sessions:      tc.sessions,
+				ResolveTarget: tc.resolver,
+				Client:        tc.client,
+			})
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer raw-token")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("%s status=%d body=%s, want %d", tc.name, rec.Code, rec.Body.String(), tc.want)
+			}
+			if tc.contains != "" && !strings.Contains(rec.Body.String(), tc.contains) {
+				t.Fatalf("%s body=%s, want %q", tc.name, rec.Body.String(), tc.contains)
+			}
+		})
+	}
+
+	if (runtimeLLMHandler{}).httpClient() == nil {
+		t.Fatalf("default runtime llm http client is nil")
+	}
+	if firstNonEmpty("", " \t ") != "" {
+		t.Fatalf("firstNonEmpty returned a blank value")
+	}
+}
+
+func TestRuntimeLLMFacadeTransparentGenericResponsesTextParts(t *testing.T) {
+	e := echo.New()
+	client := &fakeRuntimeLLMHTTPClient{
+		status: http.StatusOK,
+		body:   `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"gpt","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+	}
+	RegisterRuntimeLLMFacadeRoutes(e, RuntimeLLMOptions{
+		Tokens:   fakeRuntimeLLMTokens{token: llms.FacadeToken{SessionID: "session-1", Model: "gpt", ProviderID: "provider-1", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)}},
+		Sessions: fakeRuntimeLLMSessions{session: &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning}}},
+		ResolveTarget: func(context.Context, string, string) (llms.ResolvedTarget, error) {
+			return llms.ResolvedTarget{
+				Provider: llms.Provider{ID: "provider-1", ProviderType: llms.ProviderFamilyOpenAI, BaseURL: "http://upstream.test/v1", UseGenericResponsesTextParts: true},
+				Model:    llms.Model{Name: "gpt"},
+				WireAPI:  llms.APIProtocolResponses,
+			}, nil
+		},
+		Client: client,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/runtime/sessions/session-1/llm/openai/v1/responses", strings.NewReader(`{"model":"gpt","input":"hi"}`))
+	req.Header.Set("Authorization", "Bearer raw-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "chatcmpl-1") || client.calls != 1 {
+		t.Fatalf("generic responses text parts status=%d body=%s calls=%d", rec.Code, rec.Body.String(), client.calls)
+	}
+}
+
 func TestIntegrationRuntimeLLMFacadeRoutesCoverageWorkflow(t *testing.T) {
 	TestRuntimeLLMFacadeRoutesCoverageWorkflow(t)
 	TestRuntimeLLMFacadeProtocolAndStreamCoverage(t)
@@ -289,22 +497,37 @@ func fakeRuntimeLLMAnthropicTargetResolver(baseURL string) RuntimeLLMTargetResol
 }
 
 type fakeRuntimeLLMHTTPClient struct {
-	status int
-	body   string
-	header http.Header
-	calls  int
+	status     int
+	body       string
+	bodyReader io.Reader
+	header     http.Header
+	err        error
+	calls      int
 }
 
 func (c *fakeRuntimeLLMHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	c.calls++
+	if c.err != nil {
+		return nil, c.err
+	}
 	header := c.header
 	if header == nil {
 		header = http.Header{"Content-Type": []string{"application/json"}}
 	}
+	body := c.bodyReader
+	if body == nil {
+		body = strings.NewReader(c.body)
+	}
 	return &http.Response{
 		StatusCode: c.status,
 		Header:     header,
-		Body:       io.NopCloser(strings.NewReader(c.body)),
+		Body:       io.NopCloser(body),
 		Request:    req,
 	}, nil
+}
+
+type errRuntimeLLMReader struct{}
+
+func (errRuntimeLLMReader) Read([]byte) (int, error) {
+	return 0, errors.New("read failed")
 }

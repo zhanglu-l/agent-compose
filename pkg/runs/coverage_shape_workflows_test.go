@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"agent-compose/pkg/capabilities"
+	"agent-compose/pkg/capability"
 	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
@@ -19,6 +21,7 @@ import (
 	"agent-compose/pkg/images"
 	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
+	"agent-compose/pkg/sessions"
 	"agent-compose/pkg/storage/sessionstore"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
@@ -976,6 +979,42 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 	if err != nil || failedRun.Status != domain.ProjectRunStatusFailed {
 		t.Fatalf("failed terminal run=%#v err=%v", failedRun, err)
 	}
+
+	session.Summary.Tags = []domain.SessionTag{
+		{Name: capabilities.CapsetTagName, Value: "dev"},
+		{Name: capabilities.CapsetTagName, Value: "missing"},
+	}
+	provider := fakeCapabilityProvider{
+		guides: map[string][]byte{"dev": []byte("Dev guide")},
+		errs:   map[string]error{"missing": errors.New("missing guide")},
+		target: "cap-proxy.internal:9000",
+	}
+	guideStore := &fakeGuideSessionStore{}
+	streams := sessions.NewStreamBrokerForTest()
+	ch, unsubscribe := streams.Subscribe(session.Summary.ID)
+	defer unsubscribe()
+	writeCapabilityGuide(context.Background(), provider, guideStore, streams, session, capabilities.SessionCapsets(session))
+	guidePath := capabilities.SessionGuidePath(session)
+	data, err := os.ReadFile(guidePath)
+	if err != nil {
+		t.Fatalf("read capability guide: %v", err)
+	}
+	if !strings.Contains(string(data), "Dev guide") || !strings.Contains(string(data), "cap-proxy.internal:9000") {
+		t.Fatalf("capability guide content = %q", data)
+	}
+	if len(guideStore.events) != 1 || guideStore.events[0].Type != "capability.guide.warning" || !strings.Contains(guideStore.events[0].Message, "missing") {
+		t.Fatalf("guide warning events = %#v", guideStore.events)
+	}
+	select {
+	case event := <-ch:
+		if event.EventType != sessions.WatchEventTypeEventAdded || event.Event.Type != "capability.guide.warning" {
+			t.Fatalf("stream event = %#v", event)
+		}
+	default:
+		t.Fatalf("missing guide warning stream event")
+	}
+	recordCapabilityGuideWarning(context.Background(), nil, streams, session.Summary.ID, "ignored")
+	recordCapabilityGuideWarning(context.Background(), guideStore, streams, " ", "ignored")
 }
 
 func TestIntegrationRunsControllerHelperEdgeWorkflows(t *testing.T) {
@@ -1287,4 +1326,77 @@ type fakeControllerDashboard struct {
 
 func (d *fakeControllerDashboard) Notify(reason string) {
 	d.reasons = append(d.reasons, reason)
+}
+
+type fakeCapabilityProvider struct {
+	guides map[string][]byte
+	errs   map[string]error
+	target string
+}
+
+func (p fakeCapabilityProvider) Status(context.Context) capability.Status {
+	return capability.Status{Configured: true, OK: true, Status: "ok"}
+}
+
+func (p fakeCapabilityProvider) ListCapsets(context.Context) ([]capability.Capset, error) {
+	return []capability.Capset{}, nil
+}
+
+func (p fakeCapabilityProvider) Catalog(context.Context, string) (capability.Catalog, error) {
+	return capability.Catalog{}, nil
+}
+
+func (p fakeCapabilityProvider) CapabilityGuide(_ context.Context, capsetID string) ([]byte, error) {
+	if err := p.errs[capsetID]; err != nil {
+		return nil, err
+	}
+	if guide := p.guides[capsetID]; guide != nil {
+		return guide, nil
+	}
+	return nil, errors.New("not found")
+}
+
+func (p fakeCapabilityProvider) ProxyTarget() string {
+	return p.target
+}
+
+type fakeGuideSessionStore struct {
+	events []domain.SessionEvent
+}
+
+func (s *fakeGuideSessionStore) CreateSessionWithOptions(context.Context, string, string, string, string, string, string, *sessionstore.SessionWorkspace, []sessionstore.SessionEnvVar, []sessionstore.SessionTag, sessionstore.CreateSessionOptions) (*sessionstore.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) GetSession(context.Context, string) (*sessionstore.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) UpdateSession(context.Context, *sessionstore.Session) error {
+	return errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) RemoveSession(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) AddEvent(_ context.Context, _ string, event sessionstore.SessionEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *fakeGuideSessionStore) GetVMState(string) (sessionstore.VMState, error) {
+	return sessionstore.VMState{}, errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) GetProxyState(string) (sessionstore.ProxyState, error) {
+	return sessionstore.ProxyState{}, errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) SaveProxyState(string, sessionstore.ProxyState) error {
+	return errors.New("not implemented")
+}
+
+func (s *fakeGuideSessionStore) AllocateHostPortForJupyter() (int, error) {
+	return 0, errors.New("not implemented")
 }

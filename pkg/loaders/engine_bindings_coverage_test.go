@@ -228,6 +228,81 @@ func TestE2EQJSLoaderEngineValidationCoverageWorkflow(t *testing.T) {
 	TestQJSLoaderEngineValidationCoverageWorkflow(t)
 }
 
+func TestLoaderSessionEnvDecodingEdgeBranches(t *testing.T) {
+	items, err := loaderSessionEnvItems(map[string]any{
+		" BOOL ":         true,
+		"FLOAT":          float64(12.50),
+		"OPENAI_API_KEY": map[string]any{"value": "secret", "secret": false},
+		"NUMBER_SECRET":  map[string]any{"value": float64(7), "secret": float64(1)},
+		"STRING_SECRET":  map[string]any{"value": "x", "secret": "true"},
+		" ":              "ignored",
+	})
+	if err != nil {
+		t.Fatalf("loaderSessionEnvItems map returned error: %v", err)
+	}
+	env := domain.SessionEnvMap(items)
+	if env["BOOL"] != "true" || env["FLOAT"] != "12.5" || env["OPENAI_API_KEY"] != "secret" || env["NUMBER_SECRET"] != "7" {
+		t.Fatalf("env map = %#v items=%#v", env, items)
+	}
+	if secret := findEnvSecretForTest(items, "OPENAI_API_KEY"); secret {
+		t.Fatalf("OPENAI_API_KEY explicit secret=false was not honored: %#v", items)
+	}
+	if !findEnvSecretForTest(items, "NUMBER_SECRET") || !findEnvSecretForTest(items, "STRING_SECRET") {
+		t.Fatalf("secret flags were not decoded: %#v", items)
+	}
+
+	arrayItems, err := loaderSessionEnvItems([]any{
+		map[string]any{"name": "A", "value": nil},
+		map[string]any{"name": "B", "value": false, "secret": "false"},
+		map[string]any{"name": "C_TOKEN", "value": map[string]any{"value": "nested"}},
+	})
+	if err != nil {
+		t.Fatalf("loaderSessionEnvItems array returned error: %v", err)
+	}
+	arrayEnv := domain.SessionEnvMap(arrayItems)
+	if arrayEnv["A"] != "" || arrayEnv["B"] != "false" || arrayEnv["C_TOKEN"] != "nested" || !findEnvSecretForTest(arrayItems, "C_TOKEN") {
+		t.Fatalf("array env = %#v items=%#v", arrayEnv, arrayItems)
+	}
+
+	errorCases := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "bad container", value: "bad", want: "object map or array"},
+		{name: "bad item", value: []any{"bad"}, want: "item 0 must be an object"},
+		{name: "missing name", value: []any{map[string]any{"value": "x"}}, want: "requires a non-empty name"},
+		{name: "bad item secret", value: []any{map[string]any{"name": "A", "secret": []any{}}}, want: "secret must be a boolean"},
+		{name: "bad nested secret", value: map[string]any{"A": map[string]any{"value": "x", "secret": []any{}}}, want: "secret must be a boolean"},
+	}
+	for _, tc := range errorCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loaderSessionEnvItems(tc.value)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("loaderSessionEnvItems(%#v) error = %v, want %q", tc.value, err, tc.want)
+			}
+		})
+	}
+
+	if secret := loaderSecretEnvName("plain"); secret {
+		t.Fatalf("plain env name should not be secret")
+	}
+	for _, name := range []string{"password", "ACCESS_TOKEN", "CLIENT_SECRET", "API_KEY", "LLM_API_KEY"} {
+		if !loaderSecretEnvName(name) {
+			t.Fatalf("loaderSecretEnvName(%q) = false", name)
+		}
+	}
+}
+
+func findEnvSecretForTest(items []domain.SessionEnvVar, name string) bool {
+	for _, item := range items {
+		if item.Name == name {
+			return item.Secret
+		}
+	}
+	return false
+}
+
 func firstNonEmptyTest(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
