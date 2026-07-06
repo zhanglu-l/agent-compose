@@ -268,16 +268,16 @@
       - `projectRunAgentExecutionStream` 的 agent run log append 不属于 command payload path，按 3.4 阶段三收口继续审计。
     - 下一目标：3.4 阶段三 focused 集成验收。
 
-- [ ] 3.4 阶段三 focused 集成验收
+- [x] 3.4 阶段三 focused 集成验收
   - 依赖：3.1、3.2、3.3。
   - 工作内容：
     - 汇总更新 `pkg/agentcompose/adapters`、`pkg/agentcompose/api`、`pkg/runs`、`pkg/sessions` 测试。
     - 确保跨 service boundary、persistence/log path 的变更至少有 unit 或 integration 覆盖。
     - 按 `scripts/run-go-test-shape.sh` 规则调整 integration/E2E 测试命名。
   - 可并行子任务：
-    - [ ] 可并行：审计 adapter test coverage。
-    - [ ] 可并行：审计 API stream test coverage。
-    - [ ] 可并行：审计 runs/logs persistence test coverage。
+    - [x] 可并行：审计 adapter test coverage。
+    - [x] 可并行：审计 API stream test coverage。
+    - [x] 可并行：审计 runs/logs persistence test coverage。
   - 测试方案：
     - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/runs ./pkg/sessions`
   - 验收标准：
@@ -285,10 +285,21 @@
     - 没有 host command/exec path 通过 `Stream == StdioStderr` 或等价 guard 丢弃 stdout。
     - loader command streaming 使用统一 helper。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 阶段三 focused 覆盖已汇总到 `pkg/agentcompose/adapters`、`pkg/agentcompose/api`、`pkg/runs`、`pkg/sessions`。
+      - adapters 覆盖 agent stdout/stderr/payload filtering、loader command payload filtering、driver/domain stream mapping。
+      - API 覆盖 Exec stream transcript/event 不泄漏 `__COMMAND_RESULT__`。
+      - runs 覆盖 command run transcript/run log 不泄漏 payload、非零 exit code 保留 stdout/stderr/output 并标记 failed。
+      - sessions 覆盖 broker 内部 stream 状态和 legacy watch 输出边界。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/runs ./pkg/sessions`：通过。
+      - `rg -n "if .*StdioStderr|if !.*StdioStderr|if .*Stream.*stderr|StripCommandResultPayload|StripAgentResultPayload|FilterAgentStreamChunk|FilterCommandStreamChunk" pkg/agentcompose/adapters pkg/agentcompose/api pkg/runs pkg/sessions`：production streaming path 使用 filter helper；未发现 command/exec path 通过 stderr guard 丢弃 stdout。
+      - `rg -n "FilterCommandStreamChunk" pkg/agentcompose/adapters/loader_command_executor.go pkg/agentcompose/api/exec.go pkg/runs/controller.go`：loader/API exec/runs command streaming 均使用统一 command filter helper。
+      - `rg -n "TestIntegration|TestE2E|coverage_shape" pkg/agentcompose/adapters pkg/agentcompose/api pkg/runs pkg/sessions`：相关包已有 coverage shape 包装测试命名。
+    - 审计与例外：
+      - 阶段三 focused tests 已通过；完整 `task lint`、`task build`、`task test` 仍按 6.2 执行。
+      - v2 proto/CLI 仍保留 legacy `is_stderr` 字段，按阶段四迁移。
     - 下一目标：4.1 升级 v2 proto schema。
 
 ## 4. 阶段四：升级 v2 proto stream API、生成代码和 CLI stream writer
