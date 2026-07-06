@@ -3472,6 +3472,251 @@ func TestIntegrationCLIImagesAliasesAndJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLICacheListTextJSONAndFilters(t *testing.T) {
+	calls := 0
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		cache: cacheServiceStub{
+			listCaches: func(ctx context.Context, req *connect.Request[agentcomposev2.ListCachesRequest]) (*connect.Response[agentcomposev2.ListCachesResponse], error) {
+				calls++
+				filter := req.Msg.GetFilter()
+				switch calls {
+				case 1:
+					if filter.GetDriver() != "boxlite" || filter.GetType() != "materialized" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_ORPHANED {
+						t.Fatalf("ListCaches JSON filter = %#v", filter)
+					}
+				case 2:
+					if filter.GetDriver() != "all" || filter.GetType() != "" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_UNSPECIFIED {
+						t.Fatalf("ListCaches text filter = %#v", filter)
+					}
+				default:
+					t.Fatalf("unexpected ListCaches call %d", calls)
+				}
+				return connect.NewResponse(&agentcomposev2.ListCachesResponse{
+					Caches:   []*agentcomposev2.CacheItem{testCLICache("cache-materialized-1")},
+					Warnings: []string{"scan warning"},
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("cache", "ls", "--host", server.URL, "--json", "--driver", "boxlite", "--type", "materialized", "--status", "orphaned")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("cache ls --json code/stderr = %d / %q", exitCode, stderr)
+	}
+	var decoded composeCacheListOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("cache ls JSON decode failed: %v\n%s", err, stdout)
+	}
+	if len(decoded.Caches) != 1 || decoded.Caches[0].CacheID != "cache-materialized-1" || decoded.Caches[0].Type != "materialized" || decoded.Warnings[0] != "scan warning" {
+		t.Fatalf("cache ls JSON = %#v", decoded)
+	}
+
+	textOut, textErr, _, textCode := executeCLICommand("cache", "ls", "--host", server.URL, "--driver", "all")
+	if textCode != 0 || textErr != "" {
+		t.Fatalf("cache ls text code/stderr = %d / %q", textCode, textErr)
+	}
+	for _, want := range []string{"CACHE ID", "cache-materialized-1", "boxlite", "materialized", "orphaned", "/tmp/cache/rootfs"} {
+		if !strings.Contains(textOut, want) {
+			t.Fatalf("cache ls text %q does not contain %q", textOut, want)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("ListCaches calls = %d, want 2", calls)
+	}
+}
+
+func TestIntegrationCLICacheListFilterValuesAndUsageErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		flag   string
+		values []string
+		assert func(*testing.T, *agentcomposev2.CacheFilter, string)
+	}{
+		{
+			name:   "driver",
+			flag:   "--driver",
+			values: []string{"docker", "boxlite", "microsandbox", "all"},
+			assert: func(t *testing.T, filter *agentcomposev2.CacheFilter, value string) {
+				t.Helper()
+				if filter.GetDriver() != value {
+					t.Fatalf("driver filter = %q, want %q", filter.GetDriver(), value)
+				}
+			},
+		},
+		{
+			name:   "type",
+			flag:   "--type",
+			values: []string{"oci", "materialized", "runtime", "session"},
+			assert: func(t *testing.T, filter *agentcomposev2.CacheFilter, value string) {
+				t.Helper()
+				if filter.GetType() != value {
+					t.Fatalf("type filter = %q, want %q", filter.GetType(), value)
+				}
+			},
+		},
+		{
+			name:   "status",
+			flag:   "--status",
+			values: []string{"active", "referenced", "unused", "expired", "orphaned", "unknown"},
+			assert: func(t *testing.T, filter *agentcomposev2.CacheFilter, value string) {
+				t.Helper()
+				if cacheStatusText(filter.GetStatus()) != value {
+					t.Fatalf("status filter = %s, want %q", filter.GetStatus(), value)
+				}
+			},
+		},
+	}
+	for _, tc := range tests {
+		for _, value := range tc.values {
+			t.Run(tc.name+"_"+value, func(t *testing.T) {
+				calls := 0
+				server := newComposeServiceStubServer(t, composeServiceStubs{
+					cache: cacheServiceStub{
+						listCaches: func(ctx context.Context, req *connect.Request[agentcomposev2.ListCachesRequest]) (*connect.Response[agentcomposev2.ListCachesResponse], error) {
+							calls++
+							tc.assert(t, req.Msg.GetFilter(), value)
+							return connect.NewResponse(&agentcomposev2.ListCachesResponse{}), nil
+						},
+					},
+				})
+				defer server.Close()
+
+				stdout, stderr, _, exitCode := executeCLICommand("cache", "ls", "--host", server.URL, tc.flag, value)
+				if exitCode != 0 || stderr != "" {
+					t.Fatalf("cache ls %s %s code/stderr = %d / %q", tc.flag, value, exitCode, stderr)
+				}
+				if !strings.Contains(stdout, "CACHE ID") {
+					t.Fatalf("cache ls %s %s stdout = %q", tc.flag, value, stdout)
+				}
+				if calls != 1 {
+					t.Fatalf("ListCaches calls = %d, want 1", calls)
+				}
+			})
+		}
+	}
+
+	invalid := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"cache", "ls", "--driver", "podman"}, want: "invalid --driver"},
+		{args: []string{"cache", "ls", "--type", "blob"}, want: "invalid --type"},
+		{args: []string{"cache", "ls", "--status", "deleted"}, want: "invalid --status"},
+	}
+	for _, tc := range invalid {
+		stdout, stderr, _, exitCode := executeCLICommand(tc.args...)
+		if exitCode != exitCodeUsage {
+			t.Fatalf("%v exit code = %d, want usage; stderr=%q", tc.args, exitCode, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("%v stdout = %q, want empty", tc.args, stdout)
+		}
+		if !strings.Contains(stderr, tc.want) {
+			t.Fatalf("%v stderr = %q, want %q", tc.args, stderr, tc.want)
+		}
+	}
+}
+
+func TestIntegrationCLICacheInspectTextJSONAndNotFound(t *testing.T) {
+	calls := 0
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		cache: cacheServiceStub{
+			inspectCache: func(ctx context.Context, req *connect.Request[agentcomposev2.InspectCacheRequest]) (*connect.Response[agentcomposev2.InspectCacheResponse], error) {
+				calls++
+				switch req.Msg.GetCacheId() {
+				case "cache-materialized-1":
+					return connect.NewResponse(&agentcomposev2.InspectCacheResponse{
+						Cache:    testCLICache(req.Msg.GetCacheId()),
+						Warnings: []string{"top warning"},
+					}), nil
+				case "missing-cache":
+					return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("cache not found"))
+				default:
+					t.Fatalf("unexpected InspectCache cache_id = %q", req.Msg.GetCacheId())
+					return nil, nil
+				}
+			},
+		},
+	})
+	defer server.Close()
+
+	textOut, textErr, _, textCode := executeCLICommand("cache", "inspect", "--host", server.URL, "cache-materialized-1")
+	if textCode != 0 || textErr != "" {
+		t.Fatalf("cache inspect text code/stderr = %d / %q", textCode, textErr)
+	}
+	for _, want := range []string{"Cache ID: cache-materialized-1", "Domain: materialized-image-cache", "References:", "Blocked reasons:", "top warning"} {
+		if !strings.Contains(textOut, want) {
+			t.Fatalf("cache inspect text %q does not contain %q", textOut, want)
+		}
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("cache", "inspect", "--host", server.URL, "--json", "cache-materialized-1")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("cache inspect JSON code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeCacheInspectOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("cache inspect JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if decoded.Cache.CacheID != "cache-materialized-1" || decoded.Cache.Status != "orphaned" || decoded.Warnings[0] != "top warning" {
+		t.Fatalf("cache inspect JSON = %#v", decoded)
+	}
+
+	genericOut, genericErr, _, genericCode := executeCLICommand("inspect", "--host", server.URL, "--json", "cache", "cache-materialized-1")
+	if genericCode != 0 || genericErr != "" {
+		t.Fatalf("inspect cache JSON code/stderr = %d / %q", genericCode, genericErr)
+	}
+	var genericDecoded composeCacheInspectOutput
+	if err := json.Unmarshal([]byte(genericOut), &genericDecoded); err != nil {
+		t.Fatalf("inspect cache JSON decode failed: %v\n%s", err, genericOut)
+	}
+	if genericDecoded.Cache.CacheID != "cache-materialized-1" {
+		t.Fatalf("inspect cache JSON = %#v", genericDecoded)
+	}
+
+	missingOut, missingErr, _, missingCode := executeCLICommand("cache", "inspect", "--host", server.URL, "missing-cache")
+	if missingCode != exitCodeUsage {
+		t.Fatalf("cache inspect missing exit code = %d, want usage; stderr=%q", missingCode, missingErr)
+	}
+	if missingOut != "" {
+		t.Fatalf("cache inspect missing stdout = %q, want empty", missingOut)
+	}
+	if !strings.Contains(missingErr, "inspect cache missing-cache") || !strings.Contains(missingErr, "not_found") {
+		t.Fatalf("cache inspect missing stderr = %q", missingErr)
+	}
+	if calls != 4 {
+		t.Fatalf("InspectCache calls = %d, want 4", calls)
+	}
+}
+
+func TestCLICacheInspectUsageErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing", args: []string{"cache", "inspect"}, want: "accepts 1 arg(s), received 0"},
+		{name: "extra", args: []string{"cache", "inspect", "cache-id", "extra"}, want: "accepts 1 arg(s), received 2"},
+		{name: "empty", args: []string{"cache", "inspect", ""}, want: "cache inspect requires a cache id"},
+		{name: "generic missing", args: []string{"inspect", "cache"}, want: "inspect cache requires a cache id"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, _, exitCode := executeCLICommand(tc.args...)
+			if exitCode != exitCodeUsage {
+				t.Fatalf("%v exit code = %d, want usage; stderr=%q", tc.args, exitCode, stderr)
+			}
+			if stdout != "" {
+				t.Fatalf("%v stdout = %q, want empty", tc.args, stdout)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("%v stderr = %q, want %q", tc.args, stderr, tc.want)
+			}
+		})
+	}
+}
+
 func TestIntegrationCLIImagePullAliasesAndJSON(t *testing.T) {
 	calls := 0
 	server := newComposeServiceStubServer(t, composeServiceStubs{
@@ -4624,6 +4869,7 @@ type composeServiceStubs struct {
 	run     runServiceStub
 	exec    execServiceStub
 	image   imageServiceStub
+	cache   cacheServiceStub
 	sandbox sandboxServiceStub
 	session sessionServiceStub
 }
@@ -4715,6 +4961,43 @@ func (s imageServiceStub) RemoveImage(ctx context.Context, req *connect.Request[
 	return s.removeImage(ctx, req)
 }
 
+type cacheServiceStub struct {
+	listCaches   func(context.Context, *connect.Request[agentcomposev2.ListCachesRequest]) (*connect.Response[agentcomposev2.ListCachesResponse], error)
+	inspectCache func(context.Context, *connect.Request[agentcomposev2.InspectCacheRequest]) (*connect.Response[agentcomposev2.InspectCacheResponse], error)
+	pruneCaches  func(context.Context, *connect.Request[agentcomposev2.PruneCachesRequest]) (*connect.Response[agentcomposev2.PruneCachesResponse], error)
+	removeCache  func(context.Context, *connect.Request[agentcomposev2.RemoveCacheRequest]) (*connect.Response[agentcomposev2.RemoveCacheResponse], error)
+
+	agentcomposev2connect.UnimplementedCacheServiceHandler
+}
+
+func (s cacheServiceStub) ListCaches(ctx context.Context, req *connect.Request[agentcomposev2.ListCachesRequest]) (*connect.Response[agentcomposev2.ListCachesResponse], error) {
+	if s.listCaches == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListCaches stub is not configured"))
+	}
+	return s.listCaches(ctx, req)
+}
+
+func (s cacheServiceStub) InspectCache(ctx context.Context, req *connect.Request[agentcomposev2.InspectCacheRequest]) (*connect.Response[agentcomposev2.InspectCacheResponse], error) {
+	if s.inspectCache == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("InspectCache stub is not configured"))
+	}
+	return s.inspectCache(ctx, req)
+}
+
+func (s cacheServiceStub) PruneCaches(ctx context.Context, req *connect.Request[agentcomposev2.PruneCachesRequest]) (*connect.Response[agentcomposev2.PruneCachesResponse], error) {
+	if s.pruneCaches == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("PruneCaches stub is not configured"))
+	}
+	return s.pruneCaches(ctx, req)
+}
+
+func (s cacheServiceStub) RemoveCache(ctx context.Context, req *connect.Request[agentcomposev2.RemoveCacheRequest]) (*connect.Response[agentcomposev2.RemoveCacheResponse], error) {
+	if s.removeCache == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("RemoveCache stub is not configured"))
+	}
+	return s.removeCache(ctx, req)
+}
+
 type sandboxServiceStub struct {
 	removeSandbox func(context.Context, *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error)
 	getStats      func(context.Context, *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error)
@@ -4790,6 +5073,10 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 	}
 	if stubs.image.listImages != nil || stubs.image.pullImage != nil || stubs.image.inspectImage != nil || stubs.image.removeImage != nil {
 		path, handler := agentcomposev2connect.NewImageServiceHandler(stubs.image)
+		mux.Handle(path, handler)
+	}
+	if stubs.cache.listCaches != nil || stubs.cache.inspectCache != nil || stubs.cache.pruneCaches != nil || stubs.cache.removeCache != nil {
+		path, handler := agentcomposev2connect.NewCacheServiceHandler(stubs.cache)
 		mux.Handle(path, handler)
 	}
 	if stubs.sandbox.removeSandbox != nil || stubs.sandbox.getStats != nil {
@@ -4868,6 +5155,34 @@ func testCLIImage(imageID, imageRef string) *agentcomposev2.Image {
 		InspectedAt:      "2026-06-11T01:00:00Z",
 		Docker:           &agentcomposev2.DockerImageStatus{Local: true},
 		Labels:           map[string]string{"role": "test"},
+	}
+}
+
+func testCLICache(cacheID string) *agentcomposev2.CacheItem {
+	return &agentcomposev2.CacheItem{
+		CacheId:        cacheID,
+		Domain:         agentcomposev2.CacheDomain_CACHE_DOMAIN_MATERIALIZED_IMAGE_CACHE,
+		Driver:         "boxlite",
+		Kind:           "materialized-rootfs",
+		Path:           "/tmp/cache/rootfs",
+		SizeBytes:      4096,
+		ImageId:        "sha256:cache",
+		ImageRef:       "agent:latest",
+		ResolvedRef:    "agent@sha256:cache",
+		Status:         agentcomposev2.CacheStatus_CACHE_STATUS_ORPHANED,
+		Removable:      true,
+		BlockedReasons: []string{"dry-run only"},
+		LastUsedAt:     "2026-06-11T00:00:00Z",
+		LastUsedSource: "mtime",
+		References: []*agentcomposev2.CacheReference{{
+			Type:        "image-metadata",
+			Id:          "sha256:cache",
+			Name:        "agent:latest",
+			Path:        "/tmp/cache/rootfs",
+			Status:      "stopped",
+			Description: "agent@sha256:cache",
+		}},
+		Warnings: []string{"item warning"},
 	}
 }
 

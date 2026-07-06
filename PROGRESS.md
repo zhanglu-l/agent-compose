@@ -361,19 +361,34 @@
 
 参考文档：[实施计划 阶段 6](docs/plan/runtime-cache-lifecycle-implementation-plan.md#阶段-6cli-cache-命令组)
 
-- [ ] 6.1 实现 CLI cache client、`cache ls` 和 `cache inspect`
+- [x] 6.1 实现 CLI cache client、`cache ls` 和 `cache inspect`
   - 依赖：5.2。
   - 工作内容：`newCLIServiceClients` 增加 CacheService client；新增 `cache` 命令组；实现 `cache ls`、`cache inspect <cache-id>`；实现通用 `--driver`、`--type`、`--status`、`--json`。
   - 可并行子任务：
-    - [ ] 可并行：扩展 CLI stub server 和 cache service stub。
-    - [ ] 可并行：实现文本输出和 JSON output structs。
+    - [x] 可并行：扩展 CLI stub server 和 cache service stub。
+    - [x] 可并行：实现文本输出和 JSON output structs。
   - 测试方案：`go test ./cmd/agent-compose`，覆盖 `cache ls` 文本/JSON/空结果，`--driver` 所有值和非法值，`--type` 所有值和非法值，`--status` 所有值和非法值，`cache inspect` 文本/JSON/NotFound/missing arg/extra arg。
   - 验收标准：每个命令和每个参数均有测试；JSON stdout 可 `json.Unmarshal`；CLI 不读写 daemon cache path。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `newCLIServiceClients` 新增 v2 `CacheServiceClient`，CLI cache 命令只通过 daemon RPC list/inspect cache，不读取或删除本地 cache path。
+      - 新增 `agent-compose cache` 命令组，包含 `cache ls` 和 `cache inspect <cache-id>`；同时支持 `inspect cache <cache-id>` 复用同一 inspect handler。
+      - `cache ls` 支持 `--driver docker|boxlite|microsandbox|all`、`--type oci|materialized|runtime|session`、`--status active|referenced|unused|expired|orphaned|unknown` 和全局 `--json`。
+      - 新增 cache JSON output structs，覆盖 cache item、references、blocked reasons、warnings、size、status、path、image/session/sandbox fields；`cache ls --json` 和 `cache inspect --json` 输出可被 `json.Unmarshal` 解码。
+      - 新增文本输出：`cache ls` 表格包含 `CACHE ID  DRIVER  TYPE  STATUS  REMOVABLE  SIZE  REF/SESSION  PATH`，`cache inspect` 展示完整 item、references、blocked reasons 和 warnings。
+      - 扩展 CLI Connect stub server，新增 `cacheServiceStub` 和 `CacheService` route 注册，用于 request mapping 和 error mapping tests。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh gofmt -w cmd/agent-compose/main.go cmd/agent-compose/main_test.go`
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./cmd/agent-compose -run 'TestIntegrationCLICache|TestCLICache'`
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./cmd/agent-compose`
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/agentcompose/api ./pkg/runtimecache`
+      - `git diff --check`
+    - 审计与例外：
+      - 覆盖 `cache ls` 文本、JSON、top-level warning、所有合法 driver/type/status filters 和非法 driver/type/status usage errors。
+      - 覆盖 `cache inspect` 文本、JSON、`inspect cache` alias、NotFound 映射为 usage exit、missing arg、extra arg 和空 cache id。
+      - `cache ls` 当前 6.1 不实现 `--older-than`、`--include-referenced` 或 `--force`；这些属于 6.2 `cache prune`/`cache rm`。
+      - 本任务未运行真实 BoxLite/Microsandbox smoke；变更不启动 runtime，补跑命令仍为 `SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke`、`SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke`。
     - 下一目标：6.2 CLI cache prune/rm。
 
 - [ ] 6.2 实现 CLI `cache prune` 和 `cache rm`
