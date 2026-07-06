@@ -83,6 +83,15 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.initSchema(ctx); err != nil {
 		t.Fatalf("initSchema returned error: %v", err)
 	}
+	if _, err := store.UpsertProject(ctx, domain.ProjectRecord{}); err == nil {
+		t.Fatalf("UpsertProject empty project returned nil error")
+	}
+	if _, _, err := store.SaveProjectRevision(ctx, domain.ProjectRevisionRecord{ProjectID: "missing-project", SpecHash: "hash", SpecJSON: `{"ok":true}`}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("SaveProjectRevision missing project err=%v, want not found", err)
+	}
+	if _, _, err := store.SaveProjectRevision(ctx, domain.ProjectRevisionRecord{ProjectID: "missing-project", SpecHash: "hash", SpecJSON: `{bad json`}); err == nil {
+		t.Fatalf("SaveProjectRevision invalid JSON returned nil error")
+	}
 	project, err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "project-1", Name: "Project", SourcePath: "/tmp/project", SourceJSON: `{"kind":"local"}`, SpecHash: "hash-0"})
 	if err != nil {
 		t.Fatalf("UpsertProject returned error: %v", err)
@@ -118,8 +127,26 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if result, err := store.ListProjects(ctx, domain.ProjectListOptions{Query: "updated", Limit: 10}); err != nil || result.TotalCount != 1 {
 		t.Fatalf("ListProjects result=%#v err=%v", result, err)
 	}
+	if _, err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "project-2", Name: "Other Project", SourcePath: "/tmp/other", SourceJSON: `{"kind":"local"}`}); err != nil {
+		t.Fatalf("UpsertProject second project returned error: %v", err)
+	}
+	if result, err := store.ListProjects(ctx, domain.ProjectListOptions{Limit: 1, Offset: -5}); err != nil || result.TotalCount != 2 || len(result.Projects) != 1 || !result.HasMore || result.NextOffset != 1 {
+		t.Fatalf("ListProjects paged result=%#v err=%v", result, err)
+	}
+	if result, err := store.ListProjects(ctx, domain.ProjectListOptions{Query: "not-present", Limit: 500, Offset: 5}); err != nil || result.TotalCount != 0 || len(result.Projects) != 0 || result.NextOffset != 0 {
+		t.Fatalf("ListProjects empty result=%#v err=%v", result, err)
+	}
+	if _, err := store.GetProject(ctx, "missing-project"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetProject missing err=%v, want not found", err)
+	}
+	if _, err := store.GetProjectRevision(ctx, project.ID, 999); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetProjectRevision missing err=%v, want not found", err)
+	}
 	if got, found, err := store.GetProjectIfExists(ctx, project.ID, false); err != nil || !found || got.ID != project.ID {
 		t.Fatalf("GetProjectIfExists got=%#v found=%v err=%v", got, found, err)
+	}
+	if _, found, err := store.GetProjectIfExists(ctx, "missing-project", false); err != nil || found {
+		t.Fatalf("GetProjectIfExists missing found=%v err=%v", found, err)
 	}
 
 	agent, err := store.UpsertProjectAgent(ctx, domain.ProjectAgentRecord{
@@ -135,6 +162,9 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	}
 	if got, err := store.GetProjectAgent(ctx, project.ID, "worker"); err != nil || got.ManagedAgentID != "managed-agent-1" {
 		t.Fatalf("GetProjectAgent got=%#v err=%v", got, err)
+	}
+	if _, err := store.GetProjectAgent(ctx, project.ID, "missing-agent"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetProjectAgent missing err=%v, want not found", err)
 	}
 	if agents, err := store.ListProjectAgents(ctx, project.ID); err != nil || len(agents) != 1 {
 		t.Fatalf("ListProjectAgents agents=%#v err=%v", agents, err)
@@ -152,8 +182,17 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if scheduler, err = store.SetProjectSchedulerEnabled(ctx, project.ID, scheduler.SchedulerID, false); err != nil || scheduler.Enabled {
 		t.Fatalf("SetProjectSchedulerEnabled scheduler=%#v err=%v", scheduler, err)
 	}
+	if _, err := store.SetProjectSchedulerEnabled(ctx, "", scheduler.SchedulerID, true); err == nil {
+		t.Fatalf("SetProjectSchedulerEnabled empty project returned nil error")
+	}
+	if _, err := store.SetProjectSchedulerEnabled(ctx, project.ID, "missing-scheduler", true); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("SetProjectSchedulerEnabled missing err=%v, want not found", err)
+	}
 	if got, err := store.GetProjectScheduler(ctx, project.ID, scheduler.SchedulerID); err != nil || got.SchedulerID != scheduler.SchedulerID {
 		t.Fatalf("GetProjectScheduler got=%#v err=%v", got, err)
+	}
+	if _, err := store.GetProjectScheduler(ctx, project.ID, "missing-scheduler"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetProjectScheduler missing err=%v, want not found", err)
 	}
 	if schedulers, err := store.ListProjectSchedulers(ctx, project.ID); err != nil || len(schedulers) != 1 {
 		t.Fatalf("ListProjectSchedulers schedulers=%#v err=%v", schedulers, err)
@@ -179,11 +218,20 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if run, err = store.UpdateProjectRun(ctx, run); err != nil || run.SessionID != "session-1" {
 		t.Fatalf("UpdateProjectRun run=%#v err=%v", run, err)
 	}
+	if _, err := store.UpdateProjectRun(ctx, domain.ProjectRunRecord{RunID: "missing-run", ProjectID: project.ID, ResultJSON: "{}"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("UpdateProjectRun missing err=%v, want not found", err)
+	}
 	if got, err := store.GetProjectRun(ctx, run.RunID); err != nil || got.RunID != run.RunID {
 		t.Fatalf("GetProjectRun got=%#v err=%v", got, err)
 	}
+	if _, err := store.GetProjectRun(ctx, "missing-run"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetProjectRun missing err=%v, want not found", err)
+	}
 	if runs, err := store.ListProjectRuns(ctx, project.ID, 10); err != nil || len(runs) != 1 {
 		t.Fatalf("ListProjectRuns runs=%#v err=%v", runs, err)
+	}
+	if runs, err := store.ListProjectRunsByOptions(ctx, domain.ProjectRunListOptions{Limit: 500, Offset: -1}); err != nil || len(runs) != 1 {
+		t.Fatalf("ListProjectRunsByOptions unfiltered runs=%#v err=%v", runs, err)
 	}
 	if runs, err := store.ListProjectRunsByOptions(ctx, domain.ProjectRunListOptions{ProjectID: project.ID, AgentName: "worker", SessionID: "session-1", SchedulerID: scheduler.SchedulerID, Status: domain.ProjectRunStatusRunning, Source: domain.ProjectRunSourceAPI, Limit: 10}); err != nil || len(runs) != 1 {
 		t.Fatalf("ListProjectRunsByOptions runs=%#v err=%v", runs, err)
@@ -194,9 +242,18 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if runs, err := store.ListProjectRunsForSession(ctx, "session-1"); err != nil || len(runs) != 1 {
 		t.Fatalf("ListProjectRunsForSession runs=%#v err=%v", runs, err)
 	}
+	if _, err := store.MarkProjectRemoved(ctx, ""); err == nil {
+		t.Fatalf("MarkProjectRemoved empty project returned nil error")
+	}
+	if _, err := store.MarkProjectRemoved(ctx, "missing-project"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("MarkProjectRemoved missing err=%v, want not found", err)
+	}
 	removed, err := store.MarkProjectRemoved(ctx, project.ID)
 	if err != nil || removed.RemovedAt.IsZero() {
 		t.Fatalf("MarkProjectRemoved removed=%#v err=%v", removed, err)
+	}
+	if removedAgain, err := store.MarkProjectRemoved(ctx, project.ID); err != nil || removedAgain.RemovedAt.IsZero() {
+		t.Fatalf("MarkProjectRemoved already removed=%#v err=%v", removedAgain, err)
 	}
 	if _, err := store.GetProject(ctx, project.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetProject after remove err=%v, want not found", err)

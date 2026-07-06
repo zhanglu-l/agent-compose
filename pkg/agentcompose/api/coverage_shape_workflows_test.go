@@ -283,11 +283,23 @@ func TestAPILightweightHandlersCoverageWorkflows(t *testing.T) {
 	if resp, err := configHandler.UpdateWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateWorkspaceConfigRequest{WorkspaceId: fileWorkspaceID, Name: "Repo", Type: "git", ConfigJson: `{"repo_url":"https://example.test/repo.git"}`})); err != nil || resp.Msg.GetWorkspace().GetType() != "git" {
 		t.Fatalf("update workspace to git resp=%v err=%v", resp, err)
 	}
+	if resp, err := configHandler.UpdateWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateWorkspaceConfigRequest{WorkspaceId: fileWorkspaceID, Name: "Files Again", Type: "file"})); err != nil || resp.Msg.GetWorkspace().GetType() != "file" {
+		t.Fatalf("update workspace back to file resp=%v err=%v", resp, err)
+	}
 	if resp, err := configHandler.ListWorkspaceConfigs(ctx, connect.NewRequest(&emptypb.Empty{})); err != nil || len(resp.Msg.GetWorkspaces()) != 1 {
 		t.Fatalf("list workspaces resp=%v err=%v", resp, err)
 	}
 	if _, err := configHandler.DeleteWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.WorkspaceConfigIDRequest{WorkspaceId: fileWorkspaceID})); err != nil {
 		t.Fatalf("delete workspace err=%v", err)
+	}
+	if _, err := configHandler.UpdateGlobalEnvConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateGlobalEnvConfigRequest{EnvItems: []*agentcomposev1.SessionEnvVar{{Name: "MISSING_SECRET", Secret: true}}})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected missing secret update invalid argument, err=%v", err)
+	}
+	if _, err := configHandler.UpdateWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.UpdateWorkspaceConfigRequest{WorkspaceId: "missing", Name: "Missing", Type: "git"})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected update missing workspace invalid argument, err=%v", err)
+	}
+	if _, err := configHandler.DeleteWorkspaceConfig(ctx, connect.NewRequest(&agentcomposev1.WorkspaceConfigIDRequest{WorkspaceId: "missing"})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected delete missing workspace invalid argument, err=%v", err)
 	}
 	if err := configHandler.checkFileWorkspaceContentCreatable("workspace-check"); err != nil {
 		t.Fatalf("checkFileWorkspaceContentCreatable err=%v", err)
@@ -328,8 +340,26 @@ func TestAPILightweightHandlersCoverageWorkflows(t *testing.T) {
 	if resp, err := agentHandler.CreateAgentSession(ctx, connect.NewRequest(&agentcomposev1.CreateAgentSessionRequest{AgentId: "agent-1", Title: "Agent Session", EnvItems: []*agentcomposev1.SessionEnvVar{{Name: "REQUEST", Value: "value"}}})); err != nil || resp.Msg.GetSession().GetSummary().GetSessionId() == "" {
 		t.Fatalf("create agent session resp=%v err=%v", resp, err)
 	}
+	if resp, err := agentHandler.SetAgentDefinitionEnabled(ctx, connect.NewRequest(&agentcomposev1.SetAgentDefinitionEnabledRequest{AgentId: "agent-1", Enabled: false})); err != nil || resp.Msg.GetAgent().GetEnabled() {
+		t.Fatalf("set agent disabled resp=%v err=%v", resp, err)
+	}
+	if _, err := agentHandler.CreateAgentSession(ctx, connect.NewRequest(&agentcomposev1.CreateAgentSessionRequest{AgentId: "agent-1"})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected disabled create session invalid argument, err=%v", err)
+	}
 	if resp, err := agentHandler.SetAgentDefinitionEnabled(ctx, connect.NewRequest(&agentcomposev1.SetAgentDefinitionEnabledRequest{AgentId: "agent-1", Enabled: true})); err != nil || !resp.Msg.GetAgent().GetEnabled() {
 		t.Fatalf("set agent enabled resp=%v err=%v", resp, err)
+	}
+	if _, err := agentHandler.UpdateAgentDefinition(ctx, connect.NewRequest(&agentcomposev1.UpdateAgentDefinitionRequest{})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected empty update agent invalid argument, err=%v", err)
+	}
+	if _, err := agentHandler.DeleteAgentDefinition(ctx, connect.NewRequest(&agentcomposev1.AgentDefinitionIDRequest{})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected empty delete agent invalid argument, err=%v", err)
+	}
+	if _, err := agentHandler.SetAgentDefinitionEnabled(ctx, connect.NewRequest(&agentcomposev1.SetAgentDefinitionEnabledRequest{})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected empty set enabled invalid argument, err=%v", err)
+	}
+	if _, err := agentHandler.CreateAgentSession(ctx, connect.NewRequest(&agentcomposev1.CreateAgentSessionRequest{})); err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("expected empty create session invalid argument, err=%v", err)
 	}
 	if _, err := agentHandler.DeleteAgentDefinition(ctx, connect.NewRequest(&agentcomposev1.AgentDefinitionIDRequest{AgentId: "agent-1"})); err != nil {
 		t.Fatalf("delete agent definition err=%v", err)
