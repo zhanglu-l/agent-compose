@@ -153,19 +153,28 @@
 
 参考文档：[实施计划 阶段 3](docs/plan/runtime-cache-lifecycle-implementation-plan.md#阶段-3materialized-image-cache-inventory-和-prune)
 
-- [ ] 3.1 实现 materialized cache scanner
+- [x] 3.1 实现 materialized cache scanner
   - 依赖：2.3。
   - 工作内容：扫描 `pkg/imagecache.Cache.MaterializationRoot()`；读取 `IMAGE_CACHE_ROOT/metadata.json`；关联 `layout_cache_path`、`rootfs_cache_path`、digest、repo tags/digests；识别 layout/rootfs/ready flag/temp dir。
   - 可并行子任务：
-    - [ ] 可并行：构造 metadata 和磁盘目录测试 fixture。
-    - [ ] 可并行：审计 `pkg/imagecache` ready flag、lock、materialize helper 的当前行为。
+    - [x] 可并行：构造 metadata 和磁盘目录测试 fixture。
+    - [x] 可并行：审计 `pkg/imagecache` ready flag、lock、materialize helper 的当前行为。
   - 测试方案：`go test ./pkg/runtimecache ./pkg/imagecache`，覆盖 metadata 存在/缺失、layout/rootfs 存在/缺失、orphaned image dir、ready flag 和 temp dir。
   - 验收标准：每个 materialized item 都能解释 image id/ref 或 orphaned 原因；读取失败时 warning 清晰。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 新增 `runtimecache.MaterializedScanner`，扫描 `imagecache.Cache.MaterializationRoot()` 下的 materialized image directories。
+      - 读取 `IMAGE_CACHE_ROOT/metadata.json`，将 metadata 中的 `layout_cache_path`、`rootfs_cache_path`、config/manifest digest、repo tag/digest 关联到 materialized layout/rootfs/ready flag items。
+      - 识别 `materialized-oci-layout`、`materialized-rootfs`、`materialized-ready-flag`、`materialized-temp-dir`，并为 orphaned disk items 生成 stable `cache_id`、mtime last-used、size 和 removable/protection 状态。
+      - metadata 读取失败或显式 materialized path 缺失时返回 warnings，不阻塞磁盘 inventory。
+      - 增加 tests 覆盖 metadata 存在/缺失/损坏、layout/rootfs 存在/缺失、orphaned image dir、`.ready`、`.rootfs.ready`、`rootfs.tmp` 和 metadata warning。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test -count=1 ./pkg/runtimecache ./pkg/imagecache`
+      - `rg -n "connectrpc|connect\\." pkg/runtimecache || true`
+    - 审计与例外：
+      - 本任务只实现 inventory scanner；materialized cache 删除、ready flag 同步删除和 `pkg/imagecache.Cache.Remove` 非回归按任务 3.2 实现。
+      - scanner 使用 `pkg/imagecache` 当前 ready flag 和 temp dir 命名：`.ready`、`.rootfs.ready`、`oci.tmp`、`rootfs.tmp`。
     - 下一目标：3.2 materialized cache 删除和 image remove 非回归。
 
 - [ ] 3.2 实现 materialized cache prune/remove 和非回归测试
