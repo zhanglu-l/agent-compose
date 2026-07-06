@@ -1436,6 +1436,9 @@ func runInteractiveComposeRun(cmd *cobra.Command, options composeRunOptions, pro
 		}
 		runReq := proto.Clone(baseReq).(*agentcomposev2.RunAgentRequest)
 		runReq.SessionId = sessionID
+		if strings.TrimSpace(sessionID) != "" {
+			runReq.Driver = ""
+		}
 		runReq.ClientRequestId = manualRunClientRequestID(projectName, baseReq.GetAgentName(), input)
 		if promptMode {
 			runReq.Prompt = input

@@ -1540,6 +1540,70 @@ agents:
 	}
 }
 
+func TestIntegrationCLIRunInteractiveDriverOnlySentForInitialSandbox(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-driver
+agents:
+  reviewer:
+    provider: codex
+`)
+	var drivers []string
+	var prompts []string
+	var sessions []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				drivers = append(drivers, req.Msg.GetDriver())
+				prompts = append(prompts, req.Msg.GetPrompt())
+				sessions = append(sessions, req.Msg.GetSessionId())
+				if req.Msg.GetCommand() != "" || req.Msg.GetTriggerId() != "" {
+					t.Fatalf("RunAgentStream interactive prompt request = %#v", req.Msg)
+				}
+				runID := fmt.Sprintf("run-driver-repl-%d", len(prompts))
+				if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+					RunId:      runID,
+					Transcript: &agentcomposev2.TranscriptEvent{Text: fmt.Sprintf("driver %d output\n", len(prompts))},
+				}); err != nil {
+					return err
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     runID,
+					Run: &agentcomposev2.RunSummary{
+						RunId:     runID,
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-driver-repl",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-driver-repl", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("second prompt\n/exit\n", "run", "--host", server.URL, "--file", composePath, "--driver", "msb", "reviewer", "-i", "--prompt", "first prompt")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -i --driver --prompt code/stderr = %d / %q", exitCode, stderr)
+	}
+	if stdout != "driver 1 output\ndriver 2 output\n" {
+		t.Fatalf("run -i --driver --prompt stdout = %q", stdout)
+	}
+	if strings.Join(prompts, "|") != "first prompt|second prompt" {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+	if strings.Join(sessions, "|") != "|sandbox-driver-repl" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+	if strings.Join(drivers, "|") != "microsandbox|" {
+		t.Fatalf("drivers = %#v", drivers)
+	}
+}
+
 func TestIntegrationCLIRunInteractiveCommandReusesSession(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-interactive-command
