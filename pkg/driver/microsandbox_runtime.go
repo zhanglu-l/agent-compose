@@ -357,7 +357,10 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 	if _, err := os.Stat(r.config.MicrosandboxLibPath); err != nil {
 		return fmt.Errorf("microsandbox Go FFI library missing at %s: %w", r.config.MicrosandboxLibPath, err)
 	}
-	libkrunfwPath := r.resolveLibkrunfwPath()
+	libkrunfwPath, err := r.resolveLibkrunfwPath()
+	if err != nil {
+		return err
+	}
 	if libkrunfwPath == "" {
 		return fmt.Errorf("microsandbox libkrunfw not found next to %s", r.config.MicrosandboxLibPath)
 	}
@@ -372,16 +375,19 @@ func (r *microsandboxRuntime) prepareEnvironment() error {
 	if err := r.writeMicrosandboxConfig(libkrunfwPath); err != nil {
 		return err
 	}
-	r.gcDockerDisks()
 	return nil
 }
 
-func (r *microsandboxRuntime) resolveLibkrunfwPath() string {
+func (r *microsandboxRuntime) resolveLibkrunfwPath() (string, error) {
 	libDir := filepath.Dir(r.config.MicrosandboxLibPath)
-	matches, _ := filepath.Glob(filepath.Join(libDir, "libkrunfw.so.*"))
 	var selected string
 	var selectedVersion []int
-	for _, match := range matches {
+	entries, err := os.ReadDir(libDir)
+	if err != nil {
+		return "", fmt.Errorf("read microsandbox lib directory %s: %w", libDir, err)
+	}
+	for _, entry := range entries {
+		match := filepath.Join(libDir, entry.Name())
 		info, err := os.Lstat(match)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			continue
@@ -396,15 +402,15 @@ func (r *microsandboxRuntime) resolveLibkrunfwPath() string {
 		}
 	}
 	if selected != "" {
-		return selected
+		return selected, nil
 	}
 	for _, name := range []string{"libkrunfw.so.5", "libkrunfw.so"} {
 		path := filepath.Join(libDir, name)
 		if _, err := os.Stat(path); err == nil {
-			return path
+			return path, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func parseLibkrunfwVersion(name string) ([]int, bool) {
@@ -636,32 +642,6 @@ func (r *microsandboxRuntime) ensureDockerDisk(sessionID string) (string, error)
 	return path, nil
 }
 
-func (r *microsandboxRuntime) gcDockerDisks() {
-	disksDir := filepath.Join(r.config.MicrosandboxHome, "docker-disks")
-	entries, err := os.ReadDir(disksDir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("agent-compose microsandbox gc docker-disks: cannot read directory", "dir", disksDir, "error", err)
-		}
-		return
-	}
-	removed := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".raw") {
-			continue
-		}
-		p := filepath.Join(disksDir, entry.Name())
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			slog.Warn("agent-compose microsandbox gc docker-disks: failed to remove stale disk", "path", p, "error", err)
-			continue
-		}
-		removed++
-	}
-	if removed > 0 {
-		slog.Info("agent-compose microsandbox gc docker-disks: removed stale disk images on startup", "count", removed)
-	}
-}
-
 func (r *microsandboxRuntime) removeDockerDisk(sessionID string) {
 	path := r.dockerDiskPath(sessionID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -859,8 +839,8 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	}
 	// If the sandbox never comes up, remove the disk we just provisioned:
 	// StopSession is not guaranteed to run for a session that never started,
-	// so without this the .raw would linger until the next daemon restart
-	// (gcDockerDisks). On success the flag below disarms the cleanup.
+	// so without this the .raw would linger until explicit cache prune. On
+	// success the flag below disarms the cleanup.
 	sandboxCreated := false
 	defer func() {
 		if !sandboxCreated {

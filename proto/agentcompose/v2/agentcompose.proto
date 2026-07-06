@@ -35,6 +35,13 @@ service ImageService {
   rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
 }
 
+service CacheService {
+  rpc ListCaches(ListCachesRequest) returns (ListCachesResponse);
+  rpc InspectCache(InspectCacheRequest) returns (InspectCacheResponse);
+  rpc PruneCaches(PruneCachesRequest) returns (PruneCachesResponse);
+  rpc RemoveCache(RemoveCacheRequest) returns (RemoveCacheResponse);
+}
+
 service SandboxService {
   rpc RemoveSandbox(RemoveSandboxRequest) returns (RemoveSandboxResponse);
   rpc GetSandboxStats(GetSandboxStatsRequest) returns (GetSandboxStatsResponse);
@@ -129,6 +136,24 @@ enum MetricStatus {
   METRIC_STATUS_OK = 1;
   METRIC_STATUS_UNKNOWN = 2;
   METRIC_STATUS_UNAVAILABLE = 3;
+}
+
+enum CacheDomain {
+  CACHE_DOMAIN_UNSPECIFIED = 0;
+  CACHE_DOMAIN_OCI_IMAGE_STORE = 1;
+  CACHE_DOMAIN_MATERIALIZED_IMAGE_CACHE = 2;
+  CACHE_DOMAIN_RUNTIME_DERIVED_CACHE = 3;
+  CACHE_DOMAIN_SESSION_EPHEMERAL_STATE = 4;
+}
+
+enum CacheStatus {
+  CACHE_STATUS_UNSPECIFIED = 0;
+  CACHE_STATUS_ACTIVE = 1;
+  CACHE_STATUS_REFERENCED = 2;
+  CACHE_STATUS_UNUSED = 3;
+  CACHE_STATUS_EXPIRED = 4;
+  CACHE_STATUS_ORPHANED = 5;
+  CACHE_STATUS_UNKNOWN = 6;
 }
 
 message ValidateProjectRequest {
@@ -637,6 +662,90 @@ message RemoveImageResponse {
   repeated string untagged_refs = 2;
   repeated string deleted_ids = 3;
   repeated string warnings = 4;
+}
+
+message CacheFilter {
+  string driver = 1;
+  CacheDomain domain = 2;
+  string type = 3;
+  CacheStatus status = 4;
+  uint64 older_than_seconds = 5;
+  string cache_id = 6;
+}
+
+message ListCachesRequest {
+  CacheFilter filter = 1;
+}
+
+message ListCachesResponse {
+  repeated CacheItem caches = 1;
+  repeated string warnings = 2;
+}
+
+message InspectCacheRequest {
+  string cache_id = 1;
+}
+
+message InspectCacheResponse {
+  CacheItem cache = 1;
+  repeated string warnings = 2;
+}
+
+message PruneCachesRequest {
+  CacheFilter filter = 1;
+  bool include_referenced = 2;
+  bool force = 3;
+}
+
+message PruneCachesResponse {
+  bool dry_run = 1;
+  repeated CacheItem matched = 2;
+  repeated string removed = 3;
+  repeated CacheItem skipped = 4;
+  repeated string warnings = 5;
+}
+
+message RemoveCacheRequest {
+  string cache_id = 1;
+  bool force = 2;
+}
+
+message RemoveCacheResponse {
+  bool dry_run = 1;
+  repeated CacheItem matched = 2;
+  repeated string removed = 3;
+  repeated CacheItem skipped = 4;
+  repeated string warnings = 5;
+}
+
+message CacheItem {
+  string cache_id = 1;
+  CacheDomain domain = 2;
+  string driver = 3;
+  string kind = 4;
+  string path = 5;
+  uint64 size_bytes = 6;
+  string image_id = 7;
+  string image_ref = 8;
+  string resolved_ref = 9;
+  string session_id = 10;
+  string sandbox_id = 11;
+  CacheStatus status = 12;
+  bool removable = 13;
+  repeated string blocked_reasons = 14;
+  string last_used_at = 15;
+  string last_used_source = 16;
+  repeated CacheReference references = 17;
+  repeated string warnings = 18;
+}
+
+message CacheReference {
+  string type = 1;
+  string id = 2;
+  string name = 3;
+  string path = 4;
+  string status = 5;
+  string description = 6;
 }
 
 message Image {

@@ -29,6 +29,8 @@ const (
 	ExecServiceName = "agentcompose.v2.ExecService"
 	// ImageServiceName is the fully-qualified name of the ImageService service.
 	ImageServiceName = "agentcompose.v2.ImageService"
+	// CacheServiceName is the fully-qualified name of the CacheService service.
+	CacheServiceName = "agentcompose.v2.CacheService"
 	// SandboxServiceName is the fully-qualified name of the SandboxService service.
 	SandboxServiceName = "agentcompose.v2.SandboxService"
 )
@@ -89,6 +91,17 @@ const (
 	// ImageServiceRemoveImageProcedure is the fully-qualified name of the ImageService's RemoveImage
 	// RPC.
 	ImageServiceRemoveImageProcedure = "/agentcompose.v2.ImageService/RemoveImage"
+	// CacheServiceListCachesProcedure is the fully-qualified name of the CacheService's ListCaches RPC.
+	CacheServiceListCachesProcedure = "/agentcompose.v2.CacheService/ListCaches"
+	// CacheServiceInspectCacheProcedure is the fully-qualified name of the CacheService's InspectCache
+	// RPC.
+	CacheServiceInspectCacheProcedure = "/agentcompose.v2.CacheService/InspectCache"
+	// CacheServicePruneCachesProcedure is the fully-qualified name of the CacheService's PruneCaches
+	// RPC.
+	CacheServicePruneCachesProcedure = "/agentcompose.v2.CacheService/PruneCaches"
+	// CacheServiceRemoveCacheProcedure is the fully-qualified name of the CacheService's RemoveCache
+	// RPC.
+	CacheServiceRemoveCacheProcedure = "/agentcompose.v2.CacheService/RemoveCache"
 	// SandboxServiceRemoveSandboxProcedure is the fully-qualified name of the SandboxService's
 	// RemoveSandbox RPC.
 	SandboxServiceRemoveSandboxProcedure = "/agentcompose.v2.SandboxService/RemoveSandbox"
@@ -765,6 +778,154 @@ func (UnimplementedImageServiceHandler) InspectImage(context.Context, *connect.R
 
 func (UnimplementedImageServiceHandler) RemoveImage(context.Context, *connect.Request[v2.RemoveImageRequest]) (*connect.Response[v2.RemoveImageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ImageService.RemoveImage is not implemented"))
+}
+
+// CacheServiceClient is a client for the agentcompose.v2.CacheService service.
+type CacheServiceClient interface {
+	ListCaches(context.Context, *connect.Request[v2.ListCachesRequest]) (*connect.Response[v2.ListCachesResponse], error)
+	InspectCache(context.Context, *connect.Request[v2.InspectCacheRequest]) (*connect.Response[v2.InspectCacheResponse], error)
+	PruneCaches(context.Context, *connect.Request[v2.PruneCachesRequest]) (*connect.Response[v2.PruneCachesResponse], error)
+	RemoveCache(context.Context, *connect.Request[v2.RemoveCacheRequest]) (*connect.Response[v2.RemoveCacheResponse], error)
+}
+
+// NewCacheServiceClient constructs a client for the agentcompose.v2.CacheService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewCacheServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) CacheServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	cacheServiceMethods := v2.File_proto_agentcompose_v2_agentcompose_proto.Services().ByName("CacheService").Methods()
+	return &cacheServiceClient{
+		listCaches: connect.NewClient[v2.ListCachesRequest, v2.ListCachesResponse](
+			httpClient,
+			baseURL+CacheServiceListCachesProcedure,
+			connect.WithSchema(cacheServiceMethods.ByName("ListCaches")),
+			connect.WithClientOptions(opts...),
+		),
+		inspectCache: connect.NewClient[v2.InspectCacheRequest, v2.InspectCacheResponse](
+			httpClient,
+			baseURL+CacheServiceInspectCacheProcedure,
+			connect.WithSchema(cacheServiceMethods.ByName("InspectCache")),
+			connect.WithClientOptions(opts...),
+		),
+		pruneCaches: connect.NewClient[v2.PruneCachesRequest, v2.PruneCachesResponse](
+			httpClient,
+			baseURL+CacheServicePruneCachesProcedure,
+			connect.WithSchema(cacheServiceMethods.ByName("PruneCaches")),
+			connect.WithClientOptions(opts...),
+		),
+		removeCache: connect.NewClient[v2.RemoveCacheRequest, v2.RemoveCacheResponse](
+			httpClient,
+			baseURL+CacheServiceRemoveCacheProcedure,
+			connect.WithSchema(cacheServiceMethods.ByName("RemoveCache")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// cacheServiceClient implements CacheServiceClient.
+type cacheServiceClient struct {
+	listCaches   *connect.Client[v2.ListCachesRequest, v2.ListCachesResponse]
+	inspectCache *connect.Client[v2.InspectCacheRequest, v2.InspectCacheResponse]
+	pruneCaches  *connect.Client[v2.PruneCachesRequest, v2.PruneCachesResponse]
+	removeCache  *connect.Client[v2.RemoveCacheRequest, v2.RemoveCacheResponse]
+}
+
+// ListCaches calls agentcompose.v2.CacheService.ListCaches.
+func (c *cacheServiceClient) ListCaches(ctx context.Context, req *connect.Request[v2.ListCachesRequest]) (*connect.Response[v2.ListCachesResponse], error) {
+	return c.listCaches.CallUnary(ctx, req)
+}
+
+// InspectCache calls agentcompose.v2.CacheService.InspectCache.
+func (c *cacheServiceClient) InspectCache(ctx context.Context, req *connect.Request[v2.InspectCacheRequest]) (*connect.Response[v2.InspectCacheResponse], error) {
+	return c.inspectCache.CallUnary(ctx, req)
+}
+
+// PruneCaches calls agentcompose.v2.CacheService.PruneCaches.
+func (c *cacheServiceClient) PruneCaches(ctx context.Context, req *connect.Request[v2.PruneCachesRequest]) (*connect.Response[v2.PruneCachesResponse], error) {
+	return c.pruneCaches.CallUnary(ctx, req)
+}
+
+// RemoveCache calls agentcompose.v2.CacheService.RemoveCache.
+func (c *cacheServiceClient) RemoveCache(ctx context.Context, req *connect.Request[v2.RemoveCacheRequest]) (*connect.Response[v2.RemoveCacheResponse], error) {
+	return c.removeCache.CallUnary(ctx, req)
+}
+
+// CacheServiceHandler is an implementation of the agentcompose.v2.CacheService service.
+type CacheServiceHandler interface {
+	ListCaches(context.Context, *connect.Request[v2.ListCachesRequest]) (*connect.Response[v2.ListCachesResponse], error)
+	InspectCache(context.Context, *connect.Request[v2.InspectCacheRequest]) (*connect.Response[v2.InspectCacheResponse], error)
+	PruneCaches(context.Context, *connect.Request[v2.PruneCachesRequest]) (*connect.Response[v2.PruneCachesResponse], error)
+	RemoveCache(context.Context, *connect.Request[v2.RemoveCacheRequest]) (*connect.Response[v2.RemoveCacheResponse], error)
+}
+
+// NewCacheServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewCacheServiceHandler(svc CacheServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	cacheServiceMethods := v2.File_proto_agentcompose_v2_agentcompose_proto.Services().ByName("CacheService").Methods()
+	cacheServiceListCachesHandler := connect.NewUnaryHandler(
+		CacheServiceListCachesProcedure,
+		svc.ListCaches,
+		connect.WithSchema(cacheServiceMethods.ByName("ListCaches")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cacheServiceInspectCacheHandler := connect.NewUnaryHandler(
+		CacheServiceInspectCacheProcedure,
+		svc.InspectCache,
+		connect.WithSchema(cacheServiceMethods.ByName("InspectCache")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cacheServicePruneCachesHandler := connect.NewUnaryHandler(
+		CacheServicePruneCachesProcedure,
+		svc.PruneCaches,
+		connect.WithSchema(cacheServiceMethods.ByName("PruneCaches")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cacheServiceRemoveCacheHandler := connect.NewUnaryHandler(
+		CacheServiceRemoveCacheProcedure,
+		svc.RemoveCache,
+		connect.WithSchema(cacheServiceMethods.ByName("RemoveCache")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/agentcompose.v2.CacheService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case CacheServiceListCachesProcedure:
+			cacheServiceListCachesHandler.ServeHTTP(w, r)
+		case CacheServiceInspectCacheProcedure:
+			cacheServiceInspectCacheHandler.ServeHTTP(w, r)
+		case CacheServicePruneCachesProcedure:
+			cacheServicePruneCachesHandler.ServeHTTP(w, r)
+		case CacheServiceRemoveCacheProcedure:
+			cacheServiceRemoveCacheHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedCacheServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedCacheServiceHandler struct{}
+
+func (UnimplementedCacheServiceHandler) ListCaches(context.Context, *connect.Request[v2.ListCachesRequest]) (*connect.Response[v2.ListCachesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.CacheService.ListCaches is not implemented"))
+}
+
+func (UnimplementedCacheServiceHandler) InspectCache(context.Context, *connect.Request[v2.InspectCacheRequest]) (*connect.Response[v2.InspectCacheResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.CacheService.InspectCache is not implemented"))
+}
+
+func (UnimplementedCacheServiceHandler) PruneCaches(context.Context, *connect.Request[v2.PruneCachesRequest]) (*connect.Response[v2.PruneCachesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.CacheService.PruneCaches is not implemented"))
+}
+
+func (UnimplementedCacheServiceHandler) RemoveCache(context.Context, *connect.Request[v2.RemoveCacheRequest]) (*connect.Response[v2.RemoveCacheResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.CacheService.RemoveCache is not implemented"))
 }
 
 // SandboxServiceClient is a client for the agentcompose.v2.SandboxService service.
