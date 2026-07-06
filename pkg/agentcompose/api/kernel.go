@@ -91,7 +91,7 @@ func (h *KernelHandler) ExecuteCellStream(ctx context.Context, req *connect.Requ
 				EventType: agentcomposev1.ExecuteCellStreamEventType_EXECUTE_CELL_STREAM_EVENT_TYPE_OUTPUT,
 				CellId:    cellID,
 				Chunk:     chunk.Text,
-				IsStderr:  chunk.IsStderr,
+				IsStderr:  domain.NormalizeStdioStream(chunk.Stream) == domain.StdioStderr,
 			}))
 		},
 	})

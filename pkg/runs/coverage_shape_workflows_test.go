@@ -412,7 +412,7 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 		t.Fatalf("command run = %#v", run)
 	}
 	transcriptData, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "transcript.txt"))
-	if err != nil || !strings.Contains(string(transcriptData), "$ bash -lc") || !strings.Contains(string(transcriptData), "command output\n") || strings.Contains(string(transcriptData), execution.CommandResultPrefix) {
+	if err != nil || string(transcriptData) != "command output\n" || strings.Contains(string(transcriptData), execution.CommandResultPrefix) {
 		t.Fatalf("command transcript artifact = %q err=%v", string(transcriptData), err)
 	}
 	requestData, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "command-request.json"))
@@ -422,7 +422,7 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "output.txt")); err != nil || string(data) != "command output\n" {
 		t.Fatalf("command output artifact = %q err=%v", string(data), err)
 	}
-	if !started || len(chunks) != 2 || strings.Contains(chunks[0].Text+chunks[1].Text, execution.CommandResultPrefix) || runtime.spec.Command != "sh" || !strings.Contains(strings.Join(runtime.spec.Args, " "), "agent-compose-runtime exec") {
+	if !started || len(chunks) != 1 || chunks[0].Text != "command output\n" || strings.Contains(chunks[0].Text, execution.CommandResultPrefix) || runtime.spec.Command != "sh" || !strings.Contains(strings.Join(runtime.spec.Args, " "), "agent-compose-runtime exec") {
 		t.Fatalf("started=%v chunks=%#v spec=%#v", started, chunks, runtime.spec)
 	}
 	second, secondExecErr, secondErr := controller.RunProjectAgent(ctx, RunAgentRequest{
@@ -454,6 +454,80 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 		ProjectID: "project-1", AgentName: "worker", Command: "echo command", Prompt: "prompt",
 	}, nil); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("command and prompt error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestRunsControllerRunProjectAgentCommandNonZeroExitPreservesOutput(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	config := &appconfig.Config{
+		DataRoot:      root,
+		SessionRoot:   filepath.Join(root, "sessions"),
+		RuntimeDriver: "boxlite",
+		DefaultImage:  "guest:latest",
+	}
+	store, err := sessionstore.NewWithConfig(config)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	configDB := &fakeControllerStore{
+		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
+		projectAgent: domain.ProjectAgentRecord{
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+		},
+		managed: ManagedAgentDefinition{
+			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+		},
+		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
+		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
+		runs:     map[string]domain.ProjectRunRecord{},
+	}
+	runtime := &fakeControllerRuntime{result: domain.RuntimeCommandResult{
+		Stdout:   "partial stdout\n",
+		Stderr:   "failure stderr\n",
+		Output:   "partial stdout\nfailure stderr\n",
+		ExitCode: 7,
+		Success:  false,
+	}}
+	controller := NewController(ControllerDependencies{
+		Config:   config,
+		Store:    store,
+		ConfigDB: configDB,
+		Driver:   &fakeControllerDriver{store: store},
+		Runtime: func(*domain.Session) (Runtime, error) {
+			return runtime, nil
+		},
+		Images: fakeControllerImages{},
+	})
+	var chunks []domain.ExecChunk
+	run, execErr, err := controller.RunProjectAgent(ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Command:         "exit 7",
+		Source:          domain.ProjectRunSourceAPI,
+		ClientRequestID: "command-failure",
+	}, &StreamSink{
+		SendChunk: func(_ string, chunk domain.ExecChunk, _ time.Time) error {
+			chunks = append(chunks, chunk)
+			return nil
+		},
+	})
+	if err != nil || execErr != nil {
+		t.Fatalf("RunProjectAgent failure err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if run.Status != domain.ProjectRunStatusFailed || run.ExitCode != 7 || run.Output != "partial stdout\nfailure stderr\n" {
+		t.Fatalf("failed command run = %#v", run)
+	}
+	if len(chunks) != 2 || domain.NormalizeStdioStream(chunks[0].Stream) != domain.StdioStdout || domain.NormalizeStdioStream(chunks[1].Stream) != domain.StdioStderr {
+		t.Fatalf("stream chunks = %#v", chunks)
+	}
+	joinedChunks := chunks[0].Text + chunks[1].Text
+	if !strings.Contains(joinedChunks, "partial stdout\n") || !strings.Contains(joinedChunks, "failure stderr\n") || strings.Contains(joinedChunks, execution.CommandResultPrefix) {
+		t.Fatalf("stream chunks leaked or lost output: %#v", chunks)
+	}
+	transcriptData, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "transcript.txt"))
+	if err != nil || !strings.Contains(string(transcriptData), "partial stdout\n") || !strings.Contains(string(transcriptData), "failure stderr\n") || strings.Contains(string(transcriptData), execution.CommandResultPrefix) {
+		t.Fatalf("failed command transcript = %q err=%v", string(transcriptData), err)
 	}
 }
 
@@ -765,7 +839,7 @@ func TestRunsProjectRunLogAppendChunk(t *testing.T) {
 	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stdout\n"}); err != nil {
 		t.Fatalf("append stdout returned error: %v", err)
 	}
-	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", IsStderr: true}); err != nil {
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", Stream: domain.StdioStderr}); err != nil {
 		t.Fatalf("append stderr returned error: %v", err)
 	}
 	if err := appendProjectRunLogChunk(path, domain.ExecChunk{}); err != nil {
@@ -1022,16 +1096,25 @@ func (e *fakeControllerExecutor) ExecuteAgentRequest(_ context.Context, _ *domai
 }
 
 type fakeControllerRuntime struct {
-	spec domain.ExecSpec
+	spec   domain.ExecSpec
+	result domain.RuntimeCommandResult
 }
 
 func (r *fakeControllerRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, writer domain.ExecStreamWriter) (domain.ExecResult, error) {
 	r.spec = spec
-	writer(domain.ExecChunk{Text: "$ bash -lc 'echo command'\n"})
-	writer(domain.ExecChunk{Text: "command output\n"})
-	payload := fakeRuntimeCommandPayload(domain.RuntimeCommandResult{Stdout: "command output\n", Output: "command output\n", ExitCode: 0, Success: true})
+	result := r.result
+	if result.Stdout == "" && result.Stderr == "" && result.Output == "" && result.ExitCode == 0 && !result.Success {
+		result = domain.RuntimeCommandResult{Stdout: "command output\n", Output: "command output\n", ExitCode: 0, Success: true}
+	}
+	if result.Stdout != "" {
+		writer(domain.ExecChunk{Text: result.Stdout})
+	}
+	if result.Stderr != "" {
+		writer(domain.ExecChunk{Text: result.Stderr, Stream: domain.StdioStderr})
+	}
+	payload := fakeRuntimeCommandPayload(result)
 	writer(domain.ExecChunk{Text: payload})
-	return domain.ExecResult{Stdout: payload, Output: "$ bash -lc 'echo command'\ncommand output\n" + payload, ExitCode: 0, Success: true}, nil
+	return domain.ExecResult{Stdout: result.Stdout + payload, Stderr: result.Stderr, Output: result.Output + payload, ExitCode: result.ExitCode, Success: result.Success}, nil
 }
 
 func fakeRuntimeCommandPayload(result domain.RuntimeCommandResult) string {

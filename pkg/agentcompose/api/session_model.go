@@ -129,7 +129,7 @@ func CellTypeFromProto(cellType agentcomposev1.CellType) string {
 func WatchSessionResponseToProto(event sessions.WatchEvent) *agentcomposev1.WatchSessionResponse {
 	resp := &agentcomposev1.WatchSessionResponse{
 		Chunk:    event.Chunk,
-		IsStderr: event.IsStderr,
+		IsStderr: domain.NormalizeStdioStream(event.Stream) == domain.StdioStderr,
 		CellId:   event.CellID,
 	}
 	switch event.EventType {

@@ -99,7 +99,7 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 				EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
 				RunId:      runID,
 				Chunk:      chunk.Text,
-				IsStderr:   chunk.IsStderr,
+				Stream:     api.StdioStreamToProto(chunk.Stream),
 				CreatedAt:  api.FormatProjectTime(createdAt),
 				Transcript: api.TranscriptEventFromExecChunk(chunk, createdAt),
 			}); err != nil {

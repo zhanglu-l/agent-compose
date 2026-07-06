@@ -157,13 +157,19 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 	}
 
 	streamWriter := func(chunk domain.ExecChunk) {
-		if !chunk.IsStderr {
+		filtered, visible := execution.FilterAgentStreamChunk(chunk)
+		if !visible {
 			return
 		}
+		isStderr := domain.NormalizeStdioStream(filtered.Stream) == domain.StdioStderr
 		cellMu.Lock()
-		streamed.WriteChunk(chunk)
-		cell.Stderr += chunk.Text
-		cell.Output += chunk.Text
+		streamed.WriteChunk(filtered)
+		if isStderr {
+			cell.Stderr += filtered.Text
+		} else {
+			cell.Stdout += filtered.Text
+		}
+		cell.Output += filtered.Text
 		snapshot := cell
 		cellMu.Unlock()
 		persistErr := e.store.AddCell(ctx, session, snapshot)
@@ -172,10 +178,10 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 			return
 		}
 		if e.streams != nil {
-			e.streams.PublishCellOutput(session.Summary.ID, snapshot.ID, chunk.Text, chunk.IsStderr)
+			e.streams.PublishCellOutput(session.Summary.ID, snapshot.ID, filtered.Text, filtered.Stream)
 		}
 		if stream.OnChunk != nil {
-			if err := stream.OnChunk(cellID, chunk); err != nil {
+			if err := stream.OnChunk(cellID, filtered); err != nil {
 				setStreamErr(err)
 			}
 		}

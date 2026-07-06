@@ -58,6 +58,7 @@ describe("commander CLI", () => {
       outputSchemaFile: "/tmp/schema.json",
     });
     expect(stdio.stdout).toBe(`${RESULT_PREFIX}{"provider":"codex","sessionId":"s1","stopReason":"completed","finalText":"done","json":null,"transcript":"done","stderr":""}\n`);
+    expect(stdio.stderr).toBe("");
   });
 
   it("rejects missing required options through commander", async () => {
@@ -136,6 +137,49 @@ describe("commander CLI", () => {
       home: "/data/home",
     });
     expect(stdio.stdout).toBe(`${COMMAND_RESULT_PREFIX}{"stdout":"ok\\n","stderr":"","output":"ok\\n","exitCode":0,"success":true,"stdoutTruncated":false,"stderrTruncated":false,"outputTruncated":false,"artifacts":{"stdout":"/tmp/stdout.txt","stderr":"/tmp/stderr.txt","output":"/tmp/output.txt","request":"/tmp/request.json","result":"/tmp/result.json"}}\n`);
+    expect(stdio.stderr).toBe("");
+  });
+
+  it("prints the command result marker for non-zero exec results", async () => {
+    vi.spyOn(commandModule, "runExecCommand").mockResolvedValue({
+      stdout: "out\n",
+      stderr: "err\n",
+      output: "out\nerr\n",
+      exitCode: 9,
+      success: false,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      outputTruncated: false,
+      artifacts: {
+        stdout: "/tmp/stdout.txt",
+        stderr: "/tmp/stderr.txt",
+        output: "/tmp/output.txt",
+        request: "/tmp/request.json",
+        result: "/tmp/result.json",
+      },
+    });
+    const stdio = captureStdio();
+    try {
+      await createProgram({ exitOverride: true }).parseAsync([
+        "node",
+        "cli",
+        "exec",
+        "--request-file",
+        "/tmp/request.json",
+      ]);
+    } finally {
+      stdio.restore();
+    }
+
+    expect(stdio.stderr).toBe("");
+    expect(stdio.stdout).toMatch(new RegExp(`^${COMMAND_RESULT_PREFIX}`));
+    const payload = JSON.parse(stdio.stdout.slice(COMMAND_RESULT_PREFIX.length));
+    expect(payload).toMatchObject({
+      stdout: "out\n",
+      stderr: "err\n",
+      exitCode: 9,
+      success: false,
+    });
   });
 
   it("main parses argv through the configured program", async () => {

@@ -4,8 +4,12 @@
 
 相关代码：
 
+- stream 模型：`pkg/model/model.go`、`pkg/driver/types.go`
+- marker 解析与 stream filtering：`pkg/execution/parse.go`
 - host agent 调用：`pkg/agentcompose/adapters/agent_runner.go`
 - host 执行与落库：`pkg/agentcompose/adapters/cell_executor.go`、`pkg/agentcompose/adapters/agent_executor.go`、`pkg/storage/sessionstore`
+- v2 stream API：`proto/agentcompose/v2/agentcompose.proto`
+- CLI stream writer：`cmd/agent-compose/main.go`
 - runtime CLI 源码：`runtime/javascript/src/cli.ts`
 - runtime provider 适配器：`runtime/javascript/src/runners/`
 - guest SDK：`runtime/agent-compose-runtime-sdk/`
@@ -217,7 +221,8 @@ runtime 行为：
 - `mode=exec` 使用 `spawn(command, args, { shell: false })`。
 - `mode=shell` 使用 `spawn("bash", ["-lc", script])`。
 - stdout/stderr 分流采集，并合并到 output。
-- 用户命令 stdout/stderr 会实时镜像到 `agent-compose-runtime exec` 的 stderr，供 host 流式展示；`agent-compose-runtime exec` 的 stdout 只用于最终 command result 协议 payload。
+- 用户命令 stdout 会实时镜像到 `agent-compose-runtime exec` 的 stdout，用户命令 stderr 会实时镜像到 `agent-compose-runtime exec` 的 stderr。host 转发 command transcript chunk 时保留这些 stdio stream。
+- 子进程退出后，`agent-compose-runtime exec` 会在 stdout 写入一行最终 `__COMMAND_RESULT__...` 协议 payload。
 - 默认每个 stream 返回最多 `1 MiB`；完整 stdout/stderr/output 写入 artifact。
 
 ## 5. 环境变量约定
@@ -264,11 +269,43 @@ artifact dir 只来自 command request 或 CLI 参数，不再作为全局环境
 
 当前不使用 stdin。prompt 必须通过 `--message-file` 指定。
 
-### 6.2 stderr：人类可读 transcript
+### 6.2 Stdio stream 与协议 marker 边界
+
+runtime driver 以 `ExecChunk{Text, Stream}` 传输输出。driver 层和 host
+domain model 都使用 stdout/stderr stream enum，空值或未指定 stream 会归一为
+stdout。`Stream` 只表示原始 stdio 通道，不表示内部/外部、隐藏/可见、机器可读/人类可读。
+
+协议 payload 只有两个 marker：
+
+- `__AGENT_RESULT__`
+- `__COMMAND_RESULT__`
+
+host 只通过这些 marker 判断哪些字节是协议 payload，不能通过 stdout/stderr
+判断。`docker`、`boxlite`、`microsandbox` driver 不解析也不过滤这些 marker。
+
+v2 Connect API 用同一套 `StdioStream` 表达通道：
+
+```proto
+enum StdioStream {
+  STDIO_STREAM_UNSPECIFIED = 0;
+  STDIO_STREAM_STDOUT = 1;
+  STDIO_STREAM_STDERR = 2;
+}
+```
+
+`RunAgentStreamResponse`、`ExecStreamResponse` 和 `TranscriptEvent` 都携带
+`stream` 字段。CLI 和 host 消费方把 `STDIO_STREAM_UNSPECIFIED` 按 stdout
+处理。v1 API 为兼容保留历史 `is_stderr` 字段，只在 v1/session 兼容边界把
+stream 转换为 bool。
+
+该边界不引入 `chunk_type`、`payload_kind`、typed payload event、新 CLI
+参数、JSON schema 变更或 stdin 转发。
+
+### 6.3 stderr：人类可读 transcript
 
 JS runtime 将 agent 运行过程中的人类可读输出写到 stderr。host 的 `ExecStream` 会把 stderr chunk 作为流式输出传给 `SendAgentMessageStream`，并最终落到 cell 的 `stderr` / `output`。
 
-### 6.3 stdout：结构化结果
+### 6.4 stdout：结构化结果
 
 `prompt` 子命令成功完成后，在 stdout 输出一行结构化结果：
 
@@ -347,7 +384,7 @@ runtime.ExecStream
 
 解析成功后，host 会把 `__AGENT_RESULT__...` 从 `Stdout` 和 `Output` 中剥离，避免协议 payload 出现在最终 cell artifact 中。
 
-需要注意：流式输出阶段没有专门过滤协议 payload；如果 runtime 在 stdout 中发送最终 payload，流式客户端可能短暂收到这行协议文本。最终持久化结果会被 sanitize。
+流式 transcript 路径也使用 host 侧 marker filter。agent stream 使用 `FilterAgentStreamChunk`；command、exec、run 和 loader command stream 使用 `FilterCommandStreamChunk`。这些 helper 会在写入人类可读 transcript、run log、notebook cell output 或 CLI text output 前剥离 `__AGENT_RESULT__...` 和 `__COMMAND_RESULT__...` 协议 payload。
 
 loader command 的 host 解析流程：
 

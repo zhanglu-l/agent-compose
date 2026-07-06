@@ -103,6 +103,18 @@ func StripCommandResultPayload(raw string) string {
 	return raw[:idx]
 }
 
+func FilterAgentStreamChunk(chunk domain.ExecChunk) (domain.ExecChunk, bool) {
+	filtered := chunk
+	filtered.Text = StripAgentResultPayload(chunk.Text)
+	return filtered, filtered.Text != ""
+}
+
+func FilterCommandStreamChunk(chunk domain.ExecChunk) (domain.ExecChunk, bool) {
+	filtered := chunk
+	filtered.Text = StripCommandResultPayload(chunk.Text)
+	return filtered, filtered.Text != ""
+}
+
 func SanitizeAgentExecResult(result domain.ExecResult) domain.ExecResult {
 	cleaned := result
 	cleaned.Stdout = StripAgentResultPayload(result.Stdout)

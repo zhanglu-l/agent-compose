@@ -101,11 +101,18 @@ func (r driverRuntimeAdapter) Exec(ctx context.Context, session *domain.Session,
 func (r driverRuntimeAdapter) ExecStream(ctx context.Context, session *domain.Session, vmState domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
 	driverStream := func(chunk driverpkg.ExecChunk) {
 		if stream != nil {
-			stream(domain.ExecChunk{Text: chunk.Text, IsStderr: chunk.IsStderr})
+			stream(domain.ExecChunk{Text: chunk.Text, Stream: domainStreamFromDriver(chunk.Stream)})
 		}
 	}
 	result, err := r.runtime.ExecStream(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState), execution.ToDriverExecSpec(spec), driverStream)
 	return execution.FromDriverExecResult(result), err
+}
+
+func domainStreamFromDriver(stream driverpkg.StdioStream) domain.StdioStream {
+	if driverpkg.NormalizeStdioStream(stream) == driverpkg.StdioStderr {
+		return domain.StdioStderr
+	}
+	return domain.StdioStdout
 }
 
 func (r driverRuntimeAdapter) Stats(ctx context.Context, session *domain.Session, vmState domain.VMState) (domain.SandboxStats, error) {

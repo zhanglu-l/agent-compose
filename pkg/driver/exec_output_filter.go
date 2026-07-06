@@ -22,7 +22,7 @@ func (f *execOutputFilter) Write(chunk ExecChunk, emit func(ExecChunk)) {
 	if emit == nil {
 		return
 	}
-	if !chunk.IsStderr {
+	if NormalizeStdioStream(chunk.Stream) != StdioStderr {
 		f.flushPending(true, emit)
 		emit(chunk)
 		return
@@ -58,10 +58,10 @@ func (f *execOutputFilter) flushPending(final bool, emit func(ExecChunk)) {
 		if isIgnoredExecStderrLine(line) {
 			continue
 		}
-		emit(ExecChunk{Text: line, IsStderr: true})
+		emit(ExecChunk{Text: line, Stream: StdioStderr})
 		f.filterStderrTop = false
 		if pending != "" {
-			emit(ExecChunk{Text: pending, IsStderr: true})
+			emit(ExecChunk{Text: pending, Stream: StdioStderr})
 			pending = ""
 		}
 		break
@@ -69,7 +69,7 @@ func (f *execOutputFilter) flushPending(final bool, emit func(ExecChunk)) {
 
 	if pending != "" && (final || len(pending) >= maxInitialExecStderrBuffer) {
 		if !isIgnoredExecStderrLine(pending) {
-			emit(ExecChunk{Text: pending, IsStderr: true})
+			emit(ExecChunk{Text: pending, Stream: StdioStderr})
 		}
 		f.filterStderrTop = false
 		pending = ""

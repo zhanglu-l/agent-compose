@@ -11,8 +11,12 @@ results are returned to the host.
 
 Related code:
 
+- Stream model: `pkg/model/model.go`, `pkg/driver/types.go`
+- Marker parsing and stream filtering: `pkg/execution/parse.go`
 - Host agent calls: `pkg/agentcompose/adapters/agent_runner.go`
 - Host execution and persistence: `pkg/agentcompose/adapters/cell_executor.go`, `pkg/agentcompose/adapters/agent_executor.go`, and `pkg/storage/sessionstore`
+- v2 stream API: `proto/agentcompose/v2/agentcompose.proto`
+- CLI stream writer: `cmd/agent-compose/main.go`
 - Runtime CLI source: `runtime/javascript/src/cli.ts`
 - Runtime provider adapters: `runtime/javascript/src/runners/`
 - Guest SDK: `runtime/agent-compose-runtime-sdk/`
@@ -253,10 +257,12 @@ Runtime behavior:
 - `mode=exec` uses `spawn(command, args, { shell: false })`.
 - `mode=shell` uses `spawn("bash", ["-lc", script])`.
 - stdout/stderr are captured separately and merged into output.
-- User command stdout/stderr are mirrored in real time to
-  `agent-compose-runtime exec` stderr for host streaming display.
-  `agent-compose-runtime exec` stdout is reserved for the final command result
-  protocol payload.
+- User command stdout is mirrored in real time to `agent-compose-runtime exec`
+  stdout; user command stderr is mirrored in real time to
+  `agent-compose-runtime exec` stderr. The host preserves these stdio streams
+  when forwarding command transcript chunks.
+- After the child process exits, `agent-compose-runtime exec` writes one final
+  `__COMMAND_RESULT__...` protocol payload line to stdout.
 - By default, each returned stream is capped at `1 MiB`; full
   stdout/stderr/output are written as artifacts.
 
@@ -308,13 +314,50 @@ runtime process's native `HOME`.
 
 stdin is not used. Prompts must be specified through `--message-file`.
 
-### 6.2 stderr: Human-Readable Transcript
+### 6.2 Stdio Streams And Protocol Markers
+
+Runtime drivers transport output as `ExecChunk{Text, Stream}`. Both the driver
+layer and host domain model use stdout/stderr stream enums, and empty or
+unspecified streams are normalized to stdout. `Stream` only identifies the
+original stdio channel. It does not mean that a chunk is internal, hidden,
+machine-readable, or user-visible.
+
+The only protocol payload markers are:
+
+- `__AGENT_RESULT__`
+- `__COMMAND_RESULT__`
+
+The host decides whether bytes are protocol payload by searching for those
+markers, never by checking stdout/stderr. Driver implementations (`docker`,
+`boxlite`, and `microsandbox`) do not parse or filter these markers.
+
+The v2 Connect API exposes the same channel concept with `StdioStream`:
+
+```proto
+enum StdioStream {
+  STDIO_STREAM_UNSPECIFIED = 0;
+  STDIO_STREAM_STDOUT = 1;
+  STDIO_STREAM_STDERR = 2;
+}
+```
+
+`RunAgentStreamResponse`, `ExecStreamResponse`, and `TranscriptEvent` carry a
+`stream` field. `STDIO_STREAM_UNSPECIFIED` is treated as stdout by CLI and host
+consumers. The v1 API keeps its historical `is_stderr` fields for compatibility;
+the conversion to that boolean happens only at v1/session compatibility
+boundaries.
+
+The protocol deliberately does not add `chunk_type`, `payload_kind`, typed
+payload events, new CLI flags, JSON schema changes, or stdin forwarding for this
+boundary.
+
+### 6.3 stderr: Human-Readable Transcript
 
 The JavaScript runtime writes human-readable agent execution output to stderr.
 The host `ExecStream` forwards stderr chunks as streaming output for
 `SendAgentMessageStream`, and finally persists them to cell `stderr` / `output`.
 
-### 6.3 stdout: Structured Result
+### 6.4 stdout: Structured Result
 
 After the `prompt` subcommand completes successfully, stdout contains one
 structured result line:
@@ -401,9 +444,11 @@ runtime.ExecStream
 After parsing succeeds, the host strips `__AGENT_RESULT__...` from `Stdout` and
 `Output` so the protocol payload does not appear in final cell artifacts.
 
-Important note: streaming output has no dedicated protocol payload filter. If
-the runtime sends the final payload on stdout, streaming clients may briefly see
-that protocol line. Final persisted results are sanitized.
+Streaming transcript paths also use host-side marker filters. Agent streams use
+`FilterAgentStreamChunk`; command, exec, run, and loader command streams use
+`FilterCommandStreamChunk`. These helpers strip `__AGENT_RESULT__...` and
+`__COMMAND_RESULT__...` protocol payloads before writing human transcript,
+run logs, notebook cell output, or CLI text output.
 
 Loader command host parsing flow:
 

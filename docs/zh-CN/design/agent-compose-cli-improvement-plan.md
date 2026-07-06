@@ -170,7 +170,7 @@ v2 `RunSessionCleanupPolicy` 当前包括：
 
 - host 侧写入 `command-request.json`。
 - guest runtime 执行 command，并写入 `stdout.txt`、`stderr.txt`、`output.txt`、`command-result.json`。
-- stream response 使用 `chunk/is_stderr` 和 `TranscriptEvent` 返回 transcript。
+- v2 stream response 使用 `chunk`、`stream` 和 `TranscriptEvent.stream` 返回 transcript；host marker filter 会在进入 CLI text output、run log 和 cell output 前剥离协议 payload。
 - `run --command` 创建 `ProjectRun`，可被 `logs`、`inspect run` 和 artifact 审计。
 - `exec <sandbox>` 不创建 `ProjectRun`；需要审计和日志时应使用 `run --command`。
 

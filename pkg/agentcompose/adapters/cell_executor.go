@@ -97,7 +97,7 @@ func (e *CellExecutor) executeCell(ctx context.Context, session *domain.Session,
 	var streamErr error
 	streamWriter := func(chunk domain.ExecChunk) {
 		if e.streams != nil {
-			e.streams.PublishCellOutput(session.Summary.ID, cellID, chunk.Text, chunk.IsStderr)
+			e.streams.PublishCellOutput(session.Summary.ID, cellID, chunk.Text, chunk.Stream)
 		}
 		if stream.OnChunk != nil {
 			if err := stream.OnChunk(cellID, chunk); err != nil {

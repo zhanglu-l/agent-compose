@@ -339,7 +339,7 @@ agent-compose exec sandbox_123 --command "git status --short"
 agent-compose exec sandbox_123 --cwd /workspace --command "pwd"
 ```
 
-`exec` 与 `run --command` 使用同一套 guest `agent-compose-runtime exec` command transcript。文本模式会实时输出 transcript；`--json` 不输出流式 transcript，只输出最终 result。`exec` 不创建 `ProjectRun`；需要 run 审计、`logs` 或 run artifact 时使用 `run --command`。
+`exec` 与 `run --command` 使用同一套 guest `agent-compose-runtime exec` command output 路径。文本模式把 command stdout 输出到本机 stdout，把 command stderr 输出到本机 stderr，并经过 host 侧 marker filtering；不会额外 echo host wrapper command。`--json` 不输出流式 output，只输出最终 result。`exec` 不创建 `ProjectRun`；需要 run 审计、`logs` 或 run artifact 时使用 `run --command`。
 
 ## `logs`：查看日志
 

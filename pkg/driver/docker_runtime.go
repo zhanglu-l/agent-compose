@@ -48,7 +48,7 @@ type dockerExecCollector struct {
 
 type dockerExecWriter struct {
 	collector *dockerExecCollector
-	isStderr  bool
+	stream    StdioStream
 }
 
 func newDockerRuntime(config *appconfig.Config) (BoxRuntime, error) {
@@ -78,7 +78,7 @@ func (c *dockerExecCollector) appendChunk(chunk ExecChunk) {
 	if c.stream != nil {
 		c.stream(chunk)
 	}
-	if chunk.IsStderr {
+	if NormalizeStdioStream(chunk.Stream) == StdioStderr {
 		c.stderr.WriteString(chunk.Text)
 		return
 	}
@@ -89,7 +89,7 @@ func (w *dockerExecWriter) Write(p []byte) (int, error) {
 	if w == nil || w.collector == nil {
 		return len(p), nil
 	}
-	w.collector.writeChunk(ExecChunk{Text: string(p), IsStderr: w.isStderr})
+	w.collector.writeChunk(ExecChunk{Text: string(p), Stream: w.stream})
 	return len(p), nil
 }
 
@@ -249,7 +249,7 @@ func (r *dockerRuntime) execWithStream(ctx context.Context, session *Session, vm
 	}()
 
 	collector := &dockerExecCollector{stream: stream, filter: newExecOutputFilter()}
-	_, copyErr := stdcopy.StdCopy(&dockerExecWriter{collector: collector}, &dockerExecWriter{collector: collector, isStderr: true}, attachResp.Reader)
+	_, copyErr := stdcopy.StdCopy(&dockerExecWriter{collector: collector, stream: StdioStdout}, &dockerExecWriter{collector: collector, stream: StdioStderr}, attachResp.Reader)
 	collector.finish()
 	if copyErr != nil && ctx.Err() != nil {
 		return ExecResult{}, ctx.Err()

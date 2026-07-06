@@ -284,7 +284,7 @@ func (c *cgoExecCollector) appendChunk(chunk ExecChunk) {
 	if c.stream != nil {
 		c.stream(chunk)
 	}
-	if chunk.IsStderr {
+	if NormalizeStdioStream(chunk.Stream) == StdioStderr {
 		c.stderr.WriteString(chunk.Text)
 		return
 	}
@@ -331,7 +331,7 @@ func agentcomposeBoxliteExecStderrCallback(data *C.uint8_t, length C.size_t, han
 	if !ok || awaiter.collector == nil || data == nil || length == 0 {
 		return
 	}
-	awaiter.collector.writeChunk(ExecChunk{Text: string(C.GoBytes(unsafe.Pointer(data), C.int(length))), IsStderr: true})
+	awaiter.collector.writeChunk(ExecChunk{Text: string(C.GoBytes(unsafe.Pointer(data), C.int(length))), Stream: StdioStderr})
 	notifyBoxliteExecOutput(awaiter)
 }
 

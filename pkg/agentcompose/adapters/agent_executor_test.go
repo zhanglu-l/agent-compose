@@ -105,7 +105,8 @@ func TestAgentExecutorStreamsOnlyHumanVisibleAgentOutput(t *testing.T) {
 	runtime := &fakeAgentRuntime{
 		streamChunks: []domain.ExecChunk{
 			{Text: payload},
-			{Text: "loader agent transcript\n", IsStderr: true},
+			{Text: "stdout transcript\n" + payload},
+			{Text: "loader agent transcript\n", Stream: domain.StdioStderr},
 		},
 		result: domain.ExecResult{Stdout: payload, Output: payload, ExitCode: 0, Success: true},
 	}
@@ -126,13 +127,24 @@ func TestAgentExecutorStreamsOnlyHumanVisibleAgentOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteAgentRequest returned error: %v", err)
 	}
-	if len(chunks) != 1 || !chunks[0].IsStderr || !strings.Contains(chunks[0].Text, "loader agent transcript") {
+	if len(chunks) != 2 {
 		t.Fatalf("stream chunks = %#v", chunks)
 	}
-	if strings.Contains(chunks[0].Text, execution.AgentResultPrefix) {
-		t.Fatalf("stream chunk leaked agent result payload: %#v", chunks[0])
+	if chunks[0].Text != "stdout transcript\n" || domain.NormalizeStdioStream(chunks[0].Stream) != domain.StdioStdout {
+		t.Fatalf("stdout stream chunk = %#v", chunks[0])
 	}
-	if !strings.Contains(cell.Output, "loader agent transcript") || strings.Contains(cell.Output, execution.AgentResultPrefix) {
+	if chunks[1].Text != "loader agent transcript\n" || domain.NormalizeStdioStream(chunks[1].Stream) != domain.StdioStderr {
+		t.Fatalf("stderr stream chunk = %#v", chunks[1])
+	}
+	for _, chunk := range chunks {
+		if strings.Contains(chunk.Text, execution.AgentResultPrefix) {
+			t.Fatalf("stream chunk leaked agent result payload: %#v", chunk)
+		}
+	}
+	if !strings.Contains(cell.Stdout, "stdout transcript") || !strings.Contains(cell.Stderr, "loader agent transcript") {
+		t.Fatalf("cell stdout/stderr = %q/%q", cell.Stdout, cell.Stderr)
+	}
+	if !strings.Contains(cell.Output, "stdout transcript") || !strings.Contains(cell.Output, "loader agent transcript") || strings.Contains(cell.Output, execution.AgentResultPrefix) {
 		t.Fatalf("cell output = %q", cell.Output)
 	}
 }

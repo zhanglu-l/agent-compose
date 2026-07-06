@@ -64,7 +64,7 @@ func (c *microsandboxExecCollector) appendChunk(chunk ExecChunk) {
 	if c.stream != nil {
 		c.stream(chunk)
 	}
-	if chunk.IsStderr {
+	if NormalizeStdioStream(chunk.Stream) == StdioStderr {
 		c.stderr.WriteString(chunk.Text)
 		return
 	}
@@ -254,7 +254,7 @@ func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, 
 				case microsandbox.ExecEventStdout:
 					collector.writeChunk(ExecChunk{Text: string(event.Data)})
 				case microsandbox.ExecEventStderr:
-					collector.writeChunk(ExecChunk{Text: string(event.Data), IsStderr: true})
+					collector.writeChunk(ExecChunk{Text: string(event.Data), Stream: StdioStderr})
 				case microsandbox.ExecEventExited:
 					exitCode = event.ExitCode
 					sawExit = true
@@ -262,7 +262,7 @@ func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, 
 					collector.finish()
 					return ExecResult{}, formatMicrosandboxExecFailure(event.Failure)
 				case microsandbox.ExecEventStdinError:
-					collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", IsStderr: true})
+					collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", Stream: StdioStderr})
 				}
 			}
 			collector.finish()

@@ -107,7 +107,7 @@ func (h *AgentHandler) SendAgentMessageStream(ctx context.Context, req *connect.
 					EventType: agentcomposev1.SendAgentMessageStreamEventType_SEND_AGENT_MESSAGE_STREAM_EVENT_TYPE_OUTPUT,
 					RunId:     cellID,
 					Chunk:     chunk.Text,
-					IsStderr:  chunk.IsStderr,
+					IsStderr:  domain.NormalizeStdioStream(chunk.Stream) == domain.StdioStderr,
 				}))
 			},
 		},
