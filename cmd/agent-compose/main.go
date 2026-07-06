@@ -536,6 +536,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	runCmd.Flags().BoolVarP(&runOptions.Interactive, "interactive", "i", false, "Reserved for future interactive runs")
 	runCmd.Flags().Lookup("prompt").NoOptDefVal = optionalRunModeFlagNoValue
 	runCmd.Flags().Lookup("command").NoOptDefVal = optionalRunModeFlagNoValue
+	hideOptionalFlagNoValueInUsage(runCmd, "prompt", "command")
 
 	logsOptions := composeLogsOptions{}
 	logsCmd := &cobra.Command{
@@ -1534,6 +1535,39 @@ func normalizeOptionalRunModeValue(value string) string {
 		return ""
 	}
 	return strings.TrimSpace(value)
+}
+
+func hideOptionalFlagNoValueInUsage(cmd *cobra.Command, flagNames ...string) {
+	usageFunc := cmd.UsageFunc()
+	cmd.SetUsageFunc(func(c *cobra.Command) error {
+		return withHiddenOptionalFlagNoValue(c, flagNames, func() error {
+			return usageFunc(c)
+		})
+	})
+}
+
+func withHiddenOptionalFlagNoValue(cmd *cobra.Command, flagNames []string, fn func() error) error {
+	type flagRestore struct {
+		name        string
+		noOptDefVal string
+	}
+	var restores []flagRestore
+	for _, name := range flagNames {
+		flag := cmd.Flags().Lookup(name)
+		if flag == nil || flag.NoOptDefVal != optionalRunModeFlagNoValue {
+			continue
+		}
+		restores = append(restores, flagRestore{name: name, noOptDefVal: flag.NoOptDefVal})
+		flag.NoOptDefVal = ""
+	}
+	defer func() {
+		for _, restore := range restores {
+			if flag := cmd.Flags().Lookup(restore.name); flag != nil {
+				flag.NoOptDefVal = restore.noOptDefVal
+			}
+		}
+	}()
+	return fn()
 }
 
 func validateInteractivePromptProvider(project *compose.NormalizedProjectSpec, agentName string) error {
