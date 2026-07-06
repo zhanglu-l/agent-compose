@@ -50,19 +50,28 @@
       - Go proto、Connect Go 和 TypeScript client 生成物按任务 1.2 更新，本任务只落 proto contract。
     - 下一目标：1.2 生成 Go 和 TypeScript client 产物。
 
-- [ ] 1.2 同步生成 Go/Connect Go/TypeScript client
+- [x] 1.2 同步生成 Go/Connect Go/TypeScript client
   - 依赖：1.1。
   - 工作内容：更新 `proto/agentcompose/v2/agentcompose.pb.go`、`proto/agentcompose/v2/agentcomposev2connect/agentcompose.connect.go`、`proto-client/src/**`；记录实际使用的 Go proto 生成命令和 `proto-client` npm 命令。
   - 可并行子任务：
-    - [ ] 可并行：准备本地 protoc/protoc-gen-go/protoc-gen-connect-go/proto-client npm 依赖。
-    - [ ] 可并行：检查 CI `proto-client` workflow 期望的生成和构建命令。
+    - [x] 可并行：准备本地 protoc/protoc-gen-go/protoc-gen-connect-go/proto-client npm 依赖。
+    - [x] 可并行：检查 CI `proto-client` workflow 期望的生成和构建命令。
   - 测试方案：运行 `go test ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect`、`cd proto-client && npm ci && npm run gen && npm run build`、`task build`。
   - 验收标准：`agentcomposev2connect` 暴露 `CacheServiceClient` 和 `CacheServiceHandler`；`proto-client` 构建通过；`task build` 能编译新增 proto 包。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 重新生成 `proto/agentcompose/v2/agentcompose.pb.go`，包含 `CacheDomain`、`CacheStatus`、cache request/response messages 和 `CacheService` descriptor。
+      - 重新生成 `proto/agentcompose/v2/agentcomposev2connect/agentcompose.connect.go`，暴露 `CacheServiceClient`、`CacheServiceHandler`、`NewCacheServiceClient`、`NewCacheServiceHandler`、四个 procedure 常量和 unimplemented handler。
+      - 按 `proto-client` 现有脚本生成并构建本地 TypeScript client，确认 `proto-client/src/agentcompose/v2/` 中存在 `CacheService` TS definitions。
+    - 验证：
+      - `protoc -I . --go_out=. --go_opt=paths=source_relative --connect-go_out=. --connect-go_opt=paths=source_relative proto/agentcompose/v2/agentcompose.proto`
+      - `cd proto-client && npm ci && npm run gen && npm run build`
+      - `./scripts/with-go-toolchain.sh go test ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect`
+      - `task build`
+    - 审计与例外：
+      - CI `proto-client` job 使用 `npm ci`、`npm run gen`、`npm run build`，本地已按同等命令验证。
+      - `proto-client/src/` 和 `proto-client/dist/` 按 `proto-client/.gitignore` 与 README 策略不提交；本任务提交 tracked Go/Connect Go 生成物，并记录 TypeScript client 已生成和构建通过。
     - 下一目标：2.1 建立 runtimecache 核心模型。
 
 ## 阶段 2：runtime cache 领域包
