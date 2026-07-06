@@ -96,6 +96,24 @@ func executeCLICommand(args ...string) (string, string, int, int) {
 	return stdout.String(), stderr.String(), runCount, exitCode
 }
 
+func executeCLICommandWithInput(input string, args ...string) (string, string, int, int) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	runCount := 0
+	cmd := newRootCommand(&stdout, &stderr, func(context.Context) error {
+		runCount++
+		return nil
+	})
+	cmd.SetIn(strings.NewReader(input))
+	cmd.SetArgs(args)
+	exitCode := 0
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		_, _ = fmt.Fprintln(&stderr, err)
+		exitCode = commandExitCode(err)
+	}
+	return stdout.String(), stderr.String(), runCount, exitCode
+}
+
 func TestVersionCommandPrintsBuildVersionWithoutStartingDaemon(t *testing.T) {
 	oldVersion := config.BuildVersion
 	config.BuildVersion = "test-version"
@@ -681,6 +699,64 @@ func TestStatusCommandUnavailableWritesStderrAndExitCode(t *testing.T) {
 	}
 }
 
+func TestCommandExitErrorForConnectClassifiesRPCFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code int
+	}{
+		{name: "invalid argument", err: connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("bad request")), code: exitCodeUsage},
+		{name: "not found", err: connect.NewError(connect.CodeNotFound, fmt.Errorf("missing")), code: exitCodeUsage},
+		{name: "failed precondition", err: connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("stopped")), code: exitCodeUsage},
+		{name: "unavailable", err: connect.NewError(connect.CodeUnavailable, fmt.Errorf("daemon down")), code: exitCodeUnavailable},
+		{name: "unsupported", err: connect.NewError(connect.CodeUnimplemented, fmt.Errorf("stats unsupported")), code: exitCodeUnsupported},
+		{name: "ordinary failure", err: connect.NewError(connect.CodeInternal, fmt.Errorf("boom")), code: exitCodeGeneral},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := commandExitErrorForConnect(fmt.Errorf("operation: %w", tc.err))
+			if got := commandExitCode(err); got != tc.code {
+				t.Fatalf("exit code = %d, want %d; err=%v", got, tc.code, err)
+			}
+		})
+	}
+}
+
+func TestIntegrationCLIListProjectsClassifiesNotFoundAndUnsupported(t *testing.T) {
+	tests := []struct {
+		name    string
+		rpcCode connect.Code
+		exit    int
+		want    string
+	}{
+		{name: "not found", rpcCode: connect.CodeNotFound, exit: exitCodeUsage, want: "not_found"},
+		{name: "unsupported", rpcCode: connect.CodeUnimplemented, exit: exitCodeUnsupported, want: "unimplemented"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newComposeServiceStubServer(t, composeServiceStubs{
+				project: projectServiceStub{
+					listProjects: func(ctx context.Context, req *connect.Request[agentcomposev2.ListProjectsRequest]) (*connect.Response[agentcomposev2.ListProjectsResponse], error) {
+						return nil, connect.NewError(tc.rpcCode, fmt.Errorf("%s list projects", tc.name))
+					},
+				},
+			})
+			defer server.Close()
+
+			stdout, stderr, _, exitCode := executeCLICommand("ls", "--host", server.URL)
+			if exitCode != tc.exit {
+				t.Fatalf("ls %s exit code = %d, want %d; stderr=%q", tc.name, exitCode, tc.exit, stderr)
+			}
+			if stdout != "" {
+				t.Fatalf("ls %s stdout = %q, want empty", tc.name, stdout)
+			}
+			if !strings.Contains(stderr, "list projects") || !strings.Contains(stderr, tc.want) {
+				t.Fatalf("ls %s stderr = %q, want operation context and %q", tc.name, stderr, tc.want)
+			}
+		})
+	}
+}
+
 func TestInvalidHostWritesStderrAndUsageExitCode(t *testing.T) {
 	stdout, stderr, runCount, exitCode := executeCLICommand("status", "--host", "127.0.0.1:7410")
 	if exitCode != exitCodeUsage {
@@ -1051,9 +1127,9 @@ agents:
 				return err
 			}
 			if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
-				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
-				RunId:     "run-success",
-				Chunk:     "live output\n",
+				EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+				RunId:      "run-success",
+				Transcript: &agentcomposev2.TranscriptEvent{Kind: "stdout", Text: "live output\n"},
 			}); err != nil {
 				return err
 			}
@@ -1095,6 +1171,212 @@ agents:
 	}
 	if legacyOut != "live output\n" || !strings.Contains(legacyErr, "agent-compose run --session-id is deprecated") || !strings.Contains(legacyErr, "agent-compose run <agent> [prompt...] is deprecated") || strings.Contains(legacyOut, "deprecated") {
 		t.Fatalf("run --session-id stdout/stderr = %q / %q", legacyOut, legacyErr)
+	}
+}
+
+func TestIntegrationCLIRunDetachStartsBackgroundRun(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-detach
+agents:
+  reviewer:
+    provider: codex
+`)
+	var sawStart bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			startRun: func(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+				sawStart = true
+				runReq := req.Msg.GetRun()
+				if runReq.GetAgentName() != "reviewer" || runReq.GetCommand() != "echo detached" || runReq.GetSessionId() != "sandbox-detached" {
+					t.Fatalf("StartRun request = %#v", runReq)
+				}
+				if runReq.GetSource() != agentcomposev2.RunSource_RUN_SOURCE_MANUAL {
+					t.Fatalf("StartRun source = %#v", runReq.GetSource())
+				}
+				return connect.NewResponse(&agentcomposev2.StartRunResponse{
+					Run: &agentcomposev2.RunSummary{
+						RunId:       "run-detached",
+						ProjectId:   runReq.GetProjectId(),
+						ProjectName: "cli-run-detach",
+						AgentName:   "reviewer",
+						Status:      agentcomposev2.RunStatus_RUN_STATUS_PENDING,
+						SessionId:   "sandbox-detached",
+						Source:      agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
+					},
+					Warnings: []string{"detached warning"},
+					Started:  true,
+				}), nil
+			},
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				t.Fatalf("RunAgentStream should not be called for detached run")
+				return nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "-d", "--host", server.URL, "--file", composePath, "--sandbox", "sandbox-detached", "reviewer", "--command", "echo detached")
+	if exitCode != 0 {
+		t.Fatalf("run -d exit code = %d, stderr=%q", exitCode, stderr)
+	}
+	for _, want := range []string{
+		"Run: run-detached",
+		"Sandbox: sandbox-detached",
+		"Status: pending",
+		"Logs: agent-compose --host " + server.URL + " --file " + composePath + " logs --run-id run-detached --follow",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("run -d stdout %q does not contain %q", stdout, want)
+		}
+	}
+	if !strings.Contains(stderr, "warning: detached warning") {
+		t.Fatalf("run -d stderr = %q", stderr)
+	}
+	if !sawStart {
+		t.Fatal("StartRun was not called")
+	}
+}
+
+func TestIntegrationCLIRunDetachJSON(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-detach-json
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			startRun: func(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+				runReq := req.Msg.GetRun()
+				return connect.NewResponse(&agentcomposev2.StartRunResponse{
+					Run: &agentcomposev2.RunSummary{
+						RunId:       "run-detached-json",
+						ProjectId:   runReq.GetProjectId(),
+						ProjectName: "cli-run-detach-json",
+						AgentName:   "reviewer",
+						Status:      agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
+						SessionId:   "sandbox-json",
+						Source:      agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
+						Warnings:    []string{"summary warning"},
+					},
+					Warnings: []string{"response warning"},
+					Started:  true,
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "-d", "--json", "--host", server.URL, "--file", composePath, "reviewer", "--prompt", "inspect")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -d --json code/stderr = %d / %q", exitCode, stderr)
+	}
+	var decoded composeRunOutput
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("decode run -d JSON: %v\n%s", err, stdout)
+	}
+	if decoded.RunID != "run-detached-json" || decoded.SessionID != "sandbox-json" || decoded.Status != "running" {
+		t.Fatalf("run -d JSON decoded = %#v", decoded)
+	}
+	if !strings.Contains(decoded.LogsCommand, "logs --run-id run-detached-json --follow") || len(decoded.Warnings) != 2 {
+		t.Fatalf("run -d JSON logs/warnings = %#v", decoded)
+	}
+}
+
+func TestIntegrationCLIRunDetachCommandCanBeFollowedByLogs(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-detach-logs
+agents:
+  reviewer:
+    provider: codex
+`)
+	var sawCommand bool
+	var sawFollow bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			startRun: func(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+				if req.Msg.GetRun().GetCommand() != "printf detached" {
+					t.Fatalf("StartRun command = %#v", req.Msg.GetRun())
+				}
+				sawCommand = true
+				return connect.NewResponse(&agentcomposev2.StartRunResponse{Run: &agentcomposev2.RunSummary{
+					RunId:     "run-detached-logs",
+					ProjectId: req.Msg.GetRun().GetProjectId(),
+					AgentName: "reviewer",
+					Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
+					SessionId: "sandbox-detached-logs",
+					Source:    agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
+				}, Started: true}), nil
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-detached-logs", "reviewer", "sandbox-detached-logs", agentcomposev2.RunStatus_RUN_STATUS_RUNNING, 0, "")}), nil
+			},
+			followRunLogs: func(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+				sawFollow = true
+				if req.Msg.GetRunId() != "run-detached-logs" {
+					t.Fatalf("FollowRunLogs request = %#v", req.Msg)
+				}
+				return stream.Send(&agentcomposev2.RunLogChunk{
+					Data: "detached output\n",
+				})
+			},
+		},
+	})
+	defer server.Close()
+
+	_, stderr, _, exitCode := executeCLICommand("run", "-d", "--host", server.URL, "--file", composePath, "reviewer", "--command", "printf detached")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -d --command code/stderr = %d / %q", exitCode, stderr)
+	}
+	logOut, logErr, _, logCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--run-id", "run-detached-logs", "--follow")
+	if logCode != 0 || logErr != "" || logOut != "reviewer | detached output\n" {
+		t.Fatalf("logs --follow code/stdout/stderr = %d / %q / %q", logCode, logOut, logErr)
+	}
+	if !sawCommand || !sawFollow {
+		t.Fatalf("sawCommand=%v sawFollow=%v", sawCommand, sawFollow)
+	}
+}
+
+func TestIntegrationCLIRunSendsJupyterExpose(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-jupyter
+agents:
+  reviewer:
+    provider: codex
+`)
+	var sawRequest bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				sawRequest = true
+				if req.Msg.GetJupyter() == nil || !req.Msg.GetJupyter().GetEnabled() || !req.Msg.GetJupyter().GetExpose() {
+					t.Fatalf("RunAgentStream jupyter request = %#v", req.Msg)
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-jupyter",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-jupyter",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-jupyter",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-jupyter", "reviewer", "sandbox-jupyter", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "reviewer", "--jupyter-expose", "--prompt", "inspect")
+	if exitCode != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("run --jupyter-expose code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	if !sawRequest {
+		t.Fatal("RunAgentStream was not called")
 	}
 }
 
@@ -1148,6 +1430,277 @@ agents:
 	}
 }
 
+func TestIntegrationCLIRunInteractivePromptReusesSession(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-prompt
+agents:
+  reviewer:
+    provider: codex
+`)
+	var prompts []string
+	var sessions []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				prompts = append(prompts, req.Msg.GetPrompt())
+				sessions = append(sessions, req.Msg.GetSessionId())
+				if req.Msg.GetCommand() != "" || req.Msg.GetTriggerId() != "" {
+					t.Fatalf("RunAgentStream interactive prompt request = %#v", req.Msg)
+				}
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING {
+					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
+				}
+				runID := fmt.Sprintf("run-repl-%d", len(prompts))
+				if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+					RunId:      runID,
+					Transcript: &agentcomposev2.TranscriptEvent{Text: fmt.Sprintf("prompt %d output\n", len(prompts))},
+				}); err != nil {
+					return err
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     runID,
+					Run: &agentcomposev2.RunSummary{
+						RunId:     runID,
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-repl",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-repl", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("second prompt\n\n/exit\n", "run", "--host", server.URL, "--file", composePath, "reviewer", "-i", "--prompt", "first prompt")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -i --prompt code/stderr = %d / %q", exitCode, stderr)
+	}
+	if stdout != "prompt 1 output\nprompt 2 output\n" {
+		t.Fatalf("run -i --prompt stdout = %q", stdout)
+	}
+	if strings.Join(prompts, "|") != "first prompt|second prompt" {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+	if strings.Join(sessions, "|") != "|sandbox-repl" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestIntegrationCLIRunInteractiveCommandReusesSession(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-command
+agents:
+  reviewer:
+    provider: codex
+`)
+	var commands []string
+	var sessions []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				commands = append(commands, req.Msg.GetCommand())
+				sessions = append(sessions, req.Msg.GetSessionId())
+				if req.Msg.GetPrompt() != "" || req.Msg.GetTriggerId() != "" {
+					t.Fatalf("RunAgentStream interactive command request = %#v", req.Msg)
+				}
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING {
+					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
+				}
+				runID := fmt.Sprintf("run-command-repl-%d", len(commands))
+				if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+					RunId:      runID,
+					Transcript: &agentcomposev2.TranscriptEvent{Text: fmt.Sprintf("command %d output\n", len(commands))},
+				}); err != nil {
+					return err
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     runID,
+					Run: &agentcomposev2.RunSummary{
+						RunId:     runID,
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-command-repl",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-command-repl", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("pwd\nwhoami\n/exit\n", "run", "--host", server.URL, "--file", composePath, "reviewer", "-i", "--command")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run -i --command code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	if stdout != "command 1 output\ncommand 2 output\n" {
+		t.Fatalf("run -i --command stdout = %q", stdout)
+	}
+	if strings.Join(commands, "|") != "pwd|whoami" {
+		t.Fatalf("commands = %#v", commands)
+	}
+	if strings.Join(sessions, "|") != "|sandbox-command-repl" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestIntegrationCLIRunInteractiveRemoveCreatedSandboxOnExit(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-rm
+agents:
+  reviewer:
+    provider: codex
+`)
+	var removed []string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-repl-rm",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-repl-rm",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-repl-rm",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-repl-rm", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+		sandbox: sandboxServiceStub{
+			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+				removed = append(removed, req.Msg.GetSandboxId())
+				if !req.Msg.GetForce() {
+					t.Fatalf("RemoveSandbox force = false")
+				}
+				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{SandboxId: req.Msg.GetSandboxId(), Removed: true}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("", "run", "--host", server.URL, "--file", composePath, "--rm", "reviewer", "-i", "--prompt", "first")
+	if exitCode != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("run -i --rm code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	if strings.Join(removed, "|") != "sandbox-repl-rm" {
+		t.Fatalf("removed = %#v", removed)
+	}
+}
+
+func TestIntegrationCLIRunInteractiveRemoveSkipsExistingSandbox(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-rm-existing
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				if req.Msg.GetSessionId() != "sandbox-existing" {
+					t.Fatalf("RunAgentStream session = %q, want sandbox-existing", req.Msg.GetSessionId())
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-repl-existing",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-repl-existing",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-existing",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-existing", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+		sandbox: sandboxServiceStub{
+			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
+				t.Fatalf("RemoveSandbox should not be called for an explicit sandbox")
+				return nil, nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("", "run", "--host", server.URL, "--file", composePath, "--rm", "--sandbox", "sandbox-existing", "reviewer", "-i", "--prompt", "first")
+	if exitCode != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("run -i --rm --sandbox code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+}
+
+func TestCLIRunInteractivePromptProviderUnsupported(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-gemini
+agents:
+  reviewer:
+    provider: gemini
+`)
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("hello\n", "run", "--file", composePath, "reviewer", "-i", "--prompt")
+	if exitCode != exitCodeUnsupported {
+		t.Fatalf("run -i --prompt gemini exit code = %d, want %d; stderr=%q", exitCode, exitCodeUnsupported, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "unsupported for provider gemini") || !strings.Contains(stderr, "codex, claude, opencode") {
+		t.Fatalf("run -i --prompt gemini stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
+func TestIntegrationCLIRunInteractivePromptDefaultProviderAllowed(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive-default-provider
+agents:
+  reviewer: {}
+`)
+	var sawRun bool
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				sawRun = true
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-default-provider",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-default-provider",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-default-provider",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), req.Msg.GetRunId(), "reviewer", "sandbox-default-provider", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommandWithInput("", "run", "--host", server.URL, "--file", composePath, "reviewer", "-i", "--prompt", "hello")
+	if exitCode != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("run -i --prompt default provider code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	if !sawRun {
+		t.Fatal("RunAgentStream was not called")
+	}
+}
+
 func TestIntegrationCLIRunTrigger(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-trigger
@@ -1188,6 +1741,48 @@ agents:
 	}
 	if !sawRequest {
 		t.Fatal("RunAgentStream was not called")
+	}
+}
+
+func TestIntegrationCLIRunTriggerWarnings(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-trigger-warning
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-trigger-warning",
+					Warnings:  []string{"trigger trigger-1 is disabled; running because it was requested manually"},
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-trigger-warning",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SessionId: "sandbox-trigger",
+						Warnings:  []string{"trigger trigger-1 is disabled; running because it was requested manually"},
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-trigger-warning", "reviewer", "sandbox-trigger", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "reviewer", "--trigger", "trigger-1")
+	if exitCode != 0 || stdout != "" || !strings.Contains(stderr, "warning: trigger trigger-1 is disabled") {
+		t.Fatalf("run --trigger warning code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--json", "reviewer", "--trigger", "trigger-1")
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"warnings"`) || !strings.Contains(jsonOut, "trigger trigger-1 is disabled") {
+		t.Fatalf("run --trigger --json warning code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
 	}
 }
 
@@ -1248,6 +1843,11 @@ agents:
 			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "--command", " "},
 			want: "requires a non-empty command",
 		},
+		{
+			name: "detach and interactive flags",
+			args: []string{"run", "--host", server.URL, "--file", composePath, "reviewer", "-d", "-i"},
+			want: "cannot be combined",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, stderr, _, exitCode := executeCLICommand(tc.args...)
@@ -1261,6 +1861,56 @@ agents:
 	}
 }
 
+func TestCLIRunInteractiveUsageErrors(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-interactive
+agents:
+  reviewer:
+    provider: codex
+`)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "no mode",
+			args: []string{"run", "--file", composePath, "reviewer", "-i"},
+			want: "requires exactly one of --prompt or --command",
+		},
+		{
+			name: "trigger",
+			args: []string{"run", "--file", composePath, "reviewer", "-i", "--trigger", "nightly"},
+			want: "cannot be combined with --trigger",
+		},
+		{
+			name: "json",
+			args: []string{"run", "--file", composePath, "--json", "reviewer", "-i", "--prompt"},
+			want: "cannot be combined with --json",
+		},
+		{
+			name: "prompt and command",
+			args: []string{"run", "--file", composePath, "reviewer", "-i", "--prompt", "--command"},
+			want: "requires exactly one of --prompt or --command",
+		},
+		{
+			name: "positional prompt",
+			args: []string{"run", "--file", composePath, "reviewer", "-i", "--prompt", "first", "legacy"},
+			want: "does not accept legacy positional prompt",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, _, exitCode := executeCLICommand(tc.args...)
+			if exitCode != exitCodeUsage {
+				t.Fatalf("run -i exit code = %d, want %d; stderr=%q", exitCode, exitCodeUsage, stderr)
+			}
+			if stdout != "" || !strings.Contains(stderr, tc.want) {
+				t.Fatalf("run -i stdout/stderr = %q / %q, want %q", stdout, stderr, tc.want)
+			}
+		})
+	}
+}
+
 func TestIntegrationCLIRunRemoveSandboxOnSuccess(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-rm
@@ -1268,15 +1918,10 @@ agents:
   reviewer:
     provider: codex
 `)
-	type removedRequest struct {
-		sandbox string
-		force   bool
-	}
-	var removed []removedRequest
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		run: runServiceStub{
 			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
-				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION {
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION {
 					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
 				}
 				if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
@@ -1302,15 +1947,6 @@ agents:
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-rm", "reviewer", "sandbox-rm", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "done\n")}), nil
 			},
 		},
-		sandbox: sandboxServiceStub{
-			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
-				removed = append(removed, removedRequest{sandbox: req.Msg.GetSandboxId(), force: req.Msg.GetForce()})
-				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{
-					SandboxId: req.Msg.GetSandboxId(),
-					Removed:   true,
-				}), nil
-			},
-		},
 	})
 	defer server.Close()
 
@@ -1318,25 +1954,24 @@ agents:
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("run --rm code/stderr = %d / %q", exitCode, stderr)
 	}
-	if stdout != "done\nremoved sandbox sandbox-rm\n" {
+	if stdout != "done\n" {
 		t.Fatalf("run --rm stdout = %q", stdout)
-	}
-	if len(removed) != 1 || removed[0].sandbox != "sandbox-rm" || !removed[0].force {
-		t.Fatalf("removed requests = %#v", removed)
 	}
 }
 
-func TestIntegrationCLIRunRemoveSandboxUsesDetailSandbox(t *testing.T) {
+func TestIntegrationCLIRunRemoveSandboxJSONDoesNotPrintCleanupText(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-rm-detail
 agents:
   reviewer:
     provider: codex
 `)
-	var removed []string
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		run: runServiceStub{
 			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION {
+					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
+				}
 				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
 					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
 					RunId:     "run-rm-detail",
@@ -1352,12 +1987,6 @@ agents:
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-rm-detail", "reviewer", "sandbox-from-detail", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
 			},
 		},
-		sandbox: sandboxServiceStub{
-			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
-				removed = append(removed, req.Msg.GetSandboxId())
-				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{SandboxId: req.Msg.GetSandboxId(), Removed: true}), nil
-			},
-		},
 	})
 	defer server.Close()
 
@@ -1367,9 +1996,6 @@ agents:
 	}
 	if strings.Contains(stdout, "removed sandbox") {
 		t.Fatalf("run --rm --json stdout contains text cleanup output: %q", stdout)
-	}
-	if len(removed) != 1 || removed[0] != "sandbox-from-detail" {
-		t.Fatalf("removed sandboxes = %#v", removed)
 	}
 }
 
@@ -1431,10 +2057,12 @@ agents:
   reviewer:
     provider: codex
 `)
-	var removeCalled bool
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		run: runServiceStub{
 			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION {
+					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
+				}
 				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
 					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
 					RunId:     "run-rm-failed",
@@ -1453,12 +2081,6 @@ agents:
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-rm-failed", "reviewer", "sandbox-failed", agentcomposev2.RunStatus_RUN_STATUS_FAILED, 9, "")}), nil
 			},
 		},
-		sandbox: sandboxServiceStub{
-			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
-				removeCalled = true
-				return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{}), nil
-			},
-		},
 	})
 	defer server.Close()
 
@@ -1468,9 +2090,6 @@ agents:
 	}
 	if stdout != "" || !strings.Contains(stderr, "failed before cleanup") {
 		t.Fatalf("run --rm failed stdout/stderr = %q / %q", stdout, stderr)
-	}
-	if removeCalled {
-		t.Fatal("RemoveSandbox was called for a failed run")
 	}
 }
 
@@ -1484,6 +2103,9 @@ agents:
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		run: runServiceStub{
 			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				if req.Msg.GetCleanupPolicy() != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION {
+					t.Fatalf("RunAgentStream cleanup policy = %#v", req.Msg.GetCleanupPolicy())
+				}
 				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
 					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
 					RunId:     "run-rm-error",
@@ -1497,12 +2119,9 @@ agents:
 				})
 			},
 			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
-				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-rm-error", "reviewer", "sandbox-rm-error", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
-			},
-		},
-		sandbox: sandboxServiceStub{
-			removeSandbox: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error) {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("remove failed"))
+				run := testRunDetail(req.Msg.GetProjectId(), "run-rm-error", "reviewer", "sandbox-rm-error", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")
+				run.CleanupError = "remove failed"
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: run}), nil
 			},
 		},
 	})
@@ -1512,7 +2131,7 @@ agents:
 	if exitCode == 0 {
 		t.Fatalf("run --rm cleanup error exit code = %d, want non-zero", exitCode)
 	}
-	if stdout != "" || !strings.Contains(stderr, "remove sandbox sandbox-rm-error after run run-rm-error") || !strings.Contains(stderr, "remove failed") {
+	if stdout != "" || !strings.Contains(stderr, "succeeded but sandbox cleanup failed") || !strings.Contains(stderr, "remove failed") {
 		t.Fatalf("run --rm cleanup error stdout/stderr = %q / %q", stdout, stderr)
 	}
 }
@@ -1700,7 +2319,7 @@ func TestLogsAgentFlagAndPositionalIsUsageError(t *testing.T) {
 	}
 }
 
-func TestIntegrationCLILogsFollowPollsUntilTerminal(t *testing.T) {
+func TestIntegrationCLILogsFollowUsesServerStream(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-logs-follow
 agents:
@@ -1708,34 +2327,32 @@ agents:
     provider: codex
 `)
 	var listCalls int
+	var followCalls int
 	server := newRunServiceStubServer(t, runServiceStub{
 		listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
 			listCalls++
-			status := agentcomposev2.RunStatus_RUN_STATUS_RUNNING
-			if listCalls > 1 {
-				status = agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED
-			}
 			return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{{
 				RunId:     "run-follow",
 				ProjectId: req.Msg.GetProjectId(),
 				AgentName: "reviewer",
-				Status:    status,
+				Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
 				SessionId: "session-follow",
 			}}}), nil
 		},
-		getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
-			status := agentcomposev2.RunStatus_RUN_STATUS_RUNNING
-			output := "first\n"
-			if listCalls > 1 {
-				status = agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED
-				output = "first\nsecond\n"
+		followRunLogs: func(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+			followCalls++
+			if req.Msg.GetRunId() != "run-follow" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 2 {
+				t.Fatalf("FollowRunLogs request = %#v", req.Msg)
 			}
-			return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-follow", "reviewer", "session-follow", status, 0, output)}), nil
+			if err := stream.Send(&agentcomposev2.RunLogChunk{Data: "first\n", Offset: 6, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_RUNNING}); err != nil {
+				return err
+			}
+			return stream.Send(&agentcomposev2.RunLogChunk{Data: "second\n", Offset: 13, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, IsFinal: true})
 		},
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--follow")
+	stdout, stderr, _, exitCode := executeCLICommand("logs", "--host", server.URL, "--file", composePath, "--follow", "--tail", "2")
 	if exitCode != 0 {
 		t.Fatalf("logs follow exit code = %d, stderr=%q", exitCode, stderr)
 	}
@@ -1745,8 +2362,8 @@ agents:
 	if stdout != "reviewer | first\nreviewer | second\n" {
 		t.Fatalf("logs follow stdout = %q", stdout)
 	}
-	if listCalls < 2 {
-		t.Fatalf("logs follow list calls = %d, want at least 2", listCalls)
+	if listCalls != 1 || followCalls != 1 {
+		t.Fatalf("logs follow list/follow calls = %d/%d, want 1/1", listCalls, followCalls)
 	}
 }
 
@@ -1932,6 +2549,82 @@ func TestIntegrationCLIResumeSandboxesJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIStatsTableAndJSON(t *testing.T) {
+	var calls int
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			getStats: func(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+				calls++
+				if req.Msg.GetSandboxId() != "sandbox-stats" {
+					t.Fatalf("GetSandboxStats sandbox = %q", req.Msg.GetSandboxId())
+				}
+				return connect.NewResponse(&agentcomposev2.GetSandboxStatsResponse{Stats: &agentcomposev2.SandboxStats{
+					SandboxId:        req.Msg.GetSandboxId(),
+					Driver:           "docker",
+					SampledAt:        "2026-07-04T08:00:00Z",
+					CpuPercent:       testStatsMetric(12.5, "percent"),
+					MemoryUsageBytes: testStatsMetric(512, "bytes"),
+					MemoryLimitBytes: &agentcomposev2.MetricValue{Unit: "bytes", Status: agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN, Message: "missing"},
+					MemoryPercent:    testStatsMetric(25, "percent"),
+					NetworkRxBytes:   testStatsMetric(100, "bytes"),
+					NetworkTxBytes:   testStatsMetric(200, "bytes"),
+					BlockReadBytes:   testStatsMetric(300, "bytes"),
+					BlockWriteBytes:  testStatsMetric(400, "bytes"),
+					UptimeSeconds:    testStatsMetric(90, "seconds"),
+				}}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "sandbox-stats")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("stats code/stderr = %d / %q", exitCode, stderr)
+	}
+	for _, want := range []string{"SANDBOX", "sandbox-stats", "docker", "12.50", "512", "-", "90s"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stats output %q does not contain %q", stdout, want)
+		}
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("stats", "--host", server.URL, "--json", "sandbox-stats")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("stats --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeStatsOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("stats JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if decoded.Sandbox != "sandbox-stats" || decoded.Driver != "docker" || decoded.MemoryLimitBytes.Status != "unknown" || decoded.MemoryLimitBytes.Value != nil {
+		t.Fatalf("stats JSON = %#v", decoded)
+	}
+	if decoded.CPUPercent.Value == nil || *decoded.CPUPercent.Value != 12.5 {
+		t.Fatalf("stats JSON cpu = %#v", decoded.CPUPercent)
+	}
+	if calls != 2 {
+		t.Fatalf("GetSandboxStats calls = %d, want 2", calls)
+	}
+}
+
+func TestCLIStatsUnsupportedUsesUnsupportedExitCode(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		sandbox: sandboxServiceStub{
+			getStats: func(context.Context, *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+				return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("sandbox stats are unsupported"))
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("stats", "--host", server.URL, "sandbox-stats")
+	if exitCode != exitCodeUnsupported {
+		t.Fatalf("stats unsupported exit code = %d, want %d; stderr=%q", exitCode, exitCodeUnsupported, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "unsupported") {
+		t.Fatalf("stats unsupported stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
 func TestIntegrationCLIRemoveSandboxes(t *testing.T) {
 	type removedRequest struct {
 		sandbox string
@@ -2073,21 +2766,20 @@ agents:
 					}
 				}
 				if err := stream.Send(&agentcomposev2.ExecStreamResponse{
-					EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-					ExecId:    "exec-cli",
-					SessionId: "session-exec",
-					RunId:     "run-exec",
-					Chunk:     "exec stdout\n",
+					EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+					ExecId:     "exec-cli",
+					SessionId:  "session-exec",
+					RunId:      "run-exec",
+					Transcript: &agentcomposev2.TranscriptEvent{Kind: "stdout", Text: "exec stdout\n"},
 				}); err != nil {
 					return err
 				}
 				if err := stream.Send(&agentcomposev2.ExecStreamResponse{
-					EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-					ExecId:    "exec-cli",
-					SessionId: "session-exec",
-					RunId:     "run-exec",
-					Chunk:     "exec stderr\n",
-					IsStderr:  true,
+					EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+					ExecId:     "exec-cli",
+					SessionId:  "session-exec",
+					RunId:      "run-exec",
+					Transcript: &agentcomposev2.TranscriptEvent{Kind: "stderr", Text: "exec stderr\n", IsStderr: true},
 				}); err != nil {
 					return err
 				}
@@ -2154,6 +2846,9 @@ agents:
 	if !strings.Contains(jsonErr, "agent-compose exec --session-id is deprecated") || strings.Contains(jsonOut, "deprecated") {
 		t.Fatalf("exec --session-id json stdout/stderr = %q / %q", jsonOut, jsonErr)
 	}
+	if strings.Contains(jsonErr, "exec stderr") {
+		t.Fatalf("exec --json leaked transcript stdout/stderr = %q / %q", jsonOut, jsonErr)
+	}
 	var decoded composeExecOutput
 	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
 		t.Fatalf("exec JSON decode failed: %v\n%s", err, jsonOut)
@@ -2183,6 +2878,30 @@ agents:
 	}
 	if ambiguousOut != "" || !strings.Contains(ambiguousErr, "either with --command or positional arguments") {
 		t.Fatalf("exec --command ambiguous stdout/stderr = %q / %q", ambiguousOut, ambiguousErr)
+	}
+}
+
+func TestCLIExecInteractiveReservedUnsupported(t *testing.T) {
+	stdout, stderr, _, exitCode := executeCLICommand("exec", "sandbox-1", "-i")
+	if exitCode != exitCodeUnsupported {
+		t.Fatalf("exec -i exit code = %d, want %d; stderr=%q", exitCode, exitCodeUnsupported, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "exec -i/--interactive is not supported") {
+		t.Fatalf("exec -i stdout/stderr = %q / %q", stdout, stderr)
+	}
+}
+
+func TestWriteTranscriptOrChunkRoutesTranscriptAndLegacyChunks(t *testing.T) {
+	var stdout strings.Builder
+	var stderr strings.Builder
+	if err := writeTranscriptOrChunk(&stdout, &stderr, &agentcomposev2.TranscriptEvent{Text: "err\n", IsStderr: true}, "ignored\n", false); err != nil {
+		t.Fatalf("write transcript returned error: %v", err)
+	}
+	if err := writeTranscriptOrChunk(&stdout, &stderr, nil, "out\n", false); err != nil {
+		t.Fatalf("write legacy chunk returned error: %v", err)
+	}
+	if stdout.String() != "out\n" || stderr.String() != "err\n" {
+		t.Fatalf("stdout/stderr = %q / %q", stdout.String(), stderr.String())
 	}
 }
 
@@ -2430,6 +3149,42 @@ func TestIntegrationCLIImagePullAliasesAndJSON(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("PullImage calls = %d, want 2", calls)
+	}
+}
+
+func TestIntegrationCLIImagePullSkippedWarnings(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		image: imageServiceStub{
+			pullImage: func(ctx context.Context, req *connect.Request[agentcomposev2.PullImageRequest]) (*connect.Response[agentcomposev2.PullImageResponse], error) {
+				return connect.NewResponse(&agentcomposev2.PullImageResponse{
+					Image:       testCLIImage("sha256:local123456789", req.Msg.GetImageRef()),
+					Status:      agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED,
+					ResolvedRef: "agent@sha256:local",
+					Warnings:    []string{"skipped pull: image agent:latest already exists locally"},
+				}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("pull", "--host", server.URL, "agent:latest")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("pull skipped code/stderr = %d / %q", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, "Skipped agent:latest") || !strings.Contains(stdout, "already exists locally") || strings.Contains(stdout, "Pulled agent:latest") {
+		t.Fatalf("pull skipped stdout = %q", stdout)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("pull", "--host", server.URL, "--json", "agent:latest")
+	if jsonCode != 0 || jsonErr != "" {
+		t.Fatalf("pull skipped --json code/stderr = %d / %q", jsonCode, jsonErr)
+	}
+	var decoded composeImagePullOutput
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("pull skipped JSON decode failed: %v\n%s", err, jsonOut)
+	}
+	if len(decoded.Warnings) != 1 || !strings.Contains(decoded.Warnings[0], "already exists locally") {
+		t.Fatalf("pull skipped JSON = %#v", decoded)
 	}
 }
 
@@ -3434,12 +4189,25 @@ func assertComposeUpChange(t *testing.T, changes []composeUpChangeOutput, action
 	t.Fatalf("change %s/%s/%s not found in %#v", action, resourceType, name, changes)
 }
 
+func testStatsMetric(value float64, unit string) *agentcomposev2.MetricValue {
+	return &agentcomposev2.MetricValue{Value: &value, Unit: unit, Status: agentcomposev2.MetricStatus_METRIC_STATUS_OK}
+}
+
 type runServiceStub struct {
+	startRun       func(context.Context, *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error)
 	runAgentStream func(context.Context, *connect.Request[agentcomposev2.RunAgentRequest], *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error
 	getRun         func(context.Context, *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error)
 	listRuns       func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error)
+	followRunLogs  func(context.Context, *connect.Request[agentcomposev2.FollowRunLogsRequest], *connect.ServerStream[agentcomposev2.RunLogChunk]) error
 
 	agentcomposev2connect.UnimplementedRunServiceHandler
+}
+
+func (s runServiceStub) StartRun(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+	if s.startRun == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("StartRun stub is not configured"))
+	}
+	return s.startRun(ctx, req)
 }
 
 func (s runServiceStub) RunAgentStream(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
@@ -3461,6 +4229,13 @@ func (s runServiceStub) ListRuns(ctx context.Context, req *connect.Request[agent
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListRuns stub is not configured"))
 	}
 	return s.listRuns(ctx, req)
+}
+
+func (s runServiceStub) FollowRunLogs(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
+	if s.followRunLogs == nil {
+		return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("FollowRunLogs stub is not configured"))
+	}
+	return s.followRunLogs(ctx, req, stream)
 }
 
 func newRunServiceStubServer(t *testing.T, stub runServiceStub) *httptest.Server {
@@ -3569,6 +4344,7 @@ func (s imageServiceStub) RemoveImage(ctx context.Context, req *connect.Request[
 
 type sandboxServiceStub struct {
 	removeSandbox func(context.Context, *connect.Request[agentcomposev2.RemoveSandboxRequest]) (*connect.Response[agentcomposev2.RemoveSandboxResponse], error)
+	getStats      func(context.Context, *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error)
 
 	agentcomposev2connect.UnimplementedSandboxServiceHandler
 }
@@ -3578,6 +4354,13 @@ func (s sandboxServiceStub) RemoveSandbox(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("RemoveSandbox stub is not configured"))
 	}
 	return s.removeSandbox(ctx, req)
+}
+
+func (s sandboxServiceStub) GetSandboxStats(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxStatsRequest]) (*connect.Response[agentcomposev2.GetSandboxStatsResponse], error) {
+	if s.getStats == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("GetSandboxStats stub is not configured"))
+	}
+	return s.getStats(ctx, req)
 }
 
 type sessionServiceStub struct {
@@ -3624,7 +4407,7 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 		path, handler := agentcomposev2connect.NewProjectServiceHandler(stubs.project)
 		mux.Handle(path, handler)
 	}
-	if stubs.run.runAgentStream != nil || stubs.run.getRun != nil || stubs.run.listRuns != nil {
+	if stubs.run.startRun != nil || stubs.run.runAgentStream != nil || stubs.run.getRun != nil || stubs.run.listRuns != nil || stubs.run.followRunLogs != nil {
 		path, handler := agentcomposev2connect.NewRunServiceHandler(stubs.run)
 		mux.Handle(path, handler)
 	}
@@ -3636,7 +4419,7 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 		path, handler := agentcomposev2connect.NewImageServiceHandler(stubs.image)
 		mux.Handle(path, handler)
 	}
-	if stubs.sandbox.removeSandbox != nil {
+	if stubs.sandbox.removeSandbox != nil || stubs.sandbox.getStats != nil {
 		path, handler := agentcomposev2connect.NewSandboxServiceHandler(stubs.sandbox)
 		mux.Handle(path, handler)
 	}

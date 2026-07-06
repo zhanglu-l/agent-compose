@@ -83,28 +83,34 @@ func (r *microsandboxRuntime) EnsureSession(ctx context.Context, session *Sessio
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
 
+	if err := r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, sandbox, session, name); err != nil {
+		return SessionVMInfo{}, err
+	}
+
 	needLaunch := created || restarted
-	if !needLaunch {
+	if jupyterEnabled(proxyState) && !needLaunch {
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		probeErr := waitForJupyterProxy(probeCtx, proxyState)
 		cancel()
 		needLaunch = probeErr != nil
 	}
-	if needLaunch {
+	if jupyterEnabled(proxyState) && needLaunch {
 		if err := r.launchJupyter(ctx, sandbox, proxyState); err != nil {
 			return SessionVMInfo{}, err
 		}
 	}
-	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	readyErr := waitForJupyterProxy(readyCtx, proxyState)
-	cancel()
-	if readyErr != nil {
-		if logText := readSessionJupyterLog(session); jupyterLogIndicatesReady(logText) {
-			slog.Warn("microsandbox jupyter probe timed out after guest reported ready", "session_id", session.Summary.ID, "error", readyErr)
-		} else if logText != "" {
-			return SessionVMInfo{}, fmt.Errorf("%w\nGuest log:\n%s", readyErr, logText)
-		} else {
-			return SessionVMInfo{}, readyErr
+	if jupyterEnabled(proxyState) {
+		readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		readyErr := waitForJupyterProxy(readyCtx, proxyState)
+		cancel()
+		if readyErr != nil {
+			if logText := readSessionJupyterLog(session); jupyterLogIndicatesReady(logText) {
+				slog.Warn("microsandbox jupyter probe timed out after guest reported ready", "session_id", session.Summary.ID, "error", readyErr)
+			} else if logText != "" {
+				return SessionVMInfo{}, fmt.Errorf("%w\nGuest log:\n%s", readyErr, logText)
+			} else {
+				return SessionVMInfo{}, readyErr
+			}
 		}
 	}
 	return SessionVMInfo{
@@ -190,17 +196,24 @@ func (r *microsandboxRuntime) Exec(ctx context.Context, session *Session, vmStat
 		return ExecResult{}, err
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
-	output, err := sandbox.Exec(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
-	if err != nil {
-		return ExecResult{}, err
-	}
-	return ExecResult{
-		ExitCode: output.ExitCode(),
-		Stdout:   output.Stdout(),
-		Stderr:   output.Stderr(),
-		Output:   output.Stdout() + output.Stderr(),
-		Success:  output.Success(),
-	}, nil
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, sandbox, session, name)
+		},
+		func() (ExecResult, error) {
+			output, err := sandbox.Exec(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+			if err != nil {
+				return ExecResult{}, err
+			}
+			return ExecResult{
+				ExitCode: output.ExitCode(),
+				Stdout:   output.Stdout(),
+				Stderr:   output.Stderr(),
+				Output:   output.Stdout() + output.Stderr(),
+				Success:  output.Success(),
+			}, nil
+		},
+	)
 }
 
 func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
@@ -214,52 +227,107 @@ func (r *microsandboxRuntime) ExecStream(ctx context.Context, session *Session, 
 		return ExecResult{}, err
 	}
 	defer r.releaseSandboxHandle(name, sandbox)
-	handle, err := sandbox.ExecStream(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, sandbox, session, name)
+		},
+		func() (ExecResult, error) {
+			handle, err := sandbox.ExecStream(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+			if err != nil {
+				return ExecResult{}, err
+			}
+			defer func() { _ = handle.Close() }()
+
+			collector := &microsandboxExecCollector{stream: stream, filter: newExecOutputFilter()}
+			exitCode := 0
+			sawExit := false
+			for {
+				event, err := handle.Recv(ctx)
+				if err != nil {
+					collector.finish()
+					return ExecResult{}, err
+				}
+				if event == nil || event.Kind == microsandbox.ExecEventDone {
+					break
+				}
+				switch event.Kind {
+				case microsandbox.ExecEventStdout:
+					collector.writeChunk(ExecChunk{Text: string(event.Data)})
+				case microsandbox.ExecEventStderr:
+					collector.writeChunk(ExecChunk{Text: string(event.Data), IsStderr: true})
+				case microsandbox.ExecEventExited:
+					exitCode = event.ExitCode
+					sawExit = true
+				case microsandbox.ExecEventFailed:
+					collector.finish()
+					return ExecResult{}, formatMicrosandboxExecFailure(event.Failure)
+				case microsandbox.ExecEventStdinError:
+					collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", IsStderr: true})
+				}
+			}
+			collector.finish()
+			if !sawExit {
+				exitCode = 0
+			}
+
+			result := ExecResult{
+				ExitCode: exitCode,
+				Stdout:   collector.stdout.String(),
+				Stderr:   collector.stderr.String(),
+				Output:   collector.output.String(),
+			}
+			result.Success = result.ExitCode == 0
+			return result, nil
+		},
+	)
+}
+
+func (r *microsandboxRuntime) ensureDirectoryOnlyGuestSessionBootstrap(ctx context.Context, sandbox *microsandbox.Sandbox, session *Session, sandboxName string) error {
+	spec := directoryOnlyGuestSessionBootstrapExecSpec(r.config)
+	output, err := sandbox.Exec(ctx, spec.Command, spec.Args, r.execOptions(ctx, spec)...)
+	result := ExecResult{}
+	if output != nil {
+		result = ExecResult{
+			ExitCode: output.ExitCode(),
+			Stdout:   output.Stdout(),
+			Stderr:   output.Stderr(),
+			Output:   output.Stdout() + output.Stderr(),
+			Success:  output.Success(),
+		}
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.Summary.ID
+	}
 	if err != nil {
-		return ExecResult{}, err
+		return formatDirectoryOnlyGuestSessionBootstrapError(RuntimeDriverMicrosandbox, sessionID, sandboxName, result, err)
 	}
-	defer func() { _ = handle.Close() }()
+	if !result.Success {
+		return formatDirectoryOnlyGuestSessionBootstrapError(RuntimeDriverMicrosandbox, sessionID, sandboxName, result, nil)
+	}
+	return nil
+}
 
-	collector := &microsandboxExecCollector{stream: stream, filter: newExecOutputFilter()}
-	exitCode := 0
-	sawExit := false
-	for {
-		event, err := handle.Recv(ctx)
-		if err != nil {
-			collector.finish()
-			return ExecResult{}, err
-		}
-		if event == nil || event.Kind == microsandbox.ExecEventDone {
-			break
-		}
-		switch event.Kind {
-		case microsandbox.ExecEventStdout:
-			collector.writeChunk(ExecChunk{Text: string(event.Data)})
-		case microsandbox.ExecEventStderr:
-			collector.writeChunk(ExecChunk{Text: string(event.Data), IsStderr: true})
-		case microsandbox.ExecEventExited:
-			exitCode = event.ExitCode
-			sawExit = true
-		case microsandbox.ExecEventFailed:
-			collector.finish()
-			return ExecResult{}, formatMicrosandboxExecFailure(event.Failure)
-		case microsandbox.ExecEventStdinError:
-			collector.writeChunk(ExecChunk{Text: formatMicrosandboxExecFailure(event.Failure).Error() + "\n", IsStderr: true})
-		}
+func (r *microsandboxRuntime) Stats(ctx context.Context, session *Session, vmState VMState) (SandboxStats, error) {
+	if err := r.ensureReady(ctx); err != nil {
+		return SandboxStats{}, err
 	}
-	collector.finish()
-	if !sawExit {
-		exitCode = 0
+	name := r.sandboxName(session, vmState)
+	handle, err := microsandbox.GetSandbox(ctx, name)
+	if err != nil {
+		if microsandbox.IsKind(err, microsandbox.ErrSandboxNotFound) {
+			return SandboxStats{}, fmt.Errorf("session box is not initialized")
+		}
+		return SandboxStats{}, err
 	}
-
-	result := ExecResult{
-		ExitCode: exitCode,
-		Stdout:   collector.stdout.String(),
-		Stderr:   collector.stderr.String(),
-		Output:   collector.output.String(),
+	if handle.Status() != microsandbox.SandboxStatusRunning && handle.Status() != microsandbox.SandboxStatusDraining {
+		return SandboxStats{}, fmt.Errorf("session box is not running")
 	}
-	result.Success = result.ExitCode == 0
-	return result, nil
+	metrics, err := handle.Metrics(ctx)
+	if err != nil {
+		return SandboxStats{}, err
+	}
+	return microsandboxStatsFromMetrics(session, vmState, metrics), nil
 }
 
 func (r *microsandboxRuntime) ensureReady(ctx context.Context) error {
@@ -743,8 +811,6 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	// containerd and refuse to start. agentd recreates /run/microsandbox after
 	// user tmpfs mounts are applied, so shadowing /run here is safe.
 	mounts["/run"] = microsandbox.Mount.Tmpfs(microsandbox.TmpfsOptions{SizeMiB: 256})
-	hostPort := uint16(proxyState.HostPort)
-	guestPort := uint16(r.config.JupyterGuestPort)
 	imageRef := resolveSessionGuestImage(vmState.Image, session.Summary.GuestImage, defaultGuestImageForDriver(r.config, RuntimeDriverMicrosandbox))
 	if resolvedRef, ok, err := r.resolveMicrosandboxImageRef(ctx, imageRef); err != nil {
 		return nil, err
@@ -768,7 +834,7 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 	rebindDisabled := false
 	network := microsandbox.NetworkPolicy.AllowAll()
 	network.DNS = &microsandbox.DNSConfig{RebindProtection: &rebindDisabled}
-	sandbox, err := microsandbox.CreateSandbox(ctx, name,
+	options := []microsandbox.SandboxOption{
 		microsandbox.WithImage(imageRef),
 		microsandbox.WithWorkdir("/"),
 		microsandbox.WithShell("/bin/bash"),
@@ -776,13 +842,16 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sessio
 		microsandbox.WithNetwork(network),
 		microsandbox.WithPullPolicy(pullPolicy),
 		microsandbox.WithMounts(mounts),
-		microsandbox.WithPorts(map[uint16]uint16{hostPort: guestPort}),
 		// Fixed microVM size: the SDK defaults (512MiB / 1 CPU) are too small
 		// for docker-in-VM workloads (pulling large images, building from a
 		// container).
 		microsandbox.WithMemory(8192),
 		microsandbox.WithCPUs(4),
-	)
+	}
+	if jupyterEnabled(proxyState) && proxyState.HostPort > 0 {
+		options = append(options, microsandbox.WithPorts(map[uint16]uint16{uint16(proxyState.HostPort): uint16(proxyState.GuestPort)}))
+	}
+	sandbox, err := microsandbox.CreateSandbox(ctx, name, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -822,7 +891,7 @@ func microsandboxPullPolicyForImageRef(imageRef string) microsandbox.PullPolicy 
 }
 
 func (r *microsandboxRuntime) launchJupyter(ctx context.Context, sandbox *microsandbox.Sandbox, proxyState ProxyState) error {
-	command := jupyterLaunchCommand(r.config, proxyState, true)
+	command := directoryOnlyJupyterLaunchCommand(r.config, proxyState, true)
 	// Run from "/" (not GuestWorkspacePath): /workspace is created by the bootstrap
 	// inside command itself, so cwd=/workspace would fail chdir before the script runs.
 	// Matches the boxlite driver; jupyter still serves /workspace via --ServerApp.root_dir.
@@ -902,6 +971,36 @@ func (r *microsandboxRuntime) execOptions(ctx context.Context, spec ExecSpec) []
 
 func (r *microsandboxRuntime) sandboxName(session *Session, vmState VMState) string {
 	return firstNonEmpty(strings.TrimSpace(vmState.BoxName), strings.TrimSpace(vmState.BoxID), strings.TrimSpace(session.Summary.RuntimeRef), "agent-compose-"+session.Summary.ID)
+}
+
+func microsandboxStatsFromMetrics(session *Session, vmState VMState, metrics *microsandbox.Metrics) SandboxStats {
+	sandboxID := ""
+	driverName := RuntimeDriverMicrosandbox
+	if session != nil {
+		sandboxID = session.Summary.ID
+		driverName = firstNonEmpty(session.Summary.Driver, driverName)
+	}
+	if metrics == nil {
+		return unknownSandboxStats(sandboxID, firstNonEmpty(driverName, vmState.Driver, RuntimeDriverMicrosandbox), "microsandbox metrics are unavailable")
+	}
+	stats := SandboxStats{
+		SandboxID:        sandboxID,
+		Driver:           firstNonEmpty(driverName, vmState.Driver, RuntimeDriverMicrosandbox),
+		SampledAt:        time.Now().UTC(),
+		CPUPercent:       metricOK(metrics.CPUPercent, MetricUnitPercent),
+		MemoryUsageBytes: metricOK(float64(metrics.MemoryBytes), MetricUnitBytes),
+		MemoryLimitBytes: metricOK(float64(metrics.MemoryLimitBytes), MetricUnitBytes),
+		MemoryPercent:    metricUnknown(MetricUnitPercent, "memory limit is unknown"),
+		NetworkRxBytes:   metricOK(float64(metrics.NetRxBytes), MetricUnitBytes),
+		NetworkTxBytes:   metricOK(float64(metrics.NetTxBytes), MetricUnitBytes),
+		BlockReadBytes:   metricOK(float64(metrics.DiskReadBytes), MetricUnitBytes),
+		BlockWriteBytes:  metricOK(float64(metrics.DiskWriteBytes), MetricUnitBytes),
+		UptimeSeconds:    metricOK(metrics.Uptime.Seconds(), MetricUnitSeconds),
+	}
+	if metrics.MemoryLimitBytes > 0 {
+		stats.MemoryPercent = metricOK(float64(metrics.MemoryBytes)/float64(metrics.MemoryLimitBytes)*100, MetricUnitPercent)
+	}
+	return stats
 }
 
 func (r *microsandboxRuntime) releaseSandboxHandle(name string, sandbox *microsandbox.Sandbox) {

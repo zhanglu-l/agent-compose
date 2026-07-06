@@ -1,8 +1,6 @@
 # https://taskfile.dev
 version: '3'
 
-dotenv: ['.env']
-
 vars:
   VERSION:
     sh: git describe --always --tags --long 2>/dev/null || git rev-parse --short=12 HEAD 2>/dev/null || echo 'unknown'

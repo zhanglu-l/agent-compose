@@ -1,6 +1,6 @@
 # Runtime Mount Manifest 设计
 
-本文档描述当前 runtime mount manifest 的代码事实。agent-compose 不再把整个 session 目录挂到 guest 内部的 `/data`，而是在启动或恢复 runtime 前生成 manifest，把 session 子目录挂到 guest 的惯用路径。
+本文档描述当前 runtime mount manifest 的代码事实。agent-compose 在启动或恢复 runtime 前，会从同一套逻辑 runtime mount 清单生成 driver-specific manifest。Docker 将这套清单应用为细粒度 bind mounts；BoxLite 和 Microsandbox 使用 directory-only manifest，只把整个 session 挂到 `/data`，再通过 guest bootstrap 暴露 `/workspace` 和声明的 `/root/...` home 条目等兼容路径。
 
 ## 设计目标
 
@@ -10,7 +10,7 @@ runtime 内工具应继续使用镜像默认的目录语义：
 - `$HOME` 使用镜像默认值，当前约定为 `/root`。
 - agent-compose 内部交换目录位于 `/data/state`、`/data/runtime`、`/data/logs`。
 
-host 侧 session 状态仍保存在 `<session>` 下，但不把 `<session>` 整体暴露给 guest。`context`、`vm`、`proxy`、`metadata.json` 等 host 控制面状态不会出现在 manifest 中。
+host 侧 session 状态仍保存在 `<session>` 下。Docker 不暴露 `context`、`vm`、`proxy`、`metadata.json` 等 host 控制面状态。directory-only runtime 会把 `<session>` 整体暴露为 `/data`，但产品代码只依赖下文定义的逻辑路径，不依赖任意 session root 内容。
 
 ## Session Host Layout
 
@@ -41,9 +41,9 @@ guest/runtime 实际使用：
 | `<session>/state` | `/data/state` | cell artifacts、loader request/result、agent prompt/schema/provider state |
 | `<session>/runtime` | `/data/runtime` | runtime JS MPI/resource/cache |
 | `<session>/logs` | `/data/logs` | Jupyter log |
-| `<session>/home` 或其子路径 | `/root` 或其子路径 | session-local tool config/state |
+| `<session>/home` 子路径 | `/root/...` | 声明 home 条目的 session-local tool config/state |
 
-不暴露给 guest：
+Docker 细粒度挂载不暴露：
 
 - `<session>/context`
 - `<session>/vm`
@@ -111,13 +111,15 @@ manifest 结构：
 
 guest 侧不再运行 `.codex` copy 同步逻辑。工具看到的 `$HOME` 仍是 `/root`，但相关配置和状态由 host session home 提供持久化。
 
+逻辑 mount 清单还会创建当前 provider 使用的声明 home 目录，包括 `.opencode`、`.gemini`、`.config/{claude,Claude,gemini,opencode}` 和 `.local/share/gemini`。
+
 ## Driver 差异
 
 Docker 支持 file bind mount，因此 Docker manifest 保留细粒度 home 子路径挂载，包括 `.claude.json` 和 `.gitconfig` 两个 file source。
 
-BoxLite 和 Microsandbox 不依赖 file source mount。它们只挂一个目录 source：`<session> -> /data`。默认配置下 `/data/state`、`/data/runtime`、`/data/logs` 直接来自这个挂载，guest 启动命令会把 `/workspace` 和 `/root` 建成指向 `/data/workspace` 和 `/data/home` 的 symlink。这样 `.claude.json` 和 `.gitconfig` 在 guest 内仍位于 `/root/.claude.json` 和 `/root/.gitconfig`，但不会作为独立 file mount 出现在 manifest 中。
+BoxLite 和 Microsandbox 不依赖 file source mount。它们只挂一个目录 source：`<session> -> /data`。默认配置下 `/data/state`、`/data/runtime`、`/data/logs` 直接来自这个挂载。guest bootstrap 创建 `/workspace -> /data/workspace`，保持 `/root` 为镜像内真实目录，并只为声明的 home 条目创建 symlink，例如 `/root/.codex -> /data/home/.codex`、`/root/.claude.json -> /data/home/.claude.json` 和 `/root/.gitconfig -> /data/home/.gitconfig`。未声明的 `/root` 子路径在 directory-only runtime 下不保证持久化。
 
-更详细的 driver-specific layout 见 `docs/runtime_mount_manifest_driver_specific_design.md`。
+更详细的 driver-specific layout 见 `runtime_mount_manifest_driver_specific_design.md`。
 
 ## Runtime Consumers
 
@@ -126,6 +128,8 @@ BoxLite 和 Microsandbox 不依赖 file source mount。它们只挂一个目录 
 - Docker 使用 `loadRuntimeMountManifest(session, RuntimeDriverDocker)`，并对每个 source 应用 `DOCKER_HOST_SESSION_ROOT` rebase。
 - BoxLite 使用 `loadDirectoryRuntimeMountManifest(session, RuntimeDriverBoxlite)`，进入 `boxlite_options_add_volume` 前校验所有 source 都是目录。
 - Microsandbox 使用 `loadDirectoryRuntimeMountManifest(session, RuntimeDriverMicrosandbox)`，构造 `microsandbox.Mount.Bind` map 前校验所有 source 都是目录。
+
+BoxLite 和 Microsandbox 会在 session 启动或重连后、Jupyter readiness 检查前执行 `directoryOnlyGuestSessionBootstrapCommand`，并在 `Exec` / `ExecStream` 用户命令前再次执行。bootstrap 失败时 session 或 command 不会被视为 ready，返回的诊断错误会包含 driver、session/runtime 上下文和 stdout/stderr 摘要。
 
 ## Runtime Paths
 

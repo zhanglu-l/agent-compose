@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"agent-compose/pkg/compose"
@@ -28,6 +29,9 @@ agents:
     env:
       AGENT_ENV: agent
     capset_ids: [dev]
+    jupyter:
+      enabled: true
+      guest_port: 8888
     scheduler:
       script: |
         export default { triggers: [{ name: "daily", cron: "0 0 * * *", prompt: "run" }] }
@@ -65,6 +69,9 @@ agents:
 	}
 	if dryRun.Applied || len(dryRun.Agents) != 1 || len(dryRun.Schedulers) != 1 || len(dryRun.Changes) < 4 {
 		t.Fatalf("dryRun = %#v", dryRun)
+	}
+	if !strings.Contains(dryRun.Agents[0].SpecJSON, `"jupyter"`) {
+		t.Fatalf("project agent spec json = %s, want jupyter config", dryRun.Agents[0].SpecJSON)
 	}
 	if issue, err := controller.ApplyProject(ctx, ApplyRequest{Issues: []ValidationIssue{{Path: "x", Message: "bad"}}, Normalized: normalized}); err != nil || len(issue.Issues) != 1 {
 		t.Fatalf("ApplyProject issues=%#v err=%v", issue, err)

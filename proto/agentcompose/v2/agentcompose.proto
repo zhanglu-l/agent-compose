@@ -15,9 +15,11 @@ service ProjectService {
 
 service RunService {
   rpc RunAgent(RunAgentRequest) returns (RunAgentResponse);
+  rpc StartRun(StartRunRequest) returns (StartRunResponse);
   rpc RunAgentStream(RunAgentRequest) returns (stream RunAgentStreamResponse);
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc FollowRunLogs(FollowRunLogsRequest) returns (stream RunLogChunk);
   rpc StopRun(StopRunRequest) returns (StopRunResponse);
 }
 
@@ -35,6 +37,7 @@ service ImageService {
 
 service SandboxService {
   rpc RemoveSandbox(RemoveSandboxRequest) returns (RemoveSandboxResponse);
+  rpc GetSandboxStats(GetSandboxStatsRequest) returns (GetSandboxStatsResponse);
 }
 
 enum ProjectValidationSeverity {
@@ -86,6 +89,7 @@ enum RunSessionCleanupPolicy {
   RUN_SESSION_CLEANUP_POLICY_UNSPECIFIED = 0;
   RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION = 1;
   RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING = 2;
+  RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION = 3;
 }
 
 enum ExecStreamEventType {
@@ -112,6 +116,13 @@ enum ImageOperationStatus {
   IMAGE_OPERATION_STATUS_UNSPECIFIED = 0;
   IMAGE_OPERATION_STATUS_SUCCEEDED = 1;
   IMAGE_OPERATION_STATUS_FAILED = 2;
+}
+
+enum MetricStatus {
+  METRIC_STATUS_UNSPECIFIED = 0;
+  METRIC_STATUS_OK = 1;
+  METRIC_STATUS_UNKNOWN = 2;
+  METRIC_STATUS_UNAVAILABLE = 3;
 }
 
 message ValidateProjectRequest {
@@ -281,6 +292,7 @@ message AgentSpec {
   WorkspaceSpec workspace = 8;
   SchedulerSpec scheduler = 9;
   repeated string capset_ids = 10;
+  JupyterSpec jupyter = 11;
 }
 
 message EnvVarSpec {
@@ -353,10 +365,12 @@ message RunAgentRequest {
   string output_schema_json = 10;
   string client_request_id = 11;
   string command = 12;
+  RunJupyterSpec jupyter = 13;
 }
 
 message RunAgentResponse {
   RunDetail run = 1;
+  repeated string warnings = 2;
 }
 
 message RunAgentStreamResponse {
@@ -365,6 +379,17 @@ message RunAgentStreamResponse {
   string run_id = 3;
   string chunk = 4;
   bool is_stderr = 5;
+  string created_at = 6;
+  repeated string warnings = 7;
+  TranscriptEvent transcript = 8;
+}
+
+message TranscriptEvent {
+  string kind = 1;
+  string text = 2;
+  bool is_stderr = 3;
+  string name = 4;
+  string payload_json = 5;
   string created_at = 6;
 }
 
@@ -394,6 +419,22 @@ message ListRunsResponse {
   repeated RunSummary runs = 1;
 }
 
+message FollowRunLogsRequest {
+  string project_id = 1;
+  string run_id = 2;
+  uint32 tail_lines = 3;
+  uint64 start_offset = 4;
+  bool follow = 5;
+}
+
+message RunLogChunk {
+  string data = 1;
+  uint64 offset = 2;
+  bool is_final = 3;
+  RunStatus run_status = 4;
+  string created_at = 5;
+}
+
 message StopRunRequest {
   string run_id = 1;
   string reason = 2;
@@ -415,6 +456,36 @@ message RemoveSandboxResponse {
   bool removed = 3;
 }
 
+message GetSandboxStatsRequest {
+  string sandbox_id = 1;
+}
+
+message GetSandboxStatsResponse {
+  SandboxStats stats = 1;
+}
+
+message MetricValue {
+  optional double value = 1;
+  string unit = 2;
+  MetricStatus status = 3;
+  string message = 4;
+}
+
+message SandboxStats {
+  string sandbox_id = 1;
+  string driver = 2;
+  string sampled_at = 3;
+  MetricValue cpu_percent = 4;
+  MetricValue memory_usage_bytes = 5;
+  MetricValue memory_limit_bytes = 6;
+  MetricValue memory_percent = 7;
+  MetricValue network_rx_bytes = 8;
+  MetricValue network_tx_bytes = 9;
+  MetricValue block_read_bytes = 10;
+  MetricValue block_write_bytes = 11;
+  MetricValue uptime_seconds = 12;
+}
+
 message RunSummary {
   string run_id = 1;
   string project_id = 2;
@@ -434,6 +505,7 @@ message RunSummary {
   int64 duration_ms = 16;
   string created_at = 17;
   string updated_at = 18;
+  repeated string warnings = 19;
 }
 
 message RunDetail {
@@ -446,6 +518,7 @@ message RunDetail {
   string cleanup_error = 7;
   string driver = 8;
   string image_ref = 9;
+  repeated string warnings = 10;
 }
 
 message ExecRequest {
@@ -484,6 +557,7 @@ message ExecStreamResponse {
   string chunk = 5;
   bool is_stderr = 6;
   ExecResult result = 7;
+  TranscriptEvent transcript = 8;
 }
 
 message ExecResult {
@@ -614,4 +688,25 @@ message ImagePullProgress {
   string progress = 3;
   uint64 current_bytes = 4;
   uint64 total_bytes = 5;
+}
+
+message JupyterSpec {
+  bool enabled = 1;
+  uint32 guest_port = 2;
+}
+
+message RunJupyterSpec {
+  bool enabled = 1;
+  uint32 guest_port = 2;
+  bool expose = 3;
+}
+
+message StartRunRequest {
+  RunAgentRequest run = 1;
+}
+
+message StartRunResponse {
+  RunSummary run = 1;
+  repeated string warnings = 2;
+  bool started = 3;
 }

@@ -26,6 +26,12 @@ type AgentSpec struct {
 	CapsetIDs    []string              `yaml:"capset_ids,omitempty" json:"capset_ids,omitempty"`
 	Workspace    *WorkspaceSpec        `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	Scheduler    *SchedulerSpec        `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
+	Jupyter      *JupyterSpec          `yaml:"jupyter,omitempty" json:"jupyter,omitempty"`
+}
+
+type JupyterSpec struct {
+	Enabled   bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	GuestPort int  `yaml:"guest_port,omitempty" json:"guest_port,omitempty"`
 }
 
 type SchedulerSpec struct {
@@ -225,6 +231,7 @@ func validateAgent(node *yaml.Node, path string) error {
 		"capset_ids":    validateStringList,
 		"workspace":     validateWorkspace,
 		"scheduler":     validateScheduler,
+		"jupyter":       validateJupyter,
 	})
 }
 
@@ -245,6 +252,13 @@ func validateScheduler(node *yaml.Node, path string) error {
 		"enabled":  validateBool,
 		"triggers": validateTriggerList,
 		"script":   validateScalar,
+	})
+}
+
+func validateJupyter(node *yaml.Node, path string) error {
+	return validateMapping(node, path, map[string]nodeValidator{
+		"enabled":    validateBool,
+		"guest_port": validateInt,
 	})
 }
 
@@ -405,6 +419,17 @@ func validateBool(node *yaml.Node, path string) error {
 	var value bool
 	if err := node.Decode(&value); err != nil {
 		return newParseError(node, path, "expected bool")
+	}
+	return nil
+}
+
+func validateInt(node *yaml.Node, path string) error {
+	if err := validateScalar(node, path); err != nil {
+		return err
+	}
+	var value int
+	if err := node.Decode(&value); err != nil {
+		return newParseError(node, path, "expected int")
 	}
 	return nil
 }

@@ -54,3 +54,7 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sessio
 func CleanupPolicyStopsSession(policy agentcomposev2.RunSessionCleanupPolicy) bool {
 	return policy != agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING
 }
+
+func CleanupPolicyRemovesSession(policy agentcomposev2.RunSessionCleanupPolicy) bool {
+	return policy == agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION
+}

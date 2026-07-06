@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	containerapi "github.com/docker/docker/api/types/container"
 	mountapi "github.com/docker/docker/api/types/mount"
@@ -62,6 +63,50 @@ func TestDockerRuntimeContainerEnvUsesRuntimeWorkspaceVariable(t *testing.T) {
 			t.Fatalf("container env %s = %q, want %q", key, got, want)
 		}
 	}
+}
+
+func TestDockerStatsFromResponseMapsStableMetrics(t *testing.T) {
+	startedAt := time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC)
+	sampledAt := startedAt.Add(90 * time.Second)
+	stats := dockerStatsFromResponse(
+		&Session{Summary: SessionSummary{ID: "session-1", Driver: RuntimeDriverDocker}},
+		VMState{},
+		containerapi.InspectResponse{ContainerJSONBase: &containerapi.ContainerJSONBase{State: &containerapi.State{StartedAt: startedAt.Format(time.RFC3339Nano)}}},
+		containerapi.StatsResponse{
+			Read: sampledAt,
+			CPUStats: containerapi.CPUStats{
+				CPUUsage:    containerapi.CPUUsage{TotalUsage: 300, PercpuUsage: []uint64{1, 2}},
+				SystemUsage: 1000,
+				OnlineCPUs:  2,
+			},
+			PreCPUStats: containerapi.CPUStats{
+				CPUUsage:    containerapi.CPUUsage{TotalUsage: 100},
+				SystemUsage: 500,
+			},
+			MemoryStats: containerapi.MemoryStats{Usage: 256, Limit: 1024},
+			Networks: map[string]containerapi.NetworkStats{
+				"eth0": {RxBytes: 10, TxBytes: 20},
+				"eth1": {RxBytes: 30, TxBytes: 40},
+			},
+			BlkioStats: containerapi.BlkioStats{IoServiceBytesRecursive: []containerapi.BlkioStatEntry{
+				{Op: "Read", Value: 100},
+				{Op: "Write", Value: 200},
+				{Op: "read", Value: 50},
+			}},
+		},
+	)
+	if stats.SandboxID != "session-1" || stats.Driver != RuntimeDriverDocker {
+		t.Fatalf("stats identity = %#v", stats)
+	}
+	assertMetricValue(t, stats.CPUPercent, MetricStatusOK, MetricUnitPercent, 80)
+	assertMetricValue(t, stats.MemoryUsageBytes, MetricStatusOK, MetricUnitBytes, 256)
+	assertMetricValue(t, stats.MemoryLimitBytes, MetricStatusOK, MetricUnitBytes, 1024)
+	assertMetricValue(t, stats.MemoryPercent, MetricStatusOK, MetricUnitPercent, 25)
+	assertMetricValue(t, stats.NetworkRxBytes, MetricStatusOK, MetricUnitBytes, 40)
+	assertMetricValue(t, stats.NetworkTxBytes, MetricStatusOK, MetricUnitBytes, 60)
+	assertMetricValue(t, stats.BlockReadBytes, MetricStatusOK, MetricUnitBytes, 150)
+	assertMetricValue(t, stats.BlockWriteBytes, MetricStatusOK, MetricUnitBytes, 200)
+	assertMetricValue(t, stats.UptimeSeconds, MetricStatusOK, MetricUnitSeconds, 90)
 }
 
 func TestDockerRuntimeBindRuntimeMountSourceKeepsSourceWithoutHostRoot(t *testing.T) {
@@ -252,10 +297,11 @@ func TestDockerRuntimeSessionProxyStateUsesContainerNameAndGuestPort(t *testing.
 		HostPort:  39000,
 		GuestPort: 9999,
 		Token:     "secret",
+		Enabled:   true,
 	})
 
-	if got.GuestHost != "runtime-ref" || got.GuestPort != 8888 {
-		t.Fatalf("dockerSessionProxyState target = %s:%d, want runtime-ref:8888", got.GuestHost, got.GuestPort)
+	if got.GuestHost != "runtime-ref" || got.GuestPort != 9999 {
+		t.Fatalf("dockerSessionProxyState target = %s:%d, want runtime-ref:9999", got.GuestHost, got.GuestPort)
 	}
 	if got.HostPort != 39000 || got.Token != "secret" {
 		t.Fatalf("dockerSessionProxyState did not preserve host port/token: %+v", got)

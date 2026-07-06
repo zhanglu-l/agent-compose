@@ -3,9 +3,11 @@
 Chinese version: [../zh-CN/design/runtime_mount_manifest_design.md](../zh-CN/design/runtime_mount_manifest_design.md)
 
 This document describes the current runtime mount manifest behavior in code.
-agent-compose no longer mounts the entire session directory into the guest as
-`/data`. Instead, before starting or resuming runtime, it generates a manifest
-that maps session subdirectories to the guest's conventional paths.
+Before starting or resuming runtime, agent-compose generates a driver-specific
+manifest from one logical runtime mount list. Docker applies that list as
+fine-grained binds. BoxLite and Microsandbox use a directory-only manifest that
+mounts the whole session at `/data`, then guest bootstrap exposes compatible
+paths such as `/workspace` and declared home entries under `/root`.
 
 ## Design Goals
 
@@ -16,9 +18,11 @@ Tools inside runtime should continue to use image-default directory semantics:
 - agent-compose internal exchange directories live at `/data/state`,
   `/data/runtime`, and `/data/logs`.
 
-Host-side session state still lives under `<session>`, but `<session>` is not
-exposed wholesale to the guest. Host control-plane state such as `context`,
-`vm`, `proxy`, and `metadata.json` does not appear in the manifest.
+Host-side session state still lives under `<session>`. Docker does not expose
+host control-plane state such as `context`, `vm`, `proxy`, and `metadata.json`.
+Directory-only runtimes expose `<session>` at `/data`, but product code uses
+the logical paths described below rather than depending on arbitrary session
+root contents.
 
 ## Session Host Layout
 
@@ -49,9 +53,9 @@ Guest/runtime actually uses:
 | `<session>/state` | `/data/state` | Cell artifacts, loader request/result, agent prompt/schema/provider state |
 | `<session>/runtime` | `/data/runtime` | Runtime JS MPI/resource/cache |
 | `<session>/logs` | `/data/logs` | Jupyter log |
-| `<session>/home` or child paths | `/root` or child paths | Session-local tool config/state |
+| `<session>/home` child paths | `/root/...` | Session-local tool config/state for declared home entries |
 
-Not exposed to the guest:
+Not exposed by Docker fine-grained mounts:
 
 - `<session>/context`
 - `<session>/vm`
@@ -126,6 +130,10 @@ The guest side no longer runs `.codex` copy synchronization logic. Tools still
 see `$HOME` as `/root`, but related config and state are persisted by host
 session home.
 
+The logical mount list also creates declared home directories used by current
+providers, including `.opencode`, `.gemini`, `.config/{claude,Claude,gemini,opencode}`,
+and `.local/share/gemini`.
+
 ## Driver Differences
 
 Docker supports file bind mounts, so the Docker manifest keeps fine-grained home
@@ -134,10 +142,11 @@ subpath mounts, including `.claude.json` and `.gitconfig` file sources.
 BoxLite and Microsandbox do not rely on file source mounts. They mount one
 directory source only: `<session> -> /data`. With default configuration,
 `/data/state`, `/data/runtime`, and `/data/logs` come directly from that mount.
-The guest startup command creates `/workspace` and `/root` symlinks pointing to
-`/data/workspace` and `/data/home`. Therefore `.claude.json` and `.gitconfig`
-still appear in the guest as `/root/.claude.json` and `/root/.gitconfig`, but do
-not appear as independent file mounts in the manifest.
+Guest bootstrap creates `/workspace -> /data/workspace`, keeps `/root` as the
+image's real directory, and creates symlinks only for declared home entries such
+as `/root/.codex -> /data/home/.codex`, `/root/.claude.json -> /data/home/.claude.json`,
+and `/root/.gitconfig -> /data/home/.gitconfig`. Other `/root` subpaths are not
+guaranteed to persist on directory-only runtimes.
 
 For the detailed driver-specific layout, see
 `runtime_mount_manifest_driver_specific_design.md`.
@@ -155,6 +164,12 @@ Each runtime driver reads `<session>/vm/mount-manifest.json`:
   `loadDirectoryRuntimeMountManifest(session, RuntimeDriverMicrosandbox)` and
   validates that all sources are directories before constructing
   `microsandbox.Mount.Bind`.
+
+BoxLite and Microsandbox execute `directoryOnlyGuestSessionBootstrapCommand`
+after a session starts or is reconnected, before Jupyter readiness checks, and
+again before `Exec` / `ExecStream` user commands. Bootstrap failures prevent the
+session or command from being treated as ready and return diagnostics that
+include driver/session/runtime context plus stdout/stderr summaries.
 
 ## Runtime Paths
 

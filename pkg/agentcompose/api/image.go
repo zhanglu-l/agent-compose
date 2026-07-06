@@ -54,6 +54,18 @@ func (h *ImageHandler) PullImage(ctx context.Context, req *connect.Request[agent
 	if err != nil {
 		return nil, err
 	}
+	inspect, err := backend.InspectImage(ctx, images.InspectRequest{ImageRef: imageRef})
+	if err == nil {
+		return connect.NewResponse(&agentcomposev2.PullImageResponse{
+			Image:       inspect.Image,
+			Status:      agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED,
+			ResolvedRef: firstNonEmptyImageRef(inspect.Image.GetResolvedRef(), inspect.Image.GetImageRef(), imageRef),
+			Warnings:    []string{fmt.Sprintf("skipped pull: image %s already exists locally", imageRef)},
+		}), nil
+	}
+	if !images.IsNotFound(err) {
+		return nil, ConnectErrorForImageBackend("inspect image before pull", imageRef, err)
+	}
 	result, err := backend.PullImage(ctx, images.PullRequest{
 		ImageRef: imageRef,
 		Platform: req.Msg.GetPlatform(),
@@ -68,6 +80,15 @@ func (h *ImageHandler) PullImage(ctx context.Context, req *connect.Request[agent
 		Progress:    result.Progress,
 		Warnings:    result.Warnings,
 	}), nil
+}
+
+func firstNonEmptyImageRef(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (h *ImageHandler) InspectImage(ctx context.Context, req *connect.Request[agentcomposev2.InspectImageRequest]) (*connect.Response[agentcomposev2.InspectImageResponse], error) {

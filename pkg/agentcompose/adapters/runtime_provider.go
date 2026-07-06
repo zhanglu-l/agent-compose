@@ -17,6 +17,10 @@ type BoxRuntime interface {
 	ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
 }
 
+type SandboxStatsRuntime interface {
+	Stats(context.Context, *domain.Session, domain.VMState) (domain.SandboxStats, error)
+}
+
 type RuntimeProvider interface {
 	ForDriver(string) (BoxRuntime, error)
 	ForSession(*domain.Session) (BoxRuntime, error)
@@ -102,6 +106,17 @@ func (r driverRuntimeAdapter) ExecStream(ctx context.Context, session *domain.Se
 	}
 	result, err := r.runtime.ExecStream(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState), execution.ToDriverExecSpec(spec), driverStream)
 	return execution.FromDriverExecResult(result), err
+}
+
+func (r driverRuntimeAdapter) Stats(ctx context.Context, session *domain.Session, vmState domain.VMState) (domain.SandboxStats, error) {
+	statsRuntime, ok := r.runtime.(interface {
+		Stats(context.Context, *driverpkg.Session, driverpkg.VMState) (driverpkg.SandboxStats, error)
+	})
+	if !ok {
+		return domain.SandboxStats{}, domain.ClassifyError(domain.ErrUnsupported, "sandbox stats are unsupported by this runtime driver", nil)
+	}
+	stats, err := statsRuntime.Stats(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState))
+	return execution.FromDriverSandboxStats(stats), err
 }
 
 func (r driverRuntimeAdapter) IsSessionAlive(ctx context.Context, session *domain.Session, vmState domain.VMState) (bool, error) {

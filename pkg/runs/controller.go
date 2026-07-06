@@ -58,50 +58,59 @@ type DashboardNotifier interface {
 type ControllerStore interface {
 	Store
 	PreparationStore
+	TriggerResolverStore
 	workspaces.Store
 }
 
+type TriggerResolverStore interface {
+	ListProjectSchedulers(context.Context, string) ([]domain.ProjectSchedulerRecord, error)
+	GetLoader(context.Context, string) (domain.Loader, error)
+}
+
 type Controller struct {
-	config    *appconfig.Config
-	store     *sessionstore.Store
-	configDB  ControllerStore
-	driver    SessionDriver
-	executor  AgentExecutor
-	runtime   RuntimeProvider
-	images    images.Backend
-	cap       capabilities.Provider
-	streams   *sessions.StreamBroker
-	bus       TopicPublisher
-	dashboard DashboardNotifier
+	config       *appconfig.Config
+	store        *sessionstore.Store
+	configDB     ControllerStore
+	driver       SessionDriver
+	executor     AgentExecutor
+	runtime      RuntimeProvider
+	images       images.Backend
+	loaderEngine loaders.LoaderEngine
+	cap          capabilities.Provider
+	streams      *sessions.StreamBroker
+	bus          TopicPublisher
+	dashboard    DashboardNotifier
 }
 
 type ControllerDependencies struct {
-	Config    *appconfig.Config
-	Store     *sessionstore.Store
-	ConfigDB  ControllerStore
-	Driver    SessionDriver
-	Executor  AgentExecutor
-	Runtime   RuntimeProvider
-	Images    images.Backend
-	Cap       capabilities.Provider
-	Streams   *sessions.StreamBroker
-	Bus       TopicPublisher
-	Dashboard DashboardNotifier
+	Config       *appconfig.Config
+	Store        *sessionstore.Store
+	ConfigDB     ControllerStore
+	Driver       SessionDriver
+	Executor     AgentExecutor
+	Runtime      RuntimeProvider
+	Images       images.Backend
+	LoaderEngine loaders.LoaderEngine
+	Cap          capabilities.Provider
+	Streams      *sessions.StreamBroker
+	Bus          TopicPublisher
+	Dashboard    DashboardNotifier
 }
 
 func NewController(deps ControllerDependencies) *Controller {
 	return &Controller{
-		config:    deps.Config,
-		store:     deps.Store,
-		configDB:  deps.ConfigDB,
-		driver:    deps.Driver,
-		executor:  deps.Executor,
-		runtime:   deps.Runtime,
-		images:    deps.Images,
-		cap:       deps.Cap,
-		streams:   deps.Streams,
-		bus:       deps.Bus,
-		dashboard: deps.Dashboard,
+		config:       deps.Config,
+		store:        deps.Store,
+		configDB:     deps.ConfigDB,
+		driver:       deps.Driver,
+		executor:     deps.Executor,
+		runtime:      deps.Runtime,
+		images:       deps.Images,
+		loaderEngine: deps.LoaderEngine,
+		cap:          deps.Cap,
+		streams:      deps.Streams,
+		bus:          deps.Bus,
+		dashboard:    deps.Dashboard,
 	}
 }
 
@@ -118,6 +127,7 @@ type RunAgentRequest struct {
 	SessionID        string
 	OutputSchemaJSON string
 	CleanupPolicy    agentcomposev2.RunSessionCleanupPolicy
+	Jupyter          *agentcomposev2.RunJupyterSpec
 }
 
 type StreamSink struct {
@@ -133,14 +143,26 @@ func PrepareStreamingHeaders(headers http.Header) {
 	headers.Set("X-Accel-Buffering", "no")
 }
 
-func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, stream *StreamSink) (domain.ProjectRunRecord, error, error) {
+type StartedProjectRun struct {
+	Run      domain.ProjectRunRecord
+	Execute  func(context.Context, *StreamSink) (domain.ProjectRunRecord, error, error)
+	Warnings []string
+}
+
+func (c *Controller) StartProjectRun(ctx context.Context, req RunAgentRequest) (StartedProjectRun, error) {
 	if c.configDB == nil {
-		return domain.ProjectRunRecord{}, nil, fmt.Errorf("config store is required")
+		return StartedProjectRun{}, fmt.Errorf("config store is required")
 	}
 	commandText := strings.TrimSpace(req.Command)
 	if commandText != "" && (strings.TrimSpace(req.Prompt) != "" || strings.TrimSpace(req.TriggerID) != "") {
-		return domain.ProjectRunRecord{}, nil, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
+		return StartedProjectRun{}, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
 	}
+	resolved, err := c.resolveTriggerForManualRun(ctx, req)
+	if err != nil {
+		return StartedProjectRun{}, err
+	}
+	req = resolved.Request
+	warnings := resolved.Warnings
 	coordinator := NewCoordinator(c.configDB, domain.StableProjectRunID)
 	run, err := coordinator.BeginRun(ctx, StartRequest{
 		ProjectID:       req.ProjectID,
@@ -152,21 +174,43 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		ClientRequestID: req.ClientRequestID,
 	})
 	if err != nil {
-		return domain.ProjectRunRecord{}, nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+		return StartedProjectRun{}, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
+	run = withRunWarnings(run, warnings)
+	return StartedProjectRun{
+		Run:      run,
+		Warnings: warnings,
+		Execute: func(execCtx context.Context, stream *StreamSink) (domain.ProjectRunRecord, error, error) {
+			return c.executeStartedProjectRun(execCtx, coordinator, run, req, warnings, stream)
+		},
+	}, nil
+}
+
+func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, stream *StreamSink) (domain.ProjectRunRecord, error, error) {
+	started, err := c.StartProjectRun(ctx, req)
+	if err != nil {
+		return domain.ProjectRunRecord{}, nil, err
+	}
+	return started.Execute(ctx, stream)
+}
+
+func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, req RunAgentRequest, warnings []string, stream *StreamSink) (domain.ProjectRunRecord, error, error) {
+	commandText := strings.TrimSpace(req.Command)
 	transitionCtx := context.WithoutCancel(ctx)
 	prepared, err := c.prepareProjectRun(ctx, run, req.Env)
 	if err != nil {
-		run, markErr := coordinator.MarkFailed(transitionCtx, TransitionRequest{
+		transition := TransitionRequest{
 			RunID: run.RunID,
 			Error: fmt.Sprintf("workspace preparation failed: %v", err),
-		})
+		}
+		run, markErr := markProjectRunTerminalError(transitionCtx, coordinator, transition, err)
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
-	sessionResult, err := c.ensureProjectRunSession(ctx, run, prepared, req.SessionID)
+	sessionResult, err := c.ensureProjectRunSession(ctx, run, prepared, req)
 	if err != nil {
 		transition := TransitionRequest{
 			RunID: run.RunID,
@@ -175,31 +219,54 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		if sessionResult.Session != nil {
 			transition.SessionID = sessionResult.Session.Summary.ID
 		}
-		run, markErr := coordinator.MarkFailed(transitionCtx, transition)
+		run, markErr := markProjectRunTerminalError(transitionCtx, coordinator, transition, err)
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
+	}
+	if err := ctx.Err(); err != nil {
+		run, markErr := coordinator.MarkCanceled(transitionCtx, TransitionRequest{
+			RunID:     run.RunID,
+			SessionID: sessionResult.Session.Summary.ID,
+			Error:     err.Error(),
+		})
+		if markErr != nil {
+			return domain.ProjectRunRecord{}, nil, markErr
+		}
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
+		return run, err, nil
+	}
+	if current, loadErr := c.configDB.GetProjectRun(transitionCtx, run.RunID); loadErr == nil && StatusIsTerminal(current.Status) {
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, current, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
+		return run, context.Canceled, nil
 	}
 	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
 	}
+	run = withRunWarnings(run, warnings)
 	if commandText != "" {
 		transition, execErr := c.executeProjectRunCommand(ctx, run, sessionResult.Session, req, commandText, stream)
 		if execErr != nil || transition.ExitCode != 0 {
-			run, err = coordinator.MarkFailed(transitionCtx, transition)
+			run, err = markProjectRunTerminalError(transitionCtx, coordinator, transition, execErr)
 			if err != nil {
 				return domain.ProjectRunRecord{}, nil, err
 			}
-			run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+			run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+			run = withRunWarnings(run, warnings)
 			return run, execErr, nil
 		}
 		run, err = coordinator.MarkSucceeded(transitionCtx, transition)
 		if err != nil {
 			return domain.ProjectRunRecord{}, nil, err
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, nil, nil
 	}
 	agentConfig, err := c.projectRunAgentConfig(ctx, run)
@@ -213,6 +280,8 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	if c.executor == nil {
@@ -226,6 +295,8 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	cell, _, _, execErr := c.executor.ExecuteAgentRequest(ctx, sessionResult.Session, execution.ExecuteAgentRequest{
@@ -235,29 +306,46 @@ func (c *Controller) RunProjectAgent(ctx context.Context, req RunAgentRequest, s
 		RunID:             run.RunID,
 		Message:           req.Prompt,
 		OutputSchemaJSON:  req.OutputSchemaJSON,
-		Stream:            projectRunAgentExecutionStream(run, stream),
+		Stream:            projectRunAgentExecutionStream(run, sessionResult.Session, stream),
 	})
 	transition := TransitionFromAgentCell(run, sessionResult.Session, cell, execErr)
 	if execErr != nil || !cell.Success {
-		run, err = coordinator.MarkFailed(transitionCtx, transition)
+		run, err = markProjectRunTerminalError(transitionCtx, coordinator, transition, execErr)
 		if err != nil {
 			return domain.ProjectRunRecord{}, nil, err
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = withRunWarnings(run, warnings)
 		return run, execErr, nil
 	}
 	run, err = coordinator.MarkSucceeded(transitionCtx, transition)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
 	}
-	run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult.Session, req.CleanupPolicy)
+	run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+	run = withRunWarnings(run, warnings)
 	return run, nil, nil
 }
 
+func withRunWarnings(run domain.ProjectRunRecord, warnings []string) domain.ProjectRunRecord {
+	run.Warnings = append([]string(nil), warnings...)
+	return run
+}
+
+func markProjectRunTerminalError(ctx context.Context, coordinator *Coordinator, transition TransitionRequest, err error) (domain.ProjectRunRecord, error) {
+	if errors.Is(err, context.Canceled) {
+		return coordinator.MarkCanceled(ctx, transition)
+	}
+	return coordinator.MarkFailed(ctx, transition)
+}
+
 func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Session, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
+	artifactsDir := projectRunCommandArtifactsDir(run, session)
+	logsPath := filepath.Join(artifactsDir, "transcript.txt")
 	transition := TransitionRequest{
 		RunID:     run.RunID,
 		SessionID: session.Summary.ID,
+		LogsPath:  logsPath,
 	}
 	if c.store == nil || c.runtime == nil {
 		err := fmt.Errorf("command runtime dependencies are required")
@@ -285,49 +373,78 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 		transition.Error = fmt.Sprintf("command execution failed: %v", err)
 		return transition, err
 	}
-	var accumulator execution.ExecStreamAccumulator
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	guestArtifactsDir := filepath.Join(c.config.GuestStateRoot, "runs", run.RunID)
+	runtimeRequest := execution.RuntimeCommandRequestPayloadFromCommand(
+		c.config,
+		"shell",
+		"",
+		nil,
+		commandText,
+		c.config.GuestWorkspacePath,
+		execEnvMap(req.Env),
+		0,
+		0,
+		guestArtifactsDir,
+	)
+	if err := execution.WriteJSONArtifact(filepath.Join(artifactsDir, "command-request.json"), runtimeRequest); err != nil {
+		transition.ExitCode = 1
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
 	var sendErr error
 	writer := func(chunk domain.ExecChunk) {
 		if sendErr != nil {
 			return
 		}
-		accumulator.WriteChunk(chunk)
+		chunk.Text = execution.StripCommandResultPayload(chunk.Text)
+		if chunk.Text == "" {
+			return
+		}
+		if err := appendProjectRunLogChunk(logsPath, chunk); err != nil {
+			sendErr = err
+			return
+		}
 		if sink != nil && sink.SendChunk != nil {
 			sendErr = sink.SendChunk(run.RunID, chunk, time.Now().UTC())
 		}
 	}
 	execCtx, cancel := execution.ExecContext(ctx, 0)
 	defer cancel()
-	result, execErr := runtime.ExecStream(execCtx, session, vmState, domain.ExecSpec{
-		Command: "bash",
-		Args:    []string{"-lc", commandText},
-		Env:     execEnvMap(req.Env),
-		Cwd:     c.config.GuestWorkspacePath,
-	}, writer)
+	result, execErr := runtime.ExecStream(execCtx, session, vmState, execution.BuildRuntimeCommandExecSpec(c.config, session, filepath.Join(guestArtifactsDir, "command-request.json"), c.config.GuestHomePath), writer)
 	if sendErr != nil {
 		transition.ExitCode = 1
 		transition.Error = fmt.Sprintf("command execution failed: %v", sendErr)
 		return transition, sendErr
 	}
 	if execErr != nil {
-		result = execution.MergeExecResults(result, accumulator.Result(execution.FirstNonZeroInt(result.ExitCode, 1), false))
 		result.ExitCode = execution.FirstNonZeroInt(result.ExitCode, 1)
 		result.Success = false
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
 		}
-	} else {
-		result = execution.MergeExecResults(result, accumulator.Result(result.ExitCode, result.Success))
+		transition = transitionFromCommandResult(run, session, commandText, result, execErr)
+		transition.LogsPath = logsPath
+		return transition, execErr
 	}
-	transition = transitionFromCommandResult(run, session, commandText, result, execErr)
-	if err := writeProjectRunCommandArtifacts(transition.ArtifactsDir, commandText, result); err != nil {
-		if execErr == nil {
-			execErr = err
-		}
+	commandResult, err := execution.ParseCommandExecResult(result)
+	if err != nil {
 		transition.ExitCode = execution.FirstNonZeroInt(transition.ExitCode, 1)
 		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
 	}
-	return transition, execErr
+	if err := execution.MirrorRuntimeCommandArtifacts(artifactsDir, commandResult); err != nil {
+		transition.ExitCode = execution.FirstNonZeroInt(commandResult.ExitCode, 1)
+		transition.Error = fmt.Sprintf("command execution failed: %v", err)
+		return transition, err
+	}
+	transition = transitionFromCommandResult(run, session, commandText, execution.RuntimeCommandResultToExecResult(commandResult), nil)
+	transition.LogsPath = logsPath
+	return transition, nil
 }
 
 func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.ProjectRunRecord) (execution.AgentConfig, error) {
@@ -342,19 +459,19 @@ func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.Proje
 	return config, nil
 }
 
-func projectRunAgentExecutionStream(run domain.ProjectRunRecord, sink *StreamSink) execution.AgentExecutionStream {
-	if sink == nil {
-		return execution.AgentExecutionStream{}
-	}
+func projectRunAgentExecutionStream(run domain.ProjectRunRecord, session *domain.Session, sink *StreamSink) execution.AgentExecutionStream {
 	return execution.AgentExecutionStream{
 		OnStart: func(domain.NotebookCell) error {
-			if sink.SendStarted == nil {
+			if sink == nil || sink.SendStarted == nil {
 				return nil
 			}
 			return sink.SendStarted(run, time.Now().UTC())
 		},
-		OnChunk: func(_ string, chunk domain.ExecChunk) error {
-			if sink.SendChunk == nil {
+		OnChunk: func(cellID string, chunk domain.ExecChunk) error {
+			if err := appendProjectRunLogChunk(projectRunAgentCellOutputPath(session, cellID), chunk); err != nil {
+				return err
+			}
+			if sink == nil || sink.SendChunk == nil {
 				return nil
 			}
 			return sink.SendChunk(run.RunID, chunk, time.Now().UTC())
@@ -363,7 +480,7 @@ func projectRunAgentExecutionStream(run domain.ProjectRunRecord, sink *StreamSin
 }
 
 func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Session, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
-	artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+	artifactsDir := projectRunCommandArtifactsDir(run, session)
 	req := TransitionRequest{
 		RunID:        run.RunID,
 		SessionID:    session.Summary.ID,
@@ -396,11 +513,35 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Se
 	return req
 }
 
-func writeProjectRunCommandArtifacts(artifactsDir, commandText string, result domain.ExecResult) error {
-	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
-		return fmt.Errorf("create command artifacts dir: %w", err)
+func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Session) string {
+	return filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+}
+
+func projectRunAgentCellOutputPath(session *domain.Session, cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if session == nil || cellID == "" {
+		return ""
 	}
-	return execution.WriteCellArtifacts(artifactsDir, commandText, result)
+	return filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID, "output.txt")
+}
+
+func appendProjectRunLogChunk(path string, chunk domain.ExecChunk) error {
+	path = strings.TrimSpace(path)
+	if path == "" || chunk.Text == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create run log dir: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open run log %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	if _, err := file.WriteString(chunk.Text); err != nil {
+		return fmt.Errorf("append run log %s: %w", path, err)
+	}
+	return nil
 }
 
 func execEnvMap(items []*agentcomposev2.EnvVarSpec) map[string]string {
@@ -425,19 +566,46 @@ func (c *Controller) prepareProjectRun(ctx context.Context, run domain.ProjectRu
 	return PrepareProjectRun(ctx, c.configDB, projectRunWorkspaceResolver{controller: c}, run, requestEnv)
 }
 
-func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.ProjectRunRecord, prepared Preparation, requestedSessionID string) (SessionResult, error) {
+func resolveRunJupyterOptions(base sessionstore.CreateSessionOptions, override *agentcomposev2.RunJupyterSpec) (sessionstore.CreateSessionOptions, error) {
+	result := base
+	if override == nil {
+		return result, nil
+	}
+	if override.GetGuestPort() > 65535 {
+		return sessionstore.CreateSessionOptions{}, fmt.Errorf("%w: jupyter guest_port must be 0 or a valid TCP port between 1 and 65535", ErrInvalidRequest)
+	}
+	if override.GetEnabled() || override.GetExpose() {
+		result.JupyterEnabled = true
+	}
+	if override.GetGuestPort() != 0 {
+		result.JupyterGuestPort = int(override.GetGuestPort())
+	}
+	if override.GetExpose() {
+		result.JupyterExpose = true
+	}
+	return result, nil
+}
+
+func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.ProjectRunRecord, prepared Preparation, req RunAgentRequest) (SessionResult, error) {
 	if c == nil || c.config == nil || c.store == nil || c.driver == nil {
 		return SessionResult{}, fmt.Errorf("session runtime dependencies are required")
+	}
+	jupyterOptions, err := resolveRunJupyterOptions(prepared.Jupyter, req.Jupyter)
+	if err != nil {
+		return SessionResult{}, err
 	}
 	tags := SessionTags(run)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(c.cap), prepared.CapsetIDs)
 	tags = append(tags, capabilityTags...)
-	if sessionID := strings.TrimSpace(requestedSessionID); sessionID != "" {
+	if sessionID := strings.TrimSpace(req.SessionID); sessionID != "" {
 		session, err := c.store.GetSession(ctx, sessionID)
 		if err != nil {
 			return SessionResult{}, fmt.Errorf("load session %s: %w", sessionID, err)
 		}
 		if session.Summary.VMStatus != domain.VMStatusRunning {
+			if err := c.applyJupyterOptionsToSession(session.Summary.ID, jupyterOptions); err != nil {
+				return SessionResult{Session: session}, err
+			}
 			driver, err := driverpkg.ResolveSessionRuntimeDriver(session.Summary.Driver, c.config.RuntimeDriver)
 			if err != nil {
 				return SessionResult{}, err
@@ -477,7 +645,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 	}); err != nil {
 		return SessionResult{}, err
 	}
-	session, err := c.store.CreateSession(ctx,
+	session, err := c.store.CreateSessionWithOptions(ctx,
 		SessionTitle(run),
 		"",
 		driver,
@@ -487,6 +655,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		prepared.Workspace,
 		domain.MergeEnvItems(prepared.EnvItems, capabilityVars),
 		tags,
+		jupyterOptions,
 	)
 	if err != nil {
 		return SessionResult{}, err
@@ -496,6 +665,40 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		return SessionResult{Session: session, Created: true}, err
 	}
 	return SessionResult{Session: session, Created: true}, nil
+}
+
+func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sessionstore.CreateSessionOptions) error {
+	proxyState, err := c.store.GetProxyState(sessionID)
+	if err != nil {
+		return err
+	}
+	if !options.JupyterEnabled && !options.JupyterExpose && options.JupyterGuestPort == 0 {
+		return nil
+	}
+	proxyState.Enabled = proxyState.Enabled || options.JupyterEnabled || options.JupyterExpose
+	proxyState.Exposed = proxyState.Exposed || options.JupyterExpose
+	if options.JupyterGuestPort != 0 {
+		proxyState.GuestPort = options.JupyterGuestPort
+	}
+	if proxyState.Enabled {
+		if proxyState.GuestPort == 0 {
+			proxyState.GuestPort = c.config.JupyterGuestPort
+		}
+		if proxyState.HostPort == 0 {
+			hostPort, err := c.store.AllocateHostPortForJupyter()
+			if err != nil {
+				return err
+			}
+			proxyState.HostPort = hostPort
+		}
+		if strings.TrimSpace(proxyState.Token) == "" {
+			proxyState.Token = uuid.NewString()
+		}
+		if strings.TrimSpace(proxyState.JupyterURL) == "" {
+			proxyState.JupyterURL = proxyState.ProxyPath
+		}
+	}
+	return c.store.SaveProxyState(sessionID, proxyState)
 }
 
 func (c *Controller) startProjectRunSession(ctx context.Context, session *domain.Session, eventType, eventMessage string) error {
@@ -560,11 +763,12 @@ func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, sessio
 	}
 }
 
-func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, session *domain.Session, policy agentcomposev2.RunSessionCleanupPolicy) domain.ProjectRunRecord {
+func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, sessionResult SessionResult, policy agentcomposev2.RunSessionCleanupPolicy) domain.ProjectRunRecord {
+	session := sessionResult.Session
 	if !CleanupPolicyStopsSession(policy) || session == nil {
 		return run
 	}
-	cleanupErr := c.stopProjectRunSession(ctx, session)
+	cleanupErr := c.cleanupProjectRunSessionByPolicy(ctx, sessionResult, policy)
 	if cleanupErr == nil {
 		return run
 	}
@@ -578,6 +782,26 @@ func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *
 		return run
 	}
 	return updated
+}
+
+func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessionResult SessionResult, policy agentcomposev2.RunSessionCleanupPolicy) error {
+	session := sessionResult.Session
+	if CleanupPolicyRemovesSession(policy) && sessionResult.Created {
+		if err := c.stopProjectRunSession(ctx, session); err != nil {
+			return err
+		}
+		if c.store == nil {
+			return fmt.Errorf("session store is required")
+		}
+		if err := c.store.RemoveSession(ctx, session.Summary.ID); err != nil {
+			return err
+		}
+		if c.dashboard != nil {
+			c.dashboard.Notify("session_removed")
+		}
+		return nil
+	}
+	return c.stopProjectRunSession(ctx, session)
 }
 
 func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.Session) error {

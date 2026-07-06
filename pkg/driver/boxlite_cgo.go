@@ -398,23 +398,29 @@ func (r *cgoBoxRuntime) EnsureSession(ctx context.Context, session *Session, vmS
 		slog.Info("agent-compose boxlite box started", "session_id", session.Summary.ID, "elapsed_ms", time.Since(startedAt).Milliseconds())
 	}
 
-	slog.Info("agent-compose boxlite checking jupyter", "session_id", session.Summary.ID, "host_port", proxyState.HostPort)
-	if err := waitForJupyterProxy(ctx, proxyState); err != nil {
-		if err := waitForJupyterProxy(ctx, proxyState); err != nil {
-			logText, _ := r.readJupyterLog(ctx, box)
-			if strings.TrimSpace(logText) != "" {
-				return SessionVMInfo{}, fmt.Errorf("%w\nGuest log:\n%s", err, logText)
-			}
-			return SessionVMInfo{}, err
-		}
+	if err := r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, box, session); err != nil {
+		return SessionVMInfo{}, err
 	}
-	slog.Info("agent-compose boxlite jupyter ready", "session_id", session.Summary.ID, "elapsed_ms", time.Since(startedAt).Milliseconds())
+	slog.Info("agent-compose boxlite guest bootstrap ready", "session_id", session.Summary.ID, "created", created, "elapsed_ms", time.Since(startedAt).Milliseconds())
+
+	if jupyterEnabled(proxyState) {
+		slog.Info("agent-compose boxlite checking jupyter", "session_id", session.Summary.ID, "host_port", proxyState.HostPort)
+		if err := waitForJupyterProxy(ctx, proxyState); err != nil {
+			if err := waitForJupyterProxy(ctx, proxyState); err != nil {
+				logText, _ := r.readJupyterLog(ctx, box)
+				if strings.TrimSpace(logText) != "" {
+					return SessionVMInfo{}, fmt.Errorf("%w\nGuest log:\n%s", err, logText)
+				}
+				return SessionVMInfo{}, err
+			}
+		}
+		slog.Info("agent-compose boxlite jupyter ready", "session_id", session.Summary.ID, "elapsed_ms", time.Since(startedAt).Milliseconds())
+	}
 
 	boxID, err := r.boxID(box)
 	if err != nil {
 		return SessionVMInfo{}, err
 	}
-	r.cleanupLegacyBoxliteCaches()
 	slog.Info("agent-compose boxlite ensure session complete", "session_id", session.Summary.ID, "box_id", boxID, "elapsed_ms", time.Since(startedAt).Milliseconds())
 	return SessionVMInfo{
 		BoxID:      boxID,
@@ -443,15 +449,29 @@ func (r *cgoBoxRuntime) StopSession(ctx context.Context, _ *Session, vmState VMS
 	return true, nil
 }
 
-func (r *cgoBoxRuntime) Exec(ctx context.Context, _ *Session, vmState VMState, spec ExecSpec) (ExecResult, error) {
-	return r.execWithStream(ctx, vmState, spec, nil)
+func (r *cgoBoxRuntime) Exec(ctx context.Context, session *Session, vmState VMState, spec ExecSpec) (ExecResult, error) {
+	return r.execWithStream(ctx, session, vmState, spec, nil)
 }
 
-func (r *cgoBoxRuntime) ExecStream(ctx context.Context, _ *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
-	return r.execWithStream(ctx, vmState, spec, stream)
+func (r *cgoBoxRuntime) ExecStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
+	return r.execWithStream(ctx, session, vmState, spec, stream)
 }
 
-func (r *cgoBoxRuntime) execWithStream(ctx context.Context, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
+func (r *cgoBoxRuntime) Stats(_ context.Context, session *Session, vmState VMState) (SandboxStats, error) {
+	sandboxID := ""
+	driverName := RuntimeDriverBoxlite
+	if session != nil {
+		sandboxID = session.Summary.ID
+		driverName = firstNonEmpty(session.Summary.Driver, driverName)
+	}
+	return unknownSandboxStats(
+		sandboxID,
+		firstNonEmpty(driverName, vmState.Driver, RuntimeDriverBoxlite),
+		"boxlite metrics are not exposed by the current runtime wrapper",
+	), nil
+}
+
+func (r *cgoBoxRuntime) execWithStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
 	if strings.TrimSpace(vmState.BoxID) == "" {
 		return ExecResult{}, fmt.Errorf("session box is not initialized")
 	}
@@ -470,7 +490,33 @@ func (r *cgoBoxRuntime) execWithStream(ctx context.Context, vmState VMState, spe
 			return ExecResult{}, err
 		}
 	}
-	return r.executeBox(ctx, box, spec, stream)
+	return executeUserCommandAfterBootstrap(
+		func() error {
+			return r.ensureDirectoryOnlyGuestSessionBootstrap(ctx, box, session)
+		},
+		func() (ExecResult, error) {
+			return r.executeBox(ctx, box, spec, stream)
+		},
+	)
+}
+
+func (r *cgoBoxRuntime) ensureDirectoryOnlyGuestSessionBootstrap(ctx context.Context, box *cgoBoxHandle, session *Session) error {
+	boxID := ""
+	if id, err := r.boxID(box); err == nil {
+		boxID = id
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.Summary.ID
+	}
+	result, err := r.executeBox(ctx, box, directoryOnlyGuestSessionBootstrapExecSpec(r.config), nil)
+	if err != nil {
+		return formatDirectoryOnlyGuestSessionBootstrapError(RuntimeDriverBoxlite, sessionID, boxID, result, err)
+	}
+	if !result.Success {
+		return formatDirectoryOnlyGuestSessionBootstrapError(RuntimeDriverBoxlite, sessionID, boxID, result, nil)
+	}
+	return nil
 }
 
 func (r *cgoBoxRuntime) runtimeHandle() (*C.CBoxliteRuntime, error) {
@@ -935,15 +981,19 @@ func (r *cgoBoxRuntime) buildBoxOptions(ctx context.Context, session *Session, v
 		C.free(unsafe.Pointer(guestPathCString))
 	}
 
-	if proxyState.HostPort > 0 && r.config.JupyterGuestPort > 0 {
-		C.boxlite_options_add_port(options, C.int(r.config.JupyterGuestPort), C.int(proxyState.HostPort))
+	if jupyterEnabled(proxyState) && proxyState.HostPort > 0 {
+		C.boxlite_options_add_port(options, C.int(proxyState.GuestPort), C.int(proxyState.HostPort))
 	}
 
 	entrypoint, entrypointLen, freeEntrypoint := cStringArray([]string{"sh", "-lc"})
 	defer freeEntrypoint()
 	C.boxlite_options_set_entrypoint(options, entrypoint, C.int(entrypointLen))
 
-	command, commandLen, freeCommand := cStringArray([]string{jupyterLaunchCommand(r.config, proxyState, false)})
+	commandText := "sleep infinity"
+	if jupyterEnabled(proxyState) {
+		commandText = directoryOnlyJupyterLaunchCommand(r.config, proxyState, false)
+	}
+	command, commandLen, freeCommand := cStringArray([]string{commandText})
 	defer freeCommand()
 	C.boxlite_options_set_cmd(options, command, C.int(commandLen))
 

@@ -355,6 +355,77 @@ agents:
 	}
 }
 
+func TestNormalizePreservesJupyterConfig(t *testing.T) {
+	spec := mustParseCompose(t, `
+name: jupyter
+agents:
+  reviewer:
+    provider: codex
+    jupyter:
+      enabled: true
+      guest_port: 8888
+`)
+
+	normalized, err := Normalize(spec, NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("Normalize returned error: %v", err)
+	}
+	jupyter := normalized.Agents[0].Jupyter
+	if jupyter == nil || !jupyter.Enabled || jupyter.GuestPort != 8888 {
+		t.Fatalf("jupyter = %#v, want enabled guest port 8888", jupyter)
+	}
+}
+
+func TestNormalizeDropsDefaultJupyterConfig(t *testing.T) {
+	spec := mustParseCompose(t, `
+name: jupyter-default
+agents:
+  reviewer:
+    provider: codex
+    jupyter: {}
+`)
+
+	normalized, err := Normalize(spec, NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("Normalize returned error: %v", err)
+	}
+	if normalized.Agents[0].Jupyter != nil {
+		t.Fatalf("jupyter = %#v, want nil for default disabled config", normalized.Agents[0].Jupyter)
+	}
+}
+
+func TestNormalizeRejectsInvalidJupyterGuestPort(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+	}{
+		{name: "negative", port: -1},
+		{name: "too high", port: 65536},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &ProjectSpec{
+				Name: "invalid-jupyter",
+				Agents: map[string]AgentSpec{
+					"reviewer": {
+						Provider: "codex",
+						Jupyter:  &JupyterSpec{Enabled: true, GuestPort: tt.port},
+					},
+				},
+			}
+
+			_, err := Normalize(spec, NormalizeOptions{})
+			if err == nil {
+				t.Fatalf("expected Normalize to fail")
+			}
+			if got := err.Error(); !strings.Contains(got, "agents.reviewer.jupyter.guest_port") {
+				t.Fatalf("error = %q, want jupyter guest_port path", got)
+			}
+		})
+	}
+}
+
 func TestNormalizeRejectsUnsupportedNetwork(t *testing.T) {
 	spec := mustParseCompose(t, `
 name: unsupported-network

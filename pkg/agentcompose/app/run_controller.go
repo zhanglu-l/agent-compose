@@ -39,16 +39,18 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 		Runtime: func(session *domain.Session) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)
 		},
-		Images:    imageBackends.Auto,
-		Cap:       do.MustInvoke[capabilities.Provider](di),
-		Streams:   do.MustInvoke[*sessions.StreamBroker](di),
-		Bus:       do.MustInvoke[*loaders.Bus](di),
-		Dashboard: dashboardHub,
+		Images:       imageBackends.Auto,
+		LoaderEngine: do.MustInvoke[loaders.LoaderEngine](di),
+		Cap:          do.MustInvoke[capabilities.Provider](di),
+		Streams:      do.MustInvoke[*sessions.StreamBroker](di),
+		Bus:          do.MustInvoke[*loaders.Bus](di),
+		Dashboard:    dashboardHub,
 	}), nil
 }
 
 type runControllerDelegate struct {
 	controller *runs.Controller
+	supervisor *RunSupervisor
 }
 
 func (d runControllerDelegate) RunAgent(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest]) (*connect.Response[agentcomposev2.RunAgentResponse], error) {
@@ -57,7 +59,23 @@ func (d runControllerDelegate) RunAgent(ctx context.Context, req *connect.Reques
 		return nil, runConnectError(err)
 	}
 	return connect.NewResponse(&agentcomposev2.RunAgentResponse{
-		Run: api.ProjectRunDetailToProto(run),
+		Run:      api.ProjectRunDetailToProto(run),
+		Warnings: append([]string(nil), run.Warnings...),
+	}), nil
+}
+
+func (d runControllerDelegate) StartRun(ctx context.Context, req *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+	if d.supervisor == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("run supervisor is required"))
+	}
+	run, err := d.supervisor.StartRun(ctx, runAgentRequestFromProto(req.Msg.GetRun()))
+	if err != nil {
+		return nil, runConnectError(err)
+	}
+	return connect.NewResponse(&agentcomposev2.StartRunResponse{
+		Run:      api.ProjectRunSummaryToProto(run),
+		Warnings: append([]string(nil), run.Warnings...),
+		Started:  !runs.StatusIsTerminal(run.Status),
 	}), nil
 }
 
@@ -70,6 +88,7 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 				Run:       api.ProjectRunSummaryToProto(run),
 				RunId:     run.RunID,
 				CreatedAt: api.FormatProjectTime(createdAt),
+				Warnings:  append([]string(nil), run.Warnings...),
 			}); err != nil {
 				return fmt.Errorf("%w: %w", runs.ErrRunAgentStreamSend, err)
 			}
@@ -77,11 +96,12 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 		},
 		SendChunk: func(runID string, chunk domain.ExecChunk, createdAt time.Time) error {
 			if err := stream.Send(&agentcomposev2.RunAgentStreamResponse{
-				EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
-				RunId:     runID,
-				Chunk:     chunk.Text,
-				IsStderr:  chunk.IsStderr,
-				CreatedAt: api.FormatProjectTime(createdAt),
+				EventType:  agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT,
+				RunId:      runID,
+				Chunk:      chunk.Text,
+				IsStderr:   chunk.IsStderr,
+				CreatedAt:  api.FormatProjectTime(createdAt),
+				Transcript: api.TranscriptEventFromExecChunk(chunk, createdAt),
 			}); err != nil {
 				return fmt.Errorf("%w: %w", runs.ErrRunAgentStreamSend, err)
 			}
@@ -100,6 +120,7 @@ func (d runControllerDelegate) RunAgentStream(ctx context.Context, req *connect.
 		Run:       api.ProjectRunSummaryToProto(run),
 		RunId:     run.RunID,
 		CreatedAt: api.FormatProjectTime(time.Now().UTC()),
+		Warnings:  append([]string(nil), run.Warnings...),
 	}); sendErr != nil {
 		return connect.NewError(connect.CodeUnknown, sendErr)
 	}
@@ -120,6 +141,7 @@ func runAgentRequestFromProto(msg *agentcomposev2.RunAgentRequest) runs.RunAgent
 		SessionID:        msg.GetSessionId(),
 		OutputSchemaJSON: msg.GetOutputSchemaJson(),
 		CleanupPolicy:    msg.GetCleanupPolicy(),
+		Jupyter:          msg.GetJupyter(),
 	}
 }
 
@@ -129,6 +151,17 @@ func runConnectError(err error) error {
 	}
 	if errors.Is(err, runs.ErrInvalidRequest) {
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if errors.Is(err, domain.ErrUnsupported) ||
+		errors.Is(err, domain.ErrNotFound) ||
+		errors.Is(err, domain.ErrInvalidArgument) ||
+		errors.Is(err, domain.ErrRequired) ||
+		errors.Is(err, domain.ErrAmbiguous) ||
+		errors.Is(err, domain.ErrFailedPrecondition) ||
+		errors.Is(err, domain.ErrConflict) ||
+		errors.Is(err, domain.ErrReferenced) ||
+		errors.Is(err, domain.ErrAlreadyExists) {
+		return api.ConnectErrorForDomain(err)
 	}
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("%w", err))
 }

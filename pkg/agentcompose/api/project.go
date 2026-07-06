@@ -177,9 +177,20 @@ func AgentSpecsToProto(agents []compose.NormalizedAgentSpec) []*agentcomposev2.A
 			CapsetIds:    capabilities.NormalizeCapsetIDs(agent.CapsetIDs),
 			Workspace:    WorkspaceSpecToProto(agent.Workspace),
 			Scheduler:    SchedulerSpecToProto(agent.Scheduler),
+			Jupyter:      JupyterSpecToProto(agent.Jupyter),
 		})
 	}
 	return items
+}
+
+func JupyterSpecToProto(jupyter *compose.JupyterSpec) *agentcomposev2.JupyterSpec {
+	if jupyter == nil {
+		return nil
+	}
+	return &agentcomposev2.JupyterSpec{
+		Enabled:   jupyter.Enabled,
+		GuestPort: uint32(jupyter.GuestPort),
+	}
 }
 
 func EnvVarSpecsToProto(values map[string]compose.EnvVarSpec) []*agentcomposev2.EnvVarSpec {
@@ -360,9 +371,26 @@ func AgentYAMLMap(agents []*agentcomposev2.AgentSpec) (map[string]any, []*agentc
 		if scheduler := SchedulerYAMLShape(agent.GetScheduler()); len(scheduler) > 0 {
 			raw["scheduler"] = scheduler
 		}
+		if jupyter := JupyterYAMLShape(agent.GetJupyter()); len(jupyter) > 0 {
+			raw["jupyter"] = jupyter
+		}
 		values[name] = raw
 	}
 	return values, nil
+}
+
+func JupyterYAMLShape(jupyter *agentcomposev2.JupyterSpec) map[string]any {
+	if jupyter == nil {
+		return nil
+	}
+	raw := map[string]any{}
+	if jupyter.GetEnabled() {
+		raw["enabled"] = true
+	}
+	if jupyter.GetGuestPort() != 0 {
+		raw["guest_port"] = jupyter.GetGuestPort()
+	}
+	return raw
 }
 
 func DriverYAMLShape(path string, driver *agentcomposev2.DriverSpec) (map[string]any, []*agentcomposev2.ProjectValidationIssue) {

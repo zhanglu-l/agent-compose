@@ -48,6 +48,7 @@ type NormalizedAgentSpec struct {
 	CapsetIDs    []string                 `yaml:"capset_ids,omitempty" json:"capset_ids,omitempty"`
 	Workspace    *WorkspaceSpec           `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	Scheduler    *NormalizedSchedulerSpec `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
+	Jupyter      *JupyterSpec             `yaml:"jupyter,omitempty" json:"jupyter,omitempty"`
 }
 
 type NormalizedDriverSpec struct {
@@ -155,6 +156,10 @@ func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions) (Nor
 	if err != nil {
 		return NormalizedAgentSpec{}, err
 	}
+	jupyter, err := normalizeJupyterSpec(joinPath("agents", name)+".jupyter", agent.Jupyter)
+	if err != nil {
+		return NormalizedAgentSpec{}, err
+	}
 	env, err := normalizeEnvVarMap(joinPath("agents", name)+".env", agent.Env, options)
 	if err != nil {
 		return NormalizedAgentSpec{}, err
@@ -174,7 +179,22 @@ func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions) (Nor
 		CapsetIDs:    normalizeStringList(agent.CapsetIDs),
 		Workspace:    cloneWorkspaceSpec(agent.Workspace),
 		Scheduler:    scheduler,
+		Jupyter:      jupyter,
 	}, nil
+}
+
+func normalizeJupyterSpec(path string, jupyter *JupyterSpec) (*JupyterSpec, error) {
+	if jupyter == nil {
+		return nil, nil
+	}
+	normalized := *jupyter
+	if normalized.GuestPort < 0 || normalized.GuestPort > 65535 {
+		return nil, &ValidationError{Path: path + ".guest_port", Message: "guest_port must be 0 or a valid TCP port between 1 and 65535"}
+	}
+	if !normalized.Enabled && normalized.GuestPort == 0 {
+		return nil, nil
+	}
+	return &normalized, nil
 }
 
 func normalizeStringList(values []string) []string {

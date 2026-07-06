@@ -19,6 +19,7 @@ func ProjectRunDetailToProto(run domain.ProjectRunRecord) *agentcomposev2.RunDet
 		CleanupError: run.CleanupError,
 		Driver:       run.Driver,
 		ImageRef:     run.ImageRef,
+		Warnings:     append([]string(nil), run.Warnings...),
 	}
 }
 
@@ -42,6 +43,7 @@ func ProjectRunSummaryToProto(run domain.ProjectRunRecord) *agentcomposev2.RunSu
 		DurationMs:      run.DurationMs,
 		CreatedAt:       FormatProjectTime(run.CreatedAt),
 		UpdatedAt:       FormatProjectTime(run.UpdatedAt),
+		Warnings:        append([]string(nil), run.Warnings...),
 	}
 }
 
@@ -115,6 +117,19 @@ func ProjectRunSourceFilterFromProto(source agentcomposev2.RunSource) string {
 		return domain.ProjectRunSourceManual
 	default:
 		return ""
+	}
+}
+
+func TranscriptEventFromExecChunk(chunk domain.ExecChunk, createdAt time.Time) *agentcomposev2.TranscriptEvent {
+	kind := "stdout"
+	if chunk.IsStderr {
+		kind = "stderr"
+	}
+	return &agentcomposev2.TranscriptEvent{
+		Kind:      kind,
+		Text:      chunk.Text,
+		IsStderr:  chunk.IsStderr,
+		CreatedAt: FormatProjectTime(createdAt),
 	}
 }
 

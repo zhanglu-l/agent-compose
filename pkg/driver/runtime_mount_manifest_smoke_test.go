@@ -183,7 +183,7 @@ func assertRuntimeSmokeHomeFiles(t *testing.T, ctx context.Context, runtime BoxR
 	if _, err := os.Stat(hostGitconfig); err != nil {
 		t.Fatalf("host gitconfig missing after guest startup: %v", err)
 	}
-	homeMarkerPath := filepath.Join(hostSessionHome(session), ".agent-compose-smoke-home")
+	homeMarkerPath := filepath.Join(hostSessionHome(session), ".codex", "runtime-mount-smoke-home.txt")
 	for {
 		data, err := os.ReadFile(homeMarkerPath)
 		if err == nil && strings.TrimSpace(string(data)) == "ok" {
@@ -201,4 +201,30 @@ func assertRuntimeSmokeHomeFiles(t *testing.T, ctx context.Context, runtime BoxR
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+func runtimeSmokeGuestPathAssertionScript() string {
+	return `
+set -eu
+test -d /root
+test ! -L /root
+test "$(readlink /workspace)" = "/data/workspace"
+test "$(readlink /root/.codex)" = "/data/home/.codex"
+test "$(readlink /root/.claude)" = "/data/home/.claude"
+test "$(readlink /root/.opencode)" = "/data/home/.opencode"
+test "$(readlink /root/.gitconfig)" = "/data/home/.gitconfig"
+test "$(readlink /root/.claude.json)" = "/data/home/.claude.json"
+test "$(readlink /root/.gemini)" = "/data/home/.gemini"
+test "$(readlink /root/.config/claude)" = "/data/home/.config/claude"
+test "$(readlink /root/.config/Claude)" = "/data/home/.config/Claude"
+test "$(readlink /root/.config/gemini)" = "/data/home/.config/gemini"
+test "$(readlink /root/.config/opencode)" = "/data/home/.config/opencode"
+test "$(readlink /root/.local/share/gemini)" = "/data/home/.local/share/gemini"
+test -f /root/.codex/config.toml
+test -f /root/.gitconfig
+test -f /root/.claude.json
+cd /workspace
+printf ok > /root/.codex/runtime-mount-smoke-home.txt
+printf ok > /data/state/runtime-mount-smoke.txt
+`
 }

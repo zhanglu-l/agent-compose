@@ -4,6 +4,7 @@ import (
 	appconfig "agent-compose/pkg/config"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -106,6 +107,9 @@ func (r *dockerRuntime) EnsureSession(ctx context.Context, session *Session, vmS
 			return SessionVMInfo{}, fmt.Errorf("start docker container %s: %w", containerInfo.ID, err)
 		}
 	}
+	if !jupyterEnabled(proxyState) {
+		return SessionVMInfo{BoxID: containerInfo.ID, ProxyState: &proxyState}, nil
+	}
 
 	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	readyErr := waitForJupyterProxy(readyCtx, proxyState)
@@ -161,6 +165,32 @@ func (r *dockerRuntime) Exec(ctx context.Context, session *Session, vmState VMSt
 
 func (r *dockerRuntime) ExecStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
 	return r.execWithStream(ctx, session, vmState, spec, stream)
+}
+
+func (r *dockerRuntime) Stats(ctx context.Context, session *Session, vmState VMState) (SandboxStats, error) {
+	dockerClient, err := r.newClient()
+	if err != nil {
+		return SandboxStats{}, err
+	}
+	defer func() { _ = dockerClient.Close() }()
+
+	containerInfo, ok, err := r.findContainer(ctx, dockerClient, session, vmState)
+	if err != nil {
+		return SandboxStats{}, err
+	}
+	if !ok || containerInfo.State == nil || !containerInfo.State.Running {
+		return SandboxStats{}, fmt.Errorf("docker container for session %s is not running", session.Summary.ID)
+	}
+	reader, err := dockerClient.ContainerStatsOneShot(ctx, containerInfo.ID)
+	if err != nil {
+		return SandboxStats{}, fmt.Errorf("read docker stats for session %s: %w", session.Summary.ID, err)
+	}
+	defer func() { _ = reader.Body.Close() }()
+	var response containerapi.StatsResponse
+	if err := json.NewDecoder(reader.Body).Decode(&response); err != nil {
+		return SandboxStats{}, fmt.Errorf("decode docker stats for session %s: %w", session.Summary.ID, err)
+	}
+	return dockerStatsFromResponse(session, vmState, containerInfo, response), nil
 }
 
 func (r *dockerRuntime) execWithStream(ctx context.Context, session *Session, vmState VMState, spec ExecSpec, stream ExecStreamWriter) (ExecResult, error) {
@@ -261,14 +291,22 @@ func (r *dockerRuntime) getOrCreateContainer(ctx context.Context, dockerClient *
 		return containerapi.InspectResponse{}, false, err
 	}
 	networkMode := r.dockerGuestNetworkMode(ctx, dockerClient)
-	port := nat.Port(strconv.Itoa(r.config.JupyterGuestPort) + "/tcp")
+	var exposedPorts nat.PortSet
+	var portBindings nat.PortMap
+	cmdText := "tail -f /dev/null"
+	if jupyterEnabled(proxyState) {
+		port := nat.Port(strconv.Itoa(proxyState.GuestPort) + "/tcp")
+		exposedPorts = nat.PortSet{port: struct{}{}}
+		portBindings = nat.PortMap{port: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: strconv.Itoa(proxyState.HostPort)}}}
+		cmdText = jupyterLaunchCommand(r.config, proxyState, false)
+	}
 	containerConfig := &containerapi.Config{
 		Image:        resolveSessionGuestImage(vmState.Image, session.Summary.GuestImage, defaultGuestImageForDriver(r.config, RuntimeDriverDocker)),
 		WorkingDir:   r.config.GuestWorkspacePath,
 		Env:          r.containerEnv(session, proxyState),
 		Entrypoint:   []string{"sh", "-lc"},
-		Cmd:          []string{jupyterLaunchCommand(r.config, proxyState, false)},
-		ExposedPorts: nat.PortSet{port: struct{}{}},
+		Cmd:          []string{cmdText},
+		ExposedPorts: exposedPorts,
 		Labels: map[string]string{
 			dockerSessionLabelID:     session.Summary.ID,
 			dockerSessionLabelDriver: RuntimeDriverDocker,
@@ -276,7 +314,7 @@ func (r *dockerRuntime) getOrCreateContainer(ctx context.Context, dockerClient *
 	}
 	hostConfig := &containerapi.HostConfig{
 		Mounts:       mounts,
-		PortBindings: nat.PortMap{port: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: strconv.Itoa(proxyState.HostPort)}}},
+		PortBindings: portBindings,
 		AutoRemove:   false,
 		NetworkMode:  networkMode,
 	}
@@ -527,8 +565,12 @@ func (r *dockerRuntime) findContainer(ctx context.Context, dockerClient *client.
 }
 
 func (r *dockerRuntime) dockerSessionProxyState(session *Session, vmState VMState, proxyState ProxyState) ProxyState {
+	if !proxyState.Enabled {
+		proxyState.GuestHost = ""
+		proxyState.GuestPort = 0
+		return proxyState
+	}
 	proxyState.GuestHost = r.containerName(session, vmState)
-	proxyState.GuestPort = r.config.JupyterGuestPort
 	return proxyState
 }
 
@@ -583,6 +625,93 @@ func (r *dockerRuntime) readContainerLogs(ctx context.Context, dockerClient *cli
 		return "", err
 	}
 	return strings.TrimSpace(stdout.String() + stderr.String()), nil
+}
+
+func dockerStatsFromResponse(session *Session, vmState VMState, containerInfo containerapi.InspectResponse, response containerapi.StatsResponse) SandboxStats {
+	sandboxID := ""
+	driverName := RuntimeDriverDocker
+	if session != nil {
+		sandboxID = session.Summary.ID
+		driverName = firstNonEmpty(session.Summary.Driver, driverName)
+	}
+	sampledAt := response.Read
+	if sampledAt.IsZero() {
+		sampledAt = time.Now().UTC()
+	}
+	stats := SandboxStats{
+		SandboxID:        sandboxID,
+		Driver:           firstNonEmpty(driverName, vmState.Driver, RuntimeDriverDocker),
+		SampledAt:        sampledAt.UTC(),
+		CPUPercent:       metricOK(dockerCPUPercent(response), MetricUnitPercent),
+		MemoryUsageBytes: metricOK(float64(response.MemoryStats.Usage), MetricUnitBytes),
+		MemoryLimitBytes: metricOK(float64(response.MemoryStats.Limit), MetricUnitBytes),
+		MemoryPercent:    metricUnknown(MetricUnitPercent, "memory limit is unknown"),
+		NetworkRxBytes:   metricOK(float64(dockerNetworkRxBytes(response)), MetricUnitBytes),
+		NetworkTxBytes:   metricOK(float64(dockerNetworkTxBytes(response)), MetricUnitBytes),
+		BlockReadBytes:   metricOK(float64(dockerBlockReadBytes(response)), MetricUnitBytes),
+		BlockWriteBytes:  metricOK(float64(dockerBlockWriteBytes(response)), MetricUnitBytes),
+		UptimeSeconds:    metricUnknown(MetricUnitSeconds, "container start time is unknown"),
+	}
+	if response.MemoryStats.Limit > 0 {
+		stats.MemoryPercent = metricOK(float64(response.MemoryStats.Usage)/float64(response.MemoryStats.Limit)*100, MetricUnitPercent)
+	}
+	if startedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(containerInfo.State.StartedAt)); err == nil && !startedAt.IsZero() {
+		uptime := sampledAt.Sub(startedAt)
+		if uptime < 0 {
+			uptime = 0
+		}
+		stats.UptimeSeconds = metricOK(uptime.Seconds(), MetricUnitSeconds)
+	}
+	return stats
+}
+
+func dockerCPUPercent(response containerapi.StatsResponse) float64 {
+	cpuDelta := float64(response.CPUStats.CPUUsage.TotalUsage - response.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(response.CPUStats.SystemUsage - response.PreCPUStats.SystemUsage)
+	onlineCPUs := float64(response.CPUStats.OnlineCPUs)
+	if onlineCPUs == 0 {
+		onlineCPUs = float64(len(response.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if cpuDelta <= 0 || systemDelta <= 0 || onlineCPUs <= 0 {
+		return 0
+	}
+	return cpuDelta / systemDelta * onlineCPUs * 100
+}
+
+func dockerNetworkRxBytes(response containerapi.StatsResponse) uint64 {
+	var total uint64
+	for _, network := range response.Networks {
+		total += network.RxBytes
+	}
+	return total
+}
+
+func dockerNetworkTxBytes(response containerapi.StatsResponse) uint64 {
+	var total uint64
+	for _, network := range response.Networks {
+		total += network.TxBytes
+	}
+	return total
+}
+
+func dockerBlockReadBytes(response containerapi.StatsResponse) uint64 {
+	var total uint64
+	for _, entry := range response.BlkioStats.IoServiceBytesRecursive {
+		if strings.EqualFold(entry.Op, "read") {
+			total += entry.Value
+		}
+	}
+	return total
+}
+
+func dockerBlockWriteBytes(response containerapi.StatsResponse) uint64 {
+	var total uint64
+	for _, entry := range response.BlkioStats.IoServiceBytesRecursive {
+		if strings.EqualFold(entry.Op, "write") {
+			total += entry.Value
+		}
+	}
+	return total
 }
 
 func dockerEnvList(env map[string]string) []string {

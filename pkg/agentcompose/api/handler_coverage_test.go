@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +17,13 @@ import (
 
 	appconfig "agent-compose/pkg/config"
 	"agent-compose/pkg/execution"
+	"agent-compose/pkg/imagecache"
+	"agent-compose/pkg/images"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/runs"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
+	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
 
 func TestPrepareStreamingHeadersPreservesNoTransform(t *testing.T) {
@@ -31,6 +37,28 @@ func TestPrepareStreamingHeadersPreservesNoTransform(t *testing.T) {
 	}
 }
 
+func TestIntegrationAPIHandlerRuntimeWorkflows(t *testing.T) {
+	t.Run("streaming headers", TestPrepareStreamingHeadersPreservesNoTransform)
+	t.Run("sandbox remove race", TestRemoveSandboxRemoveRaceRemainsInternal)
+	t.Run("sandbox stats runtime metrics", TestGetSandboxStatsReturnsRuntimeMetrics)
+	t.Run("sandbox stats stopped sandbox", TestGetSandboxStatsRejectsStoppedSandbox)
+	t.Run("sandbox stats unsupported runtime", TestGetSandboxStatsUnsupportedRuntimeIsUnimplemented)
+	t.Run("loader connect error", TestLoaderServiceConnectErrorClassifiesInternalFailures)
+	t.Run("domain connect error", TestConnectErrorForDomainClassifiesReusableSentinels)
+	t.Run("image pull inspect and skip", TestImagePullInspectAndSkip)
+	t.Run("kernel and agent unary handlers", TestKernelAndAgentUnaryHandlerWorkflows)
+	t.Run("exec session target", TestExecHandlerSessionTargetWorkflow)
+	t.Run("exec selector errors", TestExecHandlerSelectorErrors)
+	t.Run("project and run store backed handlers", TestProjectAndRunHandlersStoreBackedWorkflows)
+	t.Run("follow run logs offsets tail and final", TestFollowRunLogsStreamsOffsetsTailAndFinal)
+	t.Run("follow run logs missing terminal file", TestFollowRunLogsMissingLogFileReturnsEmptyFinalForTerminalRun)
+	t.Run("follow run logs project mismatch", TestFollowRunLogsRejectsProjectMismatch)
+}
+
+func TestE2EAPIHandlerRuntimeWorkflows(t *testing.T) {
+	TestIntegrationAPIHandlerRuntimeWorkflows(t)
+}
+
 func TestRemoveSandboxRemoveRaceRemainsInternal(t *testing.T) {
 	store := &apiSandboxStore{
 		session:   &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", VMStatus: domain.VMStatusStopped}},
@@ -40,6 +68,64 @@ func TestRemoveSandboxRemoveRaceRemainsInternal(t *testing.T) {
 	_, err := handler.RemoveSandbox(context.Background(), connect.NewRequest(&agentcomposev2.RemoveSandboxRequest{SandboxId: "sandbox-1"}))
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Fatalf("RemoveSandbox error code = %v, want %v; err=%v", connect.CodeOf(err), connect.CodeInternal, err)
+	}
+}
+
+func TestGetSandboxStatsReturnsRuntimeMetrics(t *testing.T) {
+	value := 42.5
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", Driver: "docker", VMStatus: domain.VMStatusRunning}},
+		vmState: domain.VMState{
+			Driver: "docker",
+			BoxID:  "box-1",
+		},
+	}
+	runtime := &apiStatsRuntime{stats: domain.SandboxStats{
+		SandboxID:        "sandbox-1",
+		Driver:           "docker",
+		SampledAt:        time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC),
+		CPUPercent:       domain.MetricValue{Value: &value, Unit: "percent", Status: domain.MetricStatusOK},
+		MemoryUsageBytes: domain.MetricValue{Unit: "bytes", Status: domain.MetricStatusUnknown},
+	}}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil, func(*domain.Session) (SandboxStatsRuntime, error) {
+		return runtime, nil
+	})
+	resp, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if err != nil {
+		t.Fatalf("GetSandboxStats returned error: %v", err)
+	}
+	if resp.Msg.GetStats().GetCpuPercent().GetStatus() != agentcomposev2.MetricStatus_METRIC_STATUS_OK || resp.Msg.GetStats().GetCpuPercent().GetValue() != value {
+		t.Fatalf("GetSandboxStats response = %#v", resp.Msg.GetStats())
+	}
+	if resp.Msg.GetStats().GetMemoryUsageBytes().GetStatus() != agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN {
+		t.Fatalf("memory metric = %#v", resp.Msg.GetStats().GetMemoryUsageBytes())
+	}
+	if runtime.sessionID != "sandbox-1" || runtime.vmState.BoxID != "box-1" {
+		t.Fatalf("runtime call session/vm = %q/%#v", runtime.sessionID, runtime.vmState)
+	}
+}
+
+func TestGetSandboxStatsRejectsStoppedSandbox(t *testing.T) {
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", VMStatus: domain.VMStatusStopped}},
+	}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil, func(*domain.Session) (SandboxStatsRuntime, error) {
+		return &apiStatsRuntime{}, nil
+	})
+	_, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("GetSandboxStats stopped code = %v, err=%v", connect.CodeOf(err), err)
+	}
+}
+
+func TestGetSandboxStatsUnsupportedRuntimeIsUnimplemented(t *testing.T) {
+	store := &apiSandboxStore{
+		session: &domain.Session{Summary: domain.SessionSummary{ID: "sandbox-1", VMStatus: domain.VMStatusRunning}},
+	}
+	handler := NewSandboxHandler(&fakeSessionDelegate{}, store, nil)
+	_, err := handler.GetSandboxStats(context.Background(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: "sandbox-1"}))
+	if connect.CodeOf(err) != connect.CodeUnimplemented {
+		t.Fatalf("GetSandboxStats unsupported code = %v, err=%v", connect.CodeOf(err), err)
 	}
 }
 
@@ -60,6 +146,68 @@ func TestLoaderServiceConnectErrorClassifiesInternalFailures(t *testing.T) {
 		if got := connect.CodeOf(loaderServiceConnectError(tc.err)); got != tc.code {
 			t.Fatalf("loaderServiceConnectError(%v) = %v, want %v", tc.err, got, tc.code)
 		}
+	}
+}
+
+func TestConnectErrorForDomainClassifiesReusableSentinels(t *testing.T) {
+	tests := []struct {
+		err  error
+		code connect.Code
+	}{
+		{err: domain.ClassifyError(domain.ErrUnsupported, "stats are unsupported", nil), code: connect.CodeUnimplemented},
+		{err: domain.ResourceError(domain.ErrNotFound, "sandbox", "missing", "", nil), code: connect.CodeNotFound},
+		{err: domain.ClassifyError(domain.ErrInvalidArgument, "bad request", nil), code: connect.CodeInvalidArgument},
+		{err: domain.ClassifyError(domain.ErrRequired, "project is required", nil), code: connect.CodeInvalidArgument},
+		{err: domain.ClassifyError(domain.ErrFailedPrecondition, "sandbox stopped", nil), code: connect.CodeFailedPrecondition},
+		{err: domain.ClassifyError(domain.ErrAlreadyExists, "project exists", nil), code: connect.CodeAlreadyExists},
+		{err: context.Canceled, code: connect.CodeCanceled},
+		{err: context.DeadlineExceeded, code: connect.CodeDeadlineExceeded},
+		{err: errors.New("boom"), code: connect.CodeInternal},
+	}
+	for _, tc := range tests {
+		if got := connect.CodeOf(ConnectErrorForDomain(tc.err)); got != tc.code {
+			t.Fatalf("ConnectErrorForDomain(%v) = %v, want %v", tc.err, got, tc.code)
+		}
+	}
+}
+
+func TestImagePullInspectAndSkip(t *testing.T) {
+	ctx := context.Background()
+	local := testImageBackend{
+		inspect: images.InspectResult{Image: &agentcomposev2.Image{
+			ImageRef:    "guest:latest",
+			ResolvedRef: "guest@sha256:local",
+		}},
+	}
+	handler := NewImageHandler(fakeImageSelector{backend: &local})
+	resp, err := handler.PullImage(ctx, connect.NewRequest(&agentcomposev2.PullImageRequest{ImageRef: "guest:latest"}))
+	if err != nil {
+		t.Fatalf("PullImage local returned error: %v", err)
+	}
+	if local.pullCalls != 0 {
+		t.Fatalf("PullImage local pull calls = %d, want 0", local.pullCalls)
+	}
+	if resp.Msg.GetResolvedRef() != "guest@sha256:local" || len(resp.Msg.GetWarnings()) == 0 {
+		t.Fatalf("PullImage local response = %#v", resp.Msg)
+	}
+
+	missing := testImageBackend{
+		inspectErr: images.OpError{Op: "inspect image", ImageRef: "missing:latest", Err: imagecache.NewError(imagecache.ErrorKindNotFound, "inspect", "missing:latest", errors.New("missing"))},
+		pull: images.PullResult{Image: &agentcomposev2.Image{
+			ImageRef:    "missing:latest",
+			ResolvedRef: "missing@sha256:pulled",
+		}, ResolvedRef: "missing@sha256:pulled"},
+	}
+	handler = NewImageHandler(fakeImageSelector{backend: &missing})
+	resp, err = handler.PullImage(ctx, connect.NewRequest(&agentcomposev2.PullImageRequest{ImageRef: "missing:latest"}))
+	if err != nil {
+		t.Fatalf("PullImage missing returned error: %v", err)
+	}
+	if missing.pullCalls != 1 {
+		t.Fatalf("PullImage missing pull calls = %d, want 1", missing.pullCalls)
+	}
+	if resp.Msg.GetResolvedRef() != "missing@sha256:pulled" || len(resp.Msg.GetWarnings()) != 0 {
+		t.Fatalf("PullImage missing response = %#v", resp.Msg)
 	}
 }
 
@@ -116,9 +264,35 @@ func TestKernelAndAgentUnaryHandlerWorkflows(t *testing.T) {
 	}
 }
 
+type testImageBackend struct {
+	inspect    images.InspectResult
+	inspectErr error
+	pull       images.PullResult
+	pullErr    error
+	pullCalls  int
+}
+
+func (b *testImageBackend) ListImages(context.Context, images.ListRequest) (images.ListResult, error) {
+	return images.ListResult{}, nil
+}
+
+func (b *testImageBackend) PullImage(context.Context, images.PullRequest) (images.PullResult, error) {
+	b.pullCalls++
+	return b.pull, b.pullErr
+}
+
+func (b *testImageBackend) InspectImage(context.Context, images.InspectRequest) (images.InspectResult, error) {
+	return b.inspect, b.inspectErr
+}
+
+func (b *testImageBackend) RemoveImage(context.Context, images.RemoveRequest) (images.RemoveResult, error) {
+	return images.RemoveResult{}, nil
+}
+
 func TestExecHandlerSessionTargetWorkflow(t *testing.T) {
 	ctx := context.Background()
-	session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning}}
+	sessionRoot := t.TempDir()
+	session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sessionRoot, "workspace")}}
 	store := &apiExecSessionStore{session: session, vm: domain.VMState{Driver: "docker"}}
 	runtime := &apiExecRuntime{}
 	handler := NewExecHandler(&appconfig.Config{}, store, apiExecProjectStore{}, func(*domain.Session) (ExecRuntime, error) {
@@ -132,8 +306,24 @@ func TestExecHandlerSessionTargetWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exec returned error: %v", err)
 	}
-	if !resp.Msg.GetResult().GetSuccess() || resp.Msg.GetResult().GetStdout() != "hi\n" || runtime.spec.Env["FOO"] != "bar" {
+	if !resp.Msg.GetResult().GetSuccess() || resp.Msg.GetResult().GetStdout() != "hi\n" || runtime.spec.Command != "sh" || !strings.Contains(strings.Join(runtime.spec.Args, " "), "agent-compose-runtime exec") {
 		t.Fatalf("exec resp=%#v spec=%#v", resp.Msg.GetResult(), runtime.spec)
+	}
+	requestFiles, err := filepath.Glob(filepath.Join(sessionRoot, "state", "exec", "*", "command-request.json"))
+	if err != nil || len(requestFiles) != 1 {
+		t.Fatalf("command request files=%#v err=%v", requestFiles, err)
+	}
+	var commandRequest execution.RuntimeCommandRequest
+	data, err := os.ReadFile(requestFiles[0])
+	if err != nil || json.Unmarshal(data, &commandRequest) != nil {
+		t.Fatalf("read command request data=%q err=%v", string(data), err)
+	}
+	if commandRequest.Env["FOO"] != "bar" || commandRequest.Command != "echo" || len(commandRequest.Args) != 1 || commandRequest.Args[0] != "hi" {
+		t.Fatalf("command request = %#v", commandRequest)
+	}
+	outputData, err := os.ReadFile(filepath.Join(filepath.Dir(requestFiles[0]), "output.txt"))
+	if err != nil || string(outputData) != "hi\n" {
+		t.Fatalf("exec output artifact = %q err=%v", string(outputData), err)
 	}
 	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{Target: &agentcomposev2.ExecRequest_SessionId{SessionId: "session-1"}})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("expected missing command error, got %v", err)
@@ -210,6 +400,91 @@ func TestProjectAndRunHandlersStoreBackedWorkflows(t *testing.T) {
 	if _, err := runHandler.GetRun(ctx, connect.NewRequest(&agentcomposev2.GetRunRequest{})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("expected run id error, got %v", err)
 	}
+}
+
+func TestFollowRunLogsStreamsOffsetsTailAndFinal(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := tempDir + "/output.txt"
+	if err := os.WriteFile(logPath, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write log fixture: %v", err)
+	}
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusSucceeded, LogsPath: logPath},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	all := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1"})
+	if len(all) != 2 || all[0].GetData() != "one\ntwo\nthree\n" || all[0].GetOffset() != 14 || !all[1].GetIsFinal() {
+		t.Fatalf("all chunks = %#v", all)
+	}
+
+	tail := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", TailLines: 2, Follow: true})
+	if len(tail) != 2 || tail[0].GetData() != "two\nthree\n" || tail[0].GetOffset() != 14 || !tail[1].GetIsFinal() {
+		t.Fatalf("tail chunks = %#v", tail)
+	}
+
+	offset := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", StartOffset: 4})
+	if len(offset) != 2 || offset[0].GetData() != "two\nthree\n" || offset[0].GetOffset() != 14 || !offset[1].GetIsFinal() {
+		t.Fatalf("offset chunks = %#v", offset)
+	}
+}
+
+func TestFollowRunLogsMissingLogFileReturnsEmptyFinalForTerminalRun(t *testing.T) {
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusFailed, LogsPath: t.TempDir() + "/missing.txt"},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	chunks := collectRunLogChunks(t, client, &agentcomposev2.FollowRunLogsRequest{ProjectId: "project-1", RunId: "run-1", Follow: true})
+	if len(chunks) != 1 || !chunks[0].GetIsFinal() || chunks[0].GetData() != "" || chunks[0].GetRunStatus() != agentcomposev2.RunStatus_RUN_STATUS_FAILED {
+		t.Fatalf("missing log chunks = %#v", chunks)
+	}
+}
+
+func TestFollowRunLogsRejectsProjectMismatch(t *testing.T) {
+	store := &apiProjectRunStore{runs: map[string]domain.ProjectRunRecord{
+		"run-1": {RunID: "run-1", ProjectID: "project-1", Status: domain.ProjectRunStatusSucceeded},
+	}}
+	client, closeServer := newRunHandlerTestClient(t, NewRunHandler(nil, store))
+	defer closeServer()
+
+	stream, err := client.FollowRunLogs(context.Background(), connect.NewRequest(&agentcomposev2.FollowRunLogsRequest{ProjectId: "project-2", RunId: "run-1"}))
+	if err != nil {
+		t.Fatalf("FollowRunLogs returned setup error: %v", err)
+	}
+	for stream.Receive() {
+		t.Fatalf("unexpected chunk: %#v", stream.Msg())
+	}
+	if code := connect.CodeOf(stream.Err()); code != connect.CodeNotFound {
+		t.Fatalf("FollowRunLogs code = %s, want %s (err=%v)", code, connect.CodeNotFound, stream.Err())
+	}
+}
+
+func newRunHandlerTestClient(t *testing.T, handler *RunHandler) (agentcomposev2connect.RunServiceClient, func()) {
+	t.Helper()
+	mux := http.NewServeMux()
+	path, serviceHandler := agentcomposev2connect.NewRunServiceHandler(handler)
+	mux.Handle(path, serviceHandler)
+	server := httptest.NewServer(mux)
+	return agentcomposev2connect.NewRunServiceClient(server.Client(), server.URL), server.Close
+}
+
+func collectRunLogChunks(t *testing.T, client agentcomposev2connect.RunServiceClient, req *agentcomposev2.FollowRunLogsRequest) []*agentcomposev2.RunLogChunk {
+	t.Helper()
+	stream, err := client.FollowRunLogs(context.Background(), connect.NewRequest(req))
+	if err != nil {
+		t.Fatalf("FollowRunLogs setup error: %v", err)
+	}
+	var chunks []*agentcomposev2.RunLogChunk
+	for stream.Receive() {
+		chunks = append(chunks, stream.Msg())
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatalf("FollowRunLogs stream error: %v", err)
+	}
+	return chunks
 }
 
 type apiHandlerSessionStore struct {
@@ -318,12 +593,21 @@ type apiExecRuntime struct {
 
 func (r *apiExecRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, writer domain.ExecStreamWriter) (domain.ExecResult, error) {
 	r.spec = spec
+	writer(domain.ExecChunk{Text: "$ echo hi\n"})
 	writer(domain.ExecChunk{Text: "hi\n"})
-	return domain.ExecResult{Stdout: "hi\n", Output: "hi\n", ExitCode: 0, Success: true}, nil
+	payload := apiRuntimeCommandPayload(domain.RuntimeCommandResult{Stdout: "hi\n", Output: "hi\n", ExitCode: 0, Success: true})
+	writer(domain.ExecChunk{Text: payload})
+	return domain.ExecResult{Stdout: payload, Output: "$ echo hi\nhi\n" + payload, ExitCode: 0, Success: true}, nil
+}
+
+func apiRuntimeCommandPayload(result domain.RuntimeCommandResult) string {
+	data, _ := json.Marshal(result)
+	return execution.CommandResultPrefix + string(data) + "\n"
 }
 
 type apiSandboxStore struct {
 	session   *domain.Session
+	vmState   domain.VMState
 	removeErr error
 }
 
@@ -333,6 +617,24 @@ func (s *apiSandboxStore) GetSession(context.Context, string) (*domain.Session, 
 
 func (s *apiSandboxStore) RemoveSession(context.Context, string) error {
 	return s.removeErr
+}
+
+func (s *apiSandboxStore) GetVMState(string) (domain.VMState, error) {
+	return s.vmState, nil
+}
+
+type apiStatsRuntime struct {
+	stats     domain.SandboxStats
+	sessionID string
+	vmState   domain.VMState
+}
+
+func (r *apiStatsRuntime) Stats(_ context.Context, session *domain.Session, vmState domain.VMState) (domain.SandboxStats, error) {
+	if session != nil {
+		r.sessionID = session.Summary.ID
+	}
+	r.vmState = vmState
+	return r.stats, nil
 }
 
 type apiProjectRunStore struct {

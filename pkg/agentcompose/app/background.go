@@ -18,7 +18,7 @@ import (
 )
 
 const stalePendingSessionLastError = "session startup interrupted before runtime reached running state"
-const staleProjectRunError = "project run interrupted before reaching terminal state"
+const staleProjectRunError = "daemon interrupted project run before reaching terminal state"
 
 type runtimeReconciler interface {
 	ReconcileRuntimeState(context.Context, *domain.Session) (*domain.Session, error)

@@ -18,16 +18,11 @@ func TestSmokeBoxLiteRuntimeMountManifestDirectoryOnlyStarts(t *testing.T) {
 	assertDirectoryOnlyRuntimeSmokeManifest(t, session, RuntimeDriverBoxlite)
 
 	runtime := &cgoBoxRuntime{config: config}
-	box, created, err := runtime.getOrCreateBox(ctx, session, vmState, proxyState)
+	info, err := runtime.EnsureSession(ctx, session, vmState, proxyState)
 	if err != nil {
-		t.Fatalf("getOrCreateBox returned error: %v", err)
+		t.Fatalf("EnsureSession returned error: %v", err)
 	}
-	defer box.free()
-	boxID, err := runtime.boxID(box)
-	if err != nil {
-		t.Fatalf("boxID returned error: %v", err)
-	}
-	vmState.BoxID = boxID
+	vmState.BoxID = info.BoxID
 	t.Cleanup(func() {
 		if t.Failed() && runtimeSmokeKeepTmp() {
 			return
@@ -36,11 +31,7 @@ func TestSmokeBoxLiteRuntimeMountManifestDirectoryOnlyStarts(t *testing.T) {
 		defer stopCancel()
 		_, _ = runtime.StopSession(stopCtx, session, vmState)
 	})
-	if created {
-		if err := runtime.startBox(ctx, box); err != nil {
-			t.Fatalf("startBox returned error: %v", err)
-		}
-	}
+	assertBoxLiteRuntimeSmokeGuestPaths(t, ctx, runtime, vmState)
 	assertRuntimeSmokeHomeFiles(t, ctx, runtime, session, vmState)
 }
 
@@ -56,16 +47,11 @@ func TestSmokeBoxLiteUsesGoContainerRegistryOCIImage(t *testing.T) {
 	assertDirectoryOnlyRuntimeSmokeManifest(t, session, RuntimeDriverBoxlite)
 
 	runtime := &cgoBoxRuntime{config: config}
-	box, created, err := runtime.getOrCreateBox(ctx, session, vmState, proxyState)
+	info, err := runtime.EnsureSession(ctx, session, vmState, proxyState)
 	if err != nil {
-		t.Fatalf("getOrCreateBox returned error: %v", err)
+		t.Fatalf("EnsureSession returned error: %v", err)
 	}
-	defer box.free()
-	boxID, err := runtime.boxID(box)
-	if err != nil {
-		t.Fatalf("boxID returned error: %v", err)
-	}
-	vmState.BoxID = boxID
+	vmState.BoxID = info.BoxID
 	t.Cleanup(func() {
 		if t.Failed() && runtimeSmokeKeepTmp() {
 			return
@@ -74,10 +60,22 @@ func TestSmokeBoxLiteUsesGoContainerRegistryOCIImage(t *testing.T) {
 		defer stopCancel()
 		_, _ = runtime.StopSession(stopCtx, session, vmState)
 	})
-	if created {
-		if err := runtime.startBox(ctx, box); err != nil {
-			t.Fatalf("startBox returned error: %v", err)
-		}
-	}
+	assertBoxLiteRuntimeSmokeGuestPaths(t, ctx, runtime, vmState)
 	assertRuntimeSmokeHomeFiles(t, ctx, runtime, session, vmState)
+}
+
+func assertBoxLiteRuntimeSmokeGuestPaths(t *testing.T, ctx context.Context, runtime *cgoBoxRuntime, vmState VMState) {
+	t.Helper()
+	box, err := runtime.getBox(ctx, vmState.BoxID)
+	if err != nil {
+		t.Fatalf("getBox returned error: %v", err)
+	}
+	defer box.free()
+	result, err := runtime.executeBox(ctx, box, ExecSpec{Command: "sh", Args: []string{"-lc", runtimeSmokeGuestPathAssertionScript()}, Cwd: "/"}, nil)
+	if err != nil {
+		t.Fatalf("boxlite guest path assertion command returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("boxlite guest path assertion failed: exit=%d stdout=%q stderr=%q", result.ExitCode, result.Stdout, result.Stderr)
+	}
 }

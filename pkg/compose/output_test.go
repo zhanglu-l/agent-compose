@@ -287,6 +287,79 @@ agents:
 	}
 }
 
+func TestCanonicalOutputIncludesJupyterAndIsStable(t *testing.T) {
+	normalized := mustNormalizeCompose(t, `
+name: canonical-jupyter
+agents:
+  reviewer:
+    provider: codex
+    jupyter:
+      enabled: true
+      guest_port: 8888
+`, nil)
+
+	jsonData, err := normalized.MarshalCanonicalJSON(false)
+	if err != nil {
+		t.Fatalf("MarshalCanonicalJSON returned error: %v", err)
+	}
+	yamlData, err := normalized.MarshalCanonicalYAML(false)
+	if err != nil {
+		t.Fatalf("MarshalCanonicalYAML returned error: %v", err)
+	}
+	for _, data := range [][]byte{jsonData, yamlData} {
+		if !bytes.Contains(data, []byte("jupyter")) || !bytes.Contains(data, []byte("guest_port")) || !bytes.Contains(data, []byte("8888")) {
+			t.Fatalf("jupyter missing from canonical output: %s", data)
+		}
+	}
+
+	secondJSON, err := normalized.MarshalCanonicalJSON(false)
+	if err != nil {
+		t.Fatalf("second MarshalCanonicalJSON returned error: %v", err)
+	}
+	if !bytes.Equal(jsonData, secondJSON) {
+		t.Fatalf("canonical JSON output was not stable:\n%s\n%s", jsonData, secondJSON)
+	}
+
+	redacted := normalized.Redacted()
+	if redacted == nil || len(redacted.Agents) != 1 || redacted.Agents[0].Jupyter == nil || redacted.Agents[0].Jupyter.GuestPort != 8888 {
+		t.Fatalf("redacted output lost jupyter: %#v", redacted)
+	}
+}
+
+func TestSpecHashIncludesJupyterChanges(t *testing.T) {
+	disabled := mustNormalizeCompose(t, `
+name: jupyter-hash
+agents:
+  reviewer:
+    provider: codex
+`, nil)
+	enabled := mustNormalizeCompose(t, `
+name: jupyter-hash
+agents:
+  reviewer:
+    provider: codex
+    jupyter:
+      enabled: true
+      guest_port: 8888
+`, nil)
+	changedPort := mustNormalizeCompose(t, `
+name: jupyter-hash
+agents:
+  reviewer:
+    provider: codex
+    jupyter:
+      enabled: true
+      guest_port: 9999
+`, nil)
+
+	if got := mustHash(t, enabled); got == mustHash(t, disabled) {
+		t.Fatalf("hash did not change when jupyter was enabled")
+	}
+	if got := mustHash(t, changedPort); got == mustHash(t, enabled) {
+		t.Fatalf("hash did not change when jupyter guest port changed")
+	}
+}
+
 func TestSpecHashIgnoresFieldAndMapOrder(t *testing.T) {
 	first := mustNormalizeCompose(t, `
 name: hash-project

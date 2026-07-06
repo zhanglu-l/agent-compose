@@ -72,6 +72,8 @@ func ToDriverProxyState(state domain.ProxyState) driverpkg.ProxyState {
 		GuestPort:  state.GuestPort,
 		JupyterURL: state.JupyterURL,
 		Token:      state.Token,
+		Enabled:    state.Enabled,
+		Exposed:    state.Exposed,
 	}
 }
 
@@ -101,6 +103,8 @@ func FromDriverProxyState(state driverpkg.ProxyState) domain.ProxyState {
 		GuestPort:  state.GuestPort,
 		JupyterURL: state.JupyterURL,
 		Token:      state.Token,
+		Enabled:    state.Enabled,
+		Exposed:    state.Exposed,
 	}
 }
 
@@ -111,5 +115,31 @@ func FromDriverExecResult(result driverpkg.ExecResult) domain.ExecResult {
 		Stderr:   result.Stderr,
 		Output:   result.Output,
 		Success:  result.Success,
+	}
+}
+
+func FromDriverSandboxStats(stats driverpkg.SandboxStats) domain.SandboxStats {
+	return domain.SandboxStats{
+		SandboxID:        stats.SandboxID,
+		Driver:           stats.Driver,
+		SampledAt:        stats.SampledAt,
+		CPUPercent:       FromDriverMetricValue(stats.CPUPercent),
+		MemoryUsageBytes: FromDriverMetricValue(stats.MemoryUsageBytes),
+		MemoryLimitBytes: FromDriverMetricValue(stats.MemoryLimitBytes),
+		MemoryPercent:    FromDriverMetricValue(stats.MemoryPercent),
+		NetworkRxBytes:   FromDriverMetricValue(stats.NetworkRxBytes),
+		NetworkTxBytes:   FromDriverMetricValue(stats.NetworkTxBytes),
+		BlockReadBytes:   FromDriverMetricValue(stats.BlockReadBytes),
+		BlockWriteBytes:  FromDriverMetricValue(stats.BlockWriteBytes),
+		UptimeSeconds:    FromDriverMetricValue(stats.UptimeSeconds),
+	}
+}
+
+func FromDriverMetricValue(metric driverpkg.MetricValue) domain.MetricValue {
+	return domain.MetricValue{
+		Value:   metric.Value,
+		Unit:    metric.Unit,
+		Status:  metric.Status,
+		Message: metric.Message,
 	}
 }

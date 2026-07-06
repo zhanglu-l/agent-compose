@@ -35,11 +35,17 @@ func jupyterBaseURL(proxyState ProxyState) string {
 }
 
 func jupyterDirectURL(proxyState ProxyState) string {
+	if !jupyterEnabled(proxyState) {
+		return ""
+	}
 	baseURL := strings.TrimRight(jupyterBaseURL(proxyState), "/")
 	return fmt.Sprintf("http://127.0.0.1:%d%s/lab?token=%s", proxyState.HostPort, baseURL, url.QueryEscape(proxyState.Token))
 }
 
 func jupyterConnectTarget(proxyState ProxyState) (host string, port int) {
+	if !jupyterEnabled(proxyState) {
+		return "127.0.0.1", 0
+	}
 	guestHost := strings.TrimSpace(proxyState.GuestHost)
 	if guestHost != "" && guestHost != "127.0.0.1" && proxyState.GuestPort > 0 {
 		return guestHost, proxyState.GuestPort
@@ -58,6 +64,10 @@ func jupyterConnectAddress(proxyState ProxyState) string {
 
 func JupyterConnectAddress(proxyState ProxyState) string {
 	return jupyterConnectAddress(proxyState)
+}
+
+func jupyterEnabled(proxyState ProxyState) bool {
+	return proxyState.Enabled && proxyState.GuestPort > 0
 }
 
 func jupyterKernelspecsURL(proxyState ProxyState) string {
@@ -159,10 +169,18 @@ func jupyterLogIndicatesReady(logText string) bool {
 }
 
 func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, background bool) string {
+	return jupyterLaunchCommandWithBootstrap(config, proxyState, background, false)
+}
+
+func directoryOnlyJupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, background bool) string {
+	return jupyterLaunchCommandWithBootstrap(config, proxyState, background, true)
+}
+
+func jupyterLaunchCommandWithBootstrap(config *appconfig.Config, proxyState ProxyState, background bool, includeDirectoryOnlyBootstrap bool) string {
 	appconfig.ApplyDefaultGuestPaths(config)
 	logDir := jupyterLogDir(config)
 	logPath := jupyterLogPath(config)
-	launch := "python3 -m jupyterlab --ServerApp.ip=0.0.0.0 --ServerApp.port=" + fmt.Sprintf("%d", config.JupyterGuestPort) +
+	launch := "python3 -m jupyterlab --ServerApp.ip=0.0.0.0 --ServerApp.port=" + fmt.Sprintf("%d", proxyState.GuestPort) +
 		" --ServerApp.root_dir=\"" + config.GuestWorkspacePath + "\"" +
 		" --ServerApp.base_url=\"" + strings.TrimRight(jupyterBaseURL(proxyState), "/") + "\"" +
 		" --IdentityProvider.token=\"" + proxyState.Token + "\"" +
@@ -173,9 +191,8 @@ func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, backg
 	} else {
 		launch = "exec " + launch + " > \"" + logPath + "\" 2>&1"
 	}
-	return strings.Join([]string{
+	commands := []string{
 		"set -eux",
-		directoryOnlyGuestSessionBootstrapCommand(config),
 		"mkdir -p \"" + config.GuestWorkspacePath + "\" \"" + config.GuestHomePath + "\" \"" + logDir + "\"",
 		runtimeSmokeMarkerCommand(),
 		"echo \"[agent-compose] starting jupyter\" > \"" + logPath + "\"",
@@ -186,44 +203,18 @@ func jupyterLaunchCommand(config *appconfig.Config, proxyState ProxyState, backg
 		"echo \"[agent-compose] workspace=" + config.GuestWorkspacePath + "\" >> \"" + logPath + "\"",
 		"python3 -c \"import jupyterlab; print('[agent-compose] jupyterlab=' + getattr(jupyterlab, '__version__', 'unknown'))\" >> \"" + logPath + "\" 2>&1",
 		launch,
-	}, " && ")
+	}
+	if includeDirectoryOnlyBootstrap {
+		commands = append(commands[:1], append([]string{directoryOnlyGuestSessionBootstrapCommand(config)}, commands[1:]...)...)
+	}
+	return strings.Join(commands, " && ")
 }
 
 func runtimeSmokeMarkerCommand() string {
 	return "if [ -n \"${SMOKE_MARKER:-}\" ]; then " +
 		"test -f /root/.claude.json; " +
 		"test -f /root/.gitconfig; " +
-		"printf ok > /root/.agent-compose-smoke-home; " +
+		"printf ok > /root/.codex/runtime-mount-smoke-home.txt; " +
 		"printf ok > \"${SMOKE_MARKER}\"; " +
 		"fi"
-}
-
-func directoryOnlyGuestSessionBootstrapCommand(config *appconfig.Config) string {
-	appconfig.ApplyDefaultGuestPaths(config)
-	commands := []string{
-		"if [ -d " + shellQuote(filepath.Join(directoryOnlyGuestSessionPath, "workspace")) + " ] && [ -d " + shellQuote(filepath.Join(directoryOnlyGuestSessionPath, "home")) + " ]; then",
-	}
-	for _, link := range []struct {
-		source string
-		target string
-	}{
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "workspace"), target: config.GuestWorkspacePath},
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "state"), target: config.GuestStateRoot},
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "runtime"), target: config.GuestRuntimeRoot},
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "logs"), target: config.GuestLogRoot},
-		{source: filepath.Join(directoryOnlyGuestSessionPath, "home"), target: config.GuestHomePath},
-	} {
-		source := filepath.Clean(link.source)
-		target := filepath.Clean(link.target)
-		if source == target {
-			continue
-		}
-		commands = append(commands,
-			"  rm -rf "+shellQuote(target)+";",
-			"  mkdir -p "+shellQuote(filepath.Dir(target))+";",
-			"  ln -s "+shellQuote(source)+" "+shellQuote(target)+";",
-		)
-	}
-	commands = append(commands, "fi")
-	return strings.Join(commands, " ")
 }

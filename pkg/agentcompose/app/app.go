@@ -68,6 +68,7 @@ func RegisterDependencies(di do.Injector) {
 	do.Provide(di, NewSessionRPCBridge)
 	do.Provide(di, NewLoaderController)
 	do.Provide(di, NewRunController)
+	do.Provide(di, NewRunSupervisor)
 	do.Provide(di, NewProjectController)
 }
 
@@ -128,7 +129,11 @@ func RegisterRoutes(di do.Injector) {
 	projectHandler := api.NewProjectHandler(projectControllerDelegate{controller: do.MustInvoke[*projects.Controller](di)}, do.MustInvoke[*configstore.ConfigStore](di))
 	path, handler = agentcomposev2connect.NewProjectServiceHandler(projectHandler)
 	app.Any(path+"*", echo.WrapHandler(handler))
-	runHandler := api.NewRunHandler(runControllerDelegate{controller: do.MustInvoke[*runs.Controller](di)}, do.MustInvoke[*configstore.ConfigStore](di))
+	runDelegate := runControllerDelegate{
+		controller: do.MustInvoke[*runs.Controller](di),
+		supervisor: do.MustInvoke[*RunSupervisor](di),
+	}
+	runHandler := api.NewRunHandler(runDelegate, do.MustInvoke[*configstore.ConfigStore](di), do.MustInvoke[*RunSupervisor](di))
 	path, handler = agentcomposev2connect.NewRunServiceHandler(runHandler)
 	app.Any(path+"*", echo.WrapHandler(handler))
 	execHandler := api.NewExecHandler(
@@ -148,6 +153,17 @@ func RegisterRoutes(di do.Injector) {
 		do.MustInvoke[*adapters.SessionRPCBridge](di),
 		do.MustInvoke[*sessionstore.Store](di),
 		do.MustInvoke[*dashboard.Hub](di),
+		func(session *domain.Session) (api.SandboxStatsRuntime, error) {
+			runtime, err := do.MustInvoke[adapters.RuntimeProvider](di).ForSession(session)
+			if err != nil {
+				return nil, err
+			}
+			statsRuntime, ok := runtime.(api.SandboxStatsRuntime)
+			if !ok {
+				return nil, domain.ClassifyError(domain.ErrUnsupported, "sandbox stats are unsupported by this runtime driver", nil)
+			}
+			return statsRuntime, nil
+		},
 	)
 	path, handler = agentcomposev2connect.NewSandboxServiceHandler(sandboxHandler)
 	app.Any(path+"*", echo.WrapHandler(handler))

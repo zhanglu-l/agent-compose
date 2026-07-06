@@ -3,12 +3,16 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/samber/do/v2"
 
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	domain "agent-compose/pkg/model"
+	"agent-compose/pkg/storage/configstore"
 	"agent-compose/pkg/storage/sessionstore"
 )
 
@@ -61,6 +65,80 @@ func TestReconcilePendingSessionStateMarksStaleStartupFailed(t *testing.T) {
 	}
 	if err := startCapabilityProxy(context.Background(), nil); err != nil {
 		t.Fatalf("startCapabilityProxy nil returned error: %v", err)
+	}
+}
+
+func TestReconcilePersistedProjectRunsMarksInterruptedRunsFailed(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	config := &appconfig.Config{
+		DataRoot:    root,
+		SessionRoot: filepath.Join(root, "sessions"),
+		DbAddr:      filepath.Join(root, "data.db"),
+	}
+	di := do.New()
+	do.ProvideValue(di, config)
+	store, err := configstore.NewConfigStore(di)
+	if err != nil {
+		t.Fatalf("NewConfigStore returned error: %v", err)
+	}
+	project, err := store.UpsertProject(ctx, domain.ProjectRecord{
+		ID:         "project-1",
+		Name:       "project",
+		SourcePath: filepath.Join(root, "agent-compose.yml"),
+		SourceJSON: `{}`,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProject returned error: %v", err)
+	}
+	for _, run := range []domain.ProjectRunRecord{
+		{RunID: "run-pending", ProjectID: project.ID, ProjectName: project.Name, AgentName: "worker", Source: domain.ProjectRunSourceManual, Status: domain.ProjectRunStatusPending},
+		{RunID: "run-running", ProjectID: project.ID, ProjectName: project.Name, AgentName: "worker", Source: domain.ProjectRunSourceManual, Status: domain.ProjectRunStatusRunning},
+		{RunID: "run-succeeded", ProjectID: project.ID, ProjectName: project.Name, AgentName: "worker", Source: domain.ProjectRunSourceManual, Status: domain.ProjectRunStatusSucceeded, Error: "keep"},
+		{RunID: "run-canceled", ProjectID: project.ID, ProjectName: project.Name, AgentName: "worker", Source: domain.ProjectRunSourceManual, Status: domain.ProjectRunStatusCanceled, Error: "keep canceled"},
+	} {
+		if _, err := store.CreateProjectRun(ctx, run); err != nil {
+			t.Fatalf("CreateProjectRun(%s) returned error: %v", run.RunID, err)
+		}
+	}
+	if err := reconcilePersistedProjectRuns(ctx, store, time.Now().Add(2*time.Second)); err != nil {
+		t.Fatalf("reconcilePersistedProjectRuns returned error: %v", err)
+	}
+	for _, runID := range []string{"run-pending", "run-running"} {
+		run, err := store.GetProjectRun(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetProjectRun(%s) returned error: %v", runID, err)
+		}
+		if run.Status != domain.ProjectRunStatusFailed || run.ExitCode != 1 || !strings.Contains(run.Error, "daemon interrupted") {
+			t.Fatalf("reconciled run %s = %#v", runID, run)
+		}
+		if run.StartedAt.IsZero() || run.CompletedAt.IsZero() {
+			t.Fatalf("reconciled run %s timestamps not set: %#v", runID, run)
+		}
+	}
+	for runID, wantErr := range map[string]string{"run-succeeded": "keep", "run-canceled": "keep canceled"} {
+		run, err := store.GetProjectRun(ctx, runID)
+		if err != nil {
+			t.Fatalf("GetProjectRun(%s) returned error: %v", runID, err)
+		}
+		if run.Error != wantErr {
+			t.Fatalf("terminal run %s changed: %#v", runID, run)
+		}
+	}
+	if _, err := store.CreateProjectRun(ctx, domain.ProjectRunRecord{
+		RunID: "run-fresh", ProjectID: project.ID, ProjectName: project.Name, AgentName: "worker", Source: domain.ProjectRunSourceManual, Status: domain.ProjectRunStatusRunning,
+	}); err != nil {
+		t.Fatalf("CreateProjectRun(run-fresh) returned error: %v", err)
+	}
+	if err := reconcilePersistedProjectRuns(ctx, store, time.Now().Add(-2*time.Second)); err != nil {
+		t.Fatalf("fresh reconcilePersistedProjectRuns returned error: %v", err)
+	}
+	fresh, err := store.GetProjectRun(ctx, "run-fresh")
+	if err != nil {
+		t.Fatalf("GetProjectRun(run-fresh) returned error: %v", err)
+	}
+	if fresh.Status != domain.ProjectRunStatusRunning {
+		t.Fatalf("fresh run status = %#v", fresh)
 	}
 }
 

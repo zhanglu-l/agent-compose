@@ -36,6 +36,7 @@ type orderedAgentSpec struct {
 	CapsetIDs    []string                 `yaml:"capset_ids,omitempty" json:"capset_ids,omitempty"`
 	Workspace    *WorkspaceSpec           `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	Scheduler    *NormalizedSchedulerSpec `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
+	Jupyter      *JupyterSpec             `yaml:"jupyter,omitempty" json:"jupyter,omitempty"`
 }
 
 func (s *NormalizedProjectSpec) Redacted() *NormalizedProjectSpec {
@@ -79,6 +80,7 @@ func (s *NormalizedProjectSpec) ordered(redactSecrets bool) orderedProjectSpec {
 			CapsetIDs:    slices.Clone(agent.CapsetIDs),
 			Workspace:    cloneWorkspaceSpec(agent.Workspace),
 			Scheduler:    cloneNormalizedSchedulerSpec(agent.Scheduler),
+			Jupyter:      cloneJupyterSpec(agent.Jupyter),
 		})
 	}
 	slices.SortFunc(agents, func(a, b orderedAgentSpec) int {
@@ -113,6 +115,7 @@ func (s *NormalizedProjectSpec) clone(redactSecrets bool) *NormalizedProjectSpec
 			CapsetIDs:    slices.Clone(agent.CapsetIDs),
 			Workspace:    agent.Workspace,
 			Scheduler:    agent.Scheduler,
+			Jupyter:      agent.Jupyter,
 		})
 	}
 	return cloned
@@ -186,6 +189,14 @@ func cloneNormalizedTriggerSpec(value NormalizedTriggerSpec) NormalizedTriggerSp
 }
 
 func cloneNetworkSpecForOutput(value *NetworkSpec) *NetworkSpec {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneJupyterSpec(value *JupyterSpec) *JupyterSpec {
 	if value == nil {
 		return nil
 	}

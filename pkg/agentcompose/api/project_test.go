@@ -36,3 +36,27 @@ func TestProjectSpecToProtoIncludesSchedulerScript(t *testing.T) {
 		t.Fatalf("scheduler triggers = %d, want 0", got)
 	}
 }
+
+func TestProjectSpecToProtoIncludesJupyter(t *testing.T) {
+	spec := &compose.NormalizedProjectSpec{
+		Name:    "jupyter",
+		Network: &compose.NetworkSpec{Mode: "default"},
+		Agents: []compose.NormalizedAgentSpec{{
+			Name: "reviewer",
+			Driver: &compose.NormalizedDriverSpec{
+				Name:   compose.DriverDocker,
+				Docker: &compose.DockerDriverSpec{},
+			},
+			Jupyter: &compose.JupyterSpec{Enabled: true, GuestPort: 8888},
+		}},
+	}
+
+	response := ProjectSpecToProto(spec)
+	if response == nil || len(response.GetAgents()) != 1 || response.GetAgents()[0].GetJupyter() == nil {
+		t.Fatalf("ProjectSpecToProto jupyter missing: %#v", response)
+	}
+	jupyter := response.GetAgents()[0].GetJupyter()
+	if !jupyter.GetEnabled() || jupyter.GetGuestPort() != 8888 {
+		t.Fatalf("jupyter = %#v, want enabled guest port 8888", jupyter)
+	}
+}

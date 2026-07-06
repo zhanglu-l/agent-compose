@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -102,6 +105,10 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 		}
 	}
 	appconfig.ApplyDefaultGuestPaths(h.config)
+	cwd := strings.TrimSpace(req.GetCwd())
+	if cwd == "" {
+		cwd = h.config.GuestWorkspacePath
+	}
 	vmState, err := h.store.GetVMState(session.Summary.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -110,41 +117,60 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	accumulator := execution.ExecStreamAccumulator{}
+	hostExecDir := filepath.Join(execution.HostSessionDir(session), "state", "exec", execID)
+	if err := os.MkdirAll(hostExecDir, 0o755); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create exec artifact dir: %w", err))
+	}
+	guestExecDir := filepath.Join(h.config.GuestStateRoot, "exec", execID)
+	runtimeRequest := execution.RuntimeCommandRequestPayloadFromCommand(
+		h.config,
+		"exec",
+		command,
+		req.GetCommand().GetArgs(),
+		"",
+		cwd,
+		ExecEnvMap(req.GetEnv()),
+		int64(req.GetTimeoutMs()),
+		int64(req.GetMaxOutputBytes()),
+		guestExecDir,
+	)
+	if err := execution.WriteJSONArtifact(filepath.Join(hostExecDir, "command-request.json"), runtimeRequest); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("write exec command request artifact: %w", err))
+	}
+	transcriptPath := filepath.Join(hostExecDir, "transcript.txt")
 	var sendErr error
 	writer := func(chunk domain.ExecChunk) {
 		if sendErr != nil {
 			return
 		}
-		accumulator.WriteChunk(chunk)
+		chunk.Text = execution.StripCommandResultPayload(chunk.Text)
+		if chunk.Text == "" {
+			return
+		}
+		if err := appendExecTranscriptChunk(transcriptPath, chunk); err != nil {
+			sendErr = err
+			return
+		}
 		if send != nil {
+			createdAt := time.Now().UTC()
 			sendErr = send(&agentcomposev2.ExecStreamResponse{
-				EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
-				ExecId:    execID,
-				SessionId: session.Summary.ID,
-				RunId:     runID,
-				Chunk:     chunk.Text,
-				IsStderr:  chunk.IsStderr,
+				EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
+				ExecId:     execID,
+				SessionId:  session.Summary.ID,
+				RunId:      runID,
+				Chunk:      chunk.Text,
+				IsStderr:   chunk.IsStderr,
+				Transcript: TranscriptEventFromExecChunk(chunk, createdAt),
 			})
 		}
 	}
-	cwd := strings.TrimSpace(req.GetCwd())
-	if cwd == "" {
-		cwd = h.config.GuestWorkspacePath
-	}
 	execCtx, cancel := execution.ExecContext(ctx, req.GetTimeoutMs())
 	defer cancel()
-	result, execErr := runtime.ExecStream(execCtx, session, vmState, domain.ExecSpec{
-		Command: command,
-		Args:    append([]string(nil), req.GetCommand().GetArgs()...),
-		Env:     ExecEnvMap(req.GetEnv()),
-		Cwd:     cwd,
-	}, writer)
+	result, execErr := runtime.ExecStream(execCtx, session, vmState, execution.BuildRuntimeCommandExecSpec(h.config, session, filepath.Join(guestExecDir, "command-request.json"), h.config.GuestHomePath), writer)
 	if sendErr != nil {
 		return nil, connect.NewError(connect.CodeUnknown, sendErr)
 	}
 	if execErr != nil {
-		result = execution.MergeExecResults(result, accumulator.Result(execution.FirstNonZeroInt(result.ExitCode, 1), false))
 		result.ExitCode = execution.FirstNonZeroInt(result.ExitCode, 1)
 		result.Success = false
 		if strings.TrimSpace(result.Output) == "" {
@@ -152,8 +178,14 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 		}
 		return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, result, execErr), nil
 	}
-	result = execution.MergeExecResults(result, accumulator.Result(result.ExitCode, result.Success))
-	return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, result, nil), nil
+	commandResult, err := execution.ParseCommandExecResult(result)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := execution.MirrorRuntimeCommandArtifacts(hostExecDir, commandResult); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, execution.RuntimeCommandResultToExecResult(commandResult), nil), nil
 }
 
 func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentcomposev2.ExecRequest) (*domain.Session, string, error) {
@@ -251,6 +283,25 @@ func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.Proje
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session %s for run %s is not running", sessionID, run.RunID))
 	}
 	return session, nil
+}
+
+func appendExecTranscriptChunk(path string, chunk domain.ExecChunk) error {
+	path = strings.TrimSpace(path)
+	if path == "" || chunk.Text == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create exec transcript dir: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open exec transcript %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	if _, err := file.WriteString(chunk.Text); err != nil {
+		return fmt.Errorf("append exec transcript %s: %w", path, err)
+	}
+	return nil
 }
 
 func (h *ExecHandler) resolveProjectRef(ctx context.Context, ref *agentcomposev2.ProjectRef) (domain.ProjectRecord, error) {

@@ -26,6 +26,48 @@ func testRuntimeMountSession(root string) *Session {
 	}}
 }
 
+func TestRuntimeMountEntriesDefineSharedLogicalMountList(t *testing.T) {
+	config := testRuntimeMountConfig()
+	entries := runtimeMountEntries(config)
+	got := map[string]logicalRuntimeMountEntry{}
+	for _, entry := range entries {
+		if got[entry.guestPath].guestPath != "" {
+			t.Fatalf("duplicate logical guest path %s", entry.guestPath)
+		}
+		got[entry.guestPath] = entry
+	}
+	want := map[string]struct {
+		sessionPath string
+		isFile      bool
+		exposure    directoryOnlyExposure
+	}{
+		"/workspace":                {sessionPath: "workspace", exposure: directoryOnlyExposureSymlink},
+		"/data/state":               {sessionPath: "state", exposure: directoryOnlyExposureAlreadyInData},
+		"/data/runtime":             {sessionPath: "runtime", exposure: directoryOnlyExposureAlreadyInData},
+		"/data/logs":                {sessionPath: "logs", exposure: directoryOnlyExposureAlreadyInData},
+		"/root/.codex":              {sessionPath: "home/.codex", exposure: directoryOnlyExposureSymlink},
+		"/root/.claude":             {sessionPath: "home/.claude", exposure: directoryOnlyExposureSymlink},
+		"/root/.opencode":           {sessionPath: "home/.opencode", exposure: directoryOnlyExposureSymlink},
+		"/root/.claude.json":        {sessionPath: "home/.claude.json", isFile: true, exposure: directoryOnlyExposureSymlink},
+		"/root/.gitconfig":          {sessionPath: "home/.gitconfig", isFile: true, exposure: directoryOnlyExposureSymlink},
+		"/root/.gemini":             {sessionPath: "home/.gemini", exposure: directoryOnlyExposureSymlink},
+		"/root/.config/claude":      {sessionPath: "home/.config/claude", exposure: directoryOnlyExposureSymlink},
+		"/root/.config/Claude":      {sessionPath: "home/.config/Claude", exposure: directoryOnlyExposureSymlink},
+		"/root/.config/gemini":      {sessionPath: "home/.config/gemini", exposure: directoryOnlyExposureSymlink},
+		"/root/.config/opencode":    {sessionPath: "home/.config/opencode", exposure: directoryOnlyExposureSymlink},
+		"/root/.local/share/gemini": {sessionPath: "home/.local/share/gemini", exposure: directoryOnlyExposureSymlink},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("logical mount count = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for guestPath, wantEntry := range want {
+		entry := got[guestPath]
+		if entry.sessionPath != wantEntry.sessionPath || entry.isFile != wantEntry.isFile || entry.directoryOnlyExposure != wantEntry.exposure {
+			t.Fatalf("logical entry %s = %#v, want sessionPath=%s isFile=%v exposure=%s", guestPath, entry, wantEntry.sessionPath, wantEntry.isFile, wantEntry.exposure)
+		}
+	}
+}
+
 func TestPrepareRuntimeMountManifestForDockerIncludesRequiredMountsOnly(t *testing.T) {
 	root := t.TempDir()
 	session := testRuntimeMountSession(root)
@@ -46,22 +88,9 @@ func TestPrepareRuntimeMountManifestForDockerIncludesRequiredMountsOnly(t *testi
 		}
 		got[mount.GuestPath] = mount.HostPath
 	}
-	want := map[string]string{
-		"/workspace":                filepath.Join(root, "workspace"),
-		"/data/state":               filepath.Join(root, "state"),
-		"/data/runtime":             filepath.Join(root, "runtime"),
-		"/data/logs":                filepath.Join(root, "logs"),
-		"/root/.codex":              filepath.Join(root, "home", ".codex"),
-		"/root/.claude":             filepath.Join(root, "home", ".claude"),
-		"/root/.opencode":           filepath.Join(root, "home", ".opencode"),
-		"/root/.claude.json":        filepath.Join(root, "home", ".claude.json"),
-		"/root/.gitconfig":          filepath.Join(root, "home", ".gitconfig"),
-		"/root/.gemini":             filepath.Join(root, "home", ".gemini"),
-		"/root/.config/claude":      filepath.Join(root, "home", ".config", "claude"),
-		"/root/.config/Claude":      filepath.Join(root, "home", ".config", "Claude"),
-		"/root/.config/gemini":      filepath.Join(root, "home", ".config", "gemini"),
-		"/root/.config/opencode":    filepath.Join(root, "home", ".config", "opencode"),
-		"/root/.local/share/gemini": filepath.Join(root, "home", ".local", "share", "gemini"),
+	want := map[string]string{}
+	for _, entry := range runtimeMountEntries(testRuntimeMountConfig()) {
+		want[entry.guestPath] = filepath.Join(root, filepath.FromSlash(entry.sessionPath))
 	}
 	if len(got) != len(want) {
 		t.Fatalf("manifest mount count = %d, want %d: %+v", len(got), len(want), got)
@@ -203,6 +232,18 @@ func TestPrepareRuntimeMountManifestForDirectoryOnlyDriversMountsSingleSessionDi
 					t.Fatalf("session path %s is not a directory", requiredDir)
 				}
 			}
+			for _, entry := range runtimeMountEntries(testRuntimeMountConfig()) {
+				if entry.isFile {
+					continue
+				}
+				info, err := os.Stat(filepath.Join(root, filepath.FromSlash(entry.sessionPath)))
+				if err != nil {
+					t.Fatalf("expected logical directory source %s to exist: %v", entry.sessionPath, err)
+				}
+				if !info.IsDir() {
+					t.Fatalf("logical source %s is not a directory", entry.sessionPath)
+				}
+			}
 			for _, requiredFile := range []string{".claude.json", ".gitconfig"} {
 				info, err := os.Stat(filepath.Join(root, "home", requiredFile))
 				if err != nil {
@@ -219,16 +260,36 @@ func TestPrepareRuntimeMountManifestForDirectoryOnlyDriversMountsSingleSessionDi
 func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 	command := directoryOnlyGuestSessionBootstrapCommand(testRuntimeMountConfig())
 	for _, required := range []string{
-		"[ -d '/data/workspace' ]",
-		"[ -d '/data/home' ]",
+		"test -d '/data/workspace'",
+		"test -d '/data/home'",
 		"ln -s '/data/workspace' '/workspace'",
-		"ln -s '/data/home' '/root'",
+		"if mountpoint -q '/root'; then echo \"refusing to replace mounted home target /root\" >&2; exit 1; fi",
+		"if [ -L '/root' ]; then rm -f '/root'; mkdir -p '/root';",
+		"if [ ! -d '/root' ]; then echo \"refusing to replace non-directory /root\" >&2; exit 1; fi;",
+		"test -d '/root' || { echo \"directory-only home target is not a directory /root\" >&2; exit 1; }",
+		"rm -rf '/root/.codex'; ln -s '/data/home/.codex' '/root/.codex'",
+		"ln -s '/data/home/.codex' '/root/.codex'",
+		"ln -s '/data/home/.claude' '/root/.claude'",
+		"ln -s '/data/home/.opencode' '/root/.opencode'",
+		"ln -s '/data/home/.claude.json' '/root/.claude.json'",
+		"ln -s '/data/home/.gitconfig' '/root/.gitconfig'",
+		"ln -s '/data/home/.gemini' '/root/.gemini'",
+		"ln -s '/data/home/.config/claude' '/root/.config/claude'",
+		"ln -s '/data/home/.config/Claude' '/root/.config/Claude'",
+		"ln -s '/data/home/.config/gemini' '/root/.config/gemini'",
+		"ln -s '/data/home/.config/opencode' '/root/.config/opencode'",
+		"ln -s '/data/home/.local/share/gemini' '/root/.local/share/gemini'",
+		"test \"$(readlink '/root/.gitconfig')\" = '/data/home/.gitconfig'",
+		"test \"$(readlink '/root/.codex')\" = '/data/home/.codex'",
 	} {
 		if !strings.Contains(command, required) {
 			t.Fatalf("bootstrap command missing %q: %s", required, command)
 		}
 	}
 	for _, forbidden := range []string{
+		"mount --bind '/data/home' '/root'",
+		"ln -s '/data/home' '/root'",
+		"mv '/root' '/root.image'",
 		"ln -s '/data/state' '/data/state'",
 		"ln -s '/data/runtime' '/data/runtime'",
 		"ln -s '/data/logs' '/data/logs'",
@@ -236,6 +297,60 @@ func TestDirectoryOnlyGuestSessionBootstrapUsesDataMountRoot(t *testing.T) {
 		if strings.Contains(command, forbidden) {
 			t.Fatalf("bootstrap command contains self symlink %q: %s", forbidden, command)
 		}
+	}
+	assertSubstringOrder(t, command, "test -d '/data/home'", "rm -f '/root'")
+	assertSubstringOrder(t, command, "test -d '/data/home'", "ln -s '/data/home/.codex' '/root/.codex'")
+	assertSubstringOrder(t, command, "test -d '/root' ||", "ln -s '/data/home/.codex' '/root/.codex'")
+}
+
+func TestDirectoryOnlyGuestSessionBootstrapReplacesImageHomeTargets(t *testing.T) {
+	command := directoryOnlyGuestSessionBootstrapCommand(testRuntimeMountConfig())
+	for _, required := range []string{
+		"rm -rf '/root/.codex'; ln -s '/data/home/.codex' '/root/.codex'",
+		"rm -rf '/root/.claude'; ln -s '/data/home/.claude' '/root/.claude'",
+		"rm -rf '/root/.opencode'; ln -s '/data/home/.opencode' '/root/.opencode'",
+		"rm -rf '/root/.claude.json'; ln -s '/data/home/.claude.json' '/root/.claude.json'",
+		"rm -rf '/root/.gitconfig'; ln -s '/data/home/.gitconfig' '/root/.gitconfig'",
+	} {
+		if !strings.Contains(command, required) {
+			t.Fatalf("bootstrap command should replace image target with session symlink %q: %s", required, command)
+		}
+	}
+	if strings.Contains(command, "refusing to replace existing directory-only symlink target /root/.codex") {
+		t.Fatalf("bootstrap command still refuses an image-provided /root/.codex directory: %s", command)
+	}
+}
+
+func assertSubstringOrder(t *testing.T, text, before, after string) {
+	t.Helper()
+	beforeIndex := strings.Index(text, before)
+	if beforeIndex < 0 {
+		t.Fatalf("text missing %q: %s", before, text)
+	}
+	afterIndex := strings.Index(text, after)
+	if afterIndex < 0 {
+		t.Fatalf("text missing %q: %s", after, text)
+	}
+	if beforeIndex >= afterIndex {
+		t.Fatalf("expected %q before %q in: %s", before, after, text)
+	}
+}
+
+func TestJupyterLaunchCommandDoesNotRunDirectoryOnlyBootstrapByDefault(t *testing.T) {
+	config := testRuntimeMountConfig()
+	proxyState := ProxyState{Enabled: true, GuestPort: 8888, Token: "test-token"}
+
+	dockerCommand := jupyterLaunchCommand(config, proxyState, false)
+	if strings.Contains(dockerCommand, "mount --bind '/data/home' '/root'") {
+		t.Fatalf("default jupyter command unexpectedly contains directory-only bootstrap: %s", dockerCommand)
+	}
+
+	directoryOnlyCommand := directoryOnlyJupyterLaunchCommand(config, proxyState, false)
+	if strings.Contains(directoryOnlyCommand, "mount --bind '/data/home' '/root'") {
+		t.Fatalf("directory-only jupyter command unexpectedly contains bind mount: %s", directoryOnlyCommand)
+	}
+	if !strings.Contains(directoryOnlyCommand, "ln -s '/data/home/.codex' '/root/.codex'") {
+		t.Fatalf("directory-only jupyter command missing home symlink bootstrap: %s", directoryOnlyCommand)
 	}
 }
 

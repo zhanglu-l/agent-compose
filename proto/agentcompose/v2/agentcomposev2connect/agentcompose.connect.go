@@ -61,6 +61,8 @@ const (
 	ProjectServiceWatchProjectProcedure = "/agentcompose.v2.ProjectService/WatchProject"
 	// RunServiceRunAgentProcedure is the fully-qualified name of the RunService's RunAgent RPC.
 	RunServiceRunAgentProcedure = "/agentcompose.v2.RunService/RunAgent"
+	// RunServiceStartRunProcedure is the fully-qualified name of the RunService's StartRun RPC.
+	RunServiceStartRunProcedure = "/agentcompose.v2.RunService/StartRun"
 	// RunServiceRunAgentStreamProcedure is the fully-qualified name of the RunService's RunAgentStream
 	// RPC.
 	RunServiceRunAgentStreamProcedure = "/agentcompose.v2.RunService/RunAgentStream"
@@ -68,6 +70,9 @@ const (
 	RunServiceGetRunProcedure = "/agentcompose.v2.RunService/GetRun"
 	// RunServiceListRunsProcedure is the fully-qualified name of the RunService's ListRuns RPC.
 	RunServiceListRunsProcedure = "/agentcompose.v2.RunService/ListRuns"
+	// RunServiceFollowRunLogsProcedure is the fully-qualified name of the RunService's FollowRunLogs
+	// RPC.
+	RunServiceFollowRunLogsProcedure = "/agentcompose.v2.RunService/FollowRunLogs"
 	// RunServiceStopRunProcedure is the fully-qualified name of the RunService's StopRun RPC.
 	RunServiceStopRunProcedure = "/agentcompose.v2.RunService/StopRun"
 	// ExecServiceExecProcedure is the fully-qualified name of the ExecService's Exec RPC.
@@ -87,6 +92,9 @@ const (
 	// SandboxServiceRemoveSandboxProcedure is the fully-qualified name of the SandboxService's
 	// RemoveSandbox RPC.
 	SandboxServiceRemoveSandboxProcedure = "/agentcompose.v2.SandboxService/RemoveSandbox"
+	// SandboxServiceGetSandboxStatsProcedure is the fully-qualified name of the SandboxService's
+	// GetSandboxStats RPC.
+	SandboxServiceGetSandboxStatsProcedure = "/agentcompose.v2.SandboxService/GetSandboxStats"
 )
 
 // ProjectServiceClient is a client for the agentcompose.v2.ProjectService service.
@@ -292,9 +300,11 @@ func (UnimplementedProjectServiceHandler) WatchProject(context.Context, *connect
 // RunServiceClient is a client for the agentcompose.v2.RunService service.
 type RunServiceClient interface {
 	RunAgent(context.Context, *connect.Request[v2.RunAgentRequest]) (*connect.Response[v2.RunAgentResponse], error)
+	StartRun(context.Context, *connect.Request[v2.StartRunRequest]) (*connect.Response[v2.StartRunResponse], error)
 	RunAgentStream(context.Context, *connect.Request[v2.RunAgentRequest]) (*connect.ServerStreamForClient[v2.RunAgentStreamResponse], error)
 	GetRun(context.Context, *connect.Request[v2.GetRunRequest]) (*connect.Response[v2.GetRunResponse], error)
 	ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error)
+	FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest]) (*connect.ServerStreamForClient[v2.RunLogChunk], error)
 	StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error)
 }
 
@@ -315,6 +325,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("RunAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		startRun: connect.NewClient[v2.StartRunRequest, v2.StartRunResponse](
+			httpClient,
+			baseURL+RunServiceStartRunProcedure,
+			connect.WithSchema(runServiceMethods.ByName("StartRun")),
+			connect.WithClientOptions(opts...),
+		),
 		runAgentStream: connect.NewClient[v2.RunAgentRequest, v2.RunAgentStreamResponse](
 			httpClient,
 			baseURL+RunServiceRunAgentStreamProcedure,
@@ -333,6 +349,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("ListRuns")),
 			connect.WithClientOptions(opts...),
 		),
+		followRunLogs: connect.NewClient[v2.FollowRunLogsRequest, v2.RunLogChunk](
+			httpClient,
+			baseURL+RunServiceFollowRunLogsProcedure,
+			connect.WithSchema(runServiceMethods.ByName("FollowRunLogs")),
+			connect.WithClientOptions(opts...),
+		),
 		stopRun: connect.NewClient[v2.StopRunRequest, v2.StopRunResponse](
 			httpClient,
 			baseURL+RunServiceStopRunProcedure,
@@ -345,15 +367,22 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 // runServiceClient implements RunServiceClient.
 type runServiceClient struct {
 	runAgent       *connect.Client[v2.RunAgentRequest, v2.RunAgentResponse]
+	startRun       *connect.Client[v2.StartRunRequest, v2.StartRunResponse]
 	runAgentStream *connect.Client[v2.RunAgentRequest, v2.RunAgentStreamResponse]
 	getRun         *connect.Client[v2.GetRunRequest, v2.GetRunResponse]
 	listRuns       *connect.Client[v2.ListRunsRequest, v2.ListRunsResponse]
+	followRunLogs  *connect.Client[v2.FollowRunLogsRequest, v2.RunLogChunk]
 	stopRun        *connect.Client[v2.StopRunRequest, v2.StopRunResponse]
 }
 
 // RunAgent calls agentcompose.v2.RunService.RunAgent.
 func (c *runServiceClient) RunAgent(ctx context.Context, req *connect.Request[v2.RunAgentRequest]) (*connect.Response[v2.RunAgentResponse], error) {
 	return c.runAgent.CallUnary(ctx, req)
+}
+
+// StartRun calls agentcompose.v2.RunService.StartRun.
+func (c *runServiceClient) StartRun(ctx context.Context, req *connect.Request[v2.StartRunRequest]) (*connect.Response[v2.StartRunResponse], error) {
+	return c.startRun.CallUnary(ctx, req)
 }
 
 // RunAgentStream calls agentcompose.v2.RunService.RunAgentStream.
@@ -371,6 +400,11 @@ func (c *runServiceClient) ListRuns(ctx context.Context, req *connect.Request[v2
 	return c.listRuns.CallUnary(ctx, req)
 }
 
+// FollowRunLogs calls agentcompose.v2.RunService.FollowRunLogs.
+func (c *runServiceClient) FollowRunLogs(ctx context.Context, req *connect.Request[v2.FollowRunLogsRequest]) (*connect.ServerStreamForClient[v2.RunLogChunk], error) {
+	return c.followRunLogs.CallServerStream(ctx, req)
+}
+
 // StopRun calls agentcompose.v2.RunService.StopRun.
 func (c *runServiceClient) StopRun(ctx context.Context, req *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error) {
 	return c.stopRun.CallUnary(ctx, req)
@@ -379,9 +413,11 @@ func (c *runServiceClient) StopRun(ctx context.Context, req *connect.Request[v2.
 // RunServiceHandler is an implementation of the agentcompose.v2.RunService service.
 type RunServiceHandler interface {
 	RunAgent(context.Context, *connect.Request[v2.RunAgentRequest]) (*connect.Response[v2.RunAgentResponse], error)
+	StartRun(context.Context, *connect.Request[v2.StartRunRequest]) (*connect.Response[v2.StartRunResponse], error)
 	RunAgentStream(context.Context, *connect.Request[v2.RunAgentRequest], *connect.ServerStream[v2.RunAgentStreamResponse]) error
 	GetRun(context.Context, *connect.Request[v2.GetRunRequest]) (*connect.Response[v2.GetRunResponse], error)
 	ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error)
+	FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest], *connect.ServerStream[v2.RunLogChunk]) error
 	StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error)
 }
 
@@ -396,6 +432,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		RunServiceRunAgentProcedure,
 		svc.RunAgent,
 		connect.WithSchema(runServiceMethods.ByName("RunAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	runServiceStartRunHandler := connect.NewUnaryHandler(
+		RunServiceStartRunProcedure,
+		svc.StartRun,
+		connect.WithSchema(runServiceMethods.ByName("StartRun")),
 		connect.WithHandlerOptions(opts...),
 	)
 	runServiceRunAgentStreamHandler := connect.NewServerStreamHandler(
@@ -416,6 +458,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(runServiceMethods.ByName("ListRuns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	runServiceFollowRunLogsHandler := connect.NewServerStreamHandler(
+		RunServiceFollowRunLogsProcedure,
+		svc.FollowRunLogs,
+		connect.WithSchema(runServiceMethods.ByName("FollowRunLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	runServiceStopRunHandler := connect.NewUnaryHandler(
 		RunServiceStopRunProcedure,
 		svc.StopRun,
@@ -426,12 +474,16 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		switch r.URL.Path {
 		case RunServiceRunAgentProcedure:
 			runServiceRunAgentHandler.ServeHTTP(w, r)
+		case RunServiceStartRunProcedure:
+			runServiceStartRunHandler.ServeHTTP(w, r)
 		case RunServiceRunAgentStreamProcedure:
 			runServiceRunAgentStreamHandler.ServeHTTP(w, r)
 		case RunServiceGetRunProcedure:
 			runServiceGetRunHandler.ServeHTTP(w, r)
 		case RunServiceListRunsProcedure:
 			runServiceListRunsHandler.ServeHTTP(w, r)
+		case RunServiceFollowRunLogsProcedure:
+			runServiceFollowRunLogsHandler.ServeHTTP(w, r)
 		case RunServiceStopRunProcedure:
 			runServiceStopRunHandler.ServeHTTP(w, r)
 		default:
@@ -447,6 +499,10 @@ func (UnimplementedRunServiceHandler) RunAgent(context.Context, *connect.Request
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.RunAgent is not implemented"))
 }
 
+func (UnimplementedRunServiceHandler) StartRun(context.Context, *connect.Request[v2.StartRunRequest]) (*connect.Response[v2.StartRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.StartRun is not implemented"))
+}
+
 func (UnimplementedRunServiceHandler) RunAgentStream(context.Context, *connect.Request[v2.RunAgentRequest], *connect.ServerStream[v2.RunAgentStreamResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.RunAgentStream is not implemented"))
 }
@@ -457,6 +513,10 @@ func (UnimplementedRunServiceHandler) GetRun(context.Context, *connect.Request[v
 
 func (UnimplementedRunServiceHandler) ListRuns(context.Context, *connect.Request[v2.ListRunsRequest]) (*connect.Response[v2.ListRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.ListRuns is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) FollowRunLogs(context.Context, *connect.Request[v2.FollowRunLogsRequest], *connect.ServerStream[v2.RunLogChunk]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.RunService.FollowRunLogs is not implemented"))
 }
 
 func (UnimplementedRunServiceHandler) StopRun(context.Context, *connect.Request[v2.StopRunRequest]) (*connect.Response[v2.StopRunResponse], error) {
@@ -710,6 +770,7 @@ func (UnimplementedImageServiceHandler) RemoveImage(context.Context, *connect.Re
 // SandboxServiceClient is a client for the agentcompose.v2.SandboxService service.
 type SandboxServiceClient interface {
 	RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error)
+	GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error)
 }
 
 // NewSandboxServiceClient constructs a client for the agentcompose.v2.SandboxService service. By
@@ -729,12 +790,19 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sandboxServiceMethods.ByName("RemoveSandbox")),
 			connect.WithClientOptions(opts...),
 		),
+		getSandboxStats: connect.NewClient[v2.GetSandboxStatsRequest, v2.GetSandboxStatsResponse](
+			httpClient,
+			baseURL+SandboxServiceGetSandboxStatsProcedure,
+			connect.WithSchema(sandboxServiceMethods.ByName("GetSandboxStats")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sandboxServiceClient implements SandboxServiceClient.
 type sandboxServiceClient struct {
-	removeSandbox *connect.Client[v2.RemoveSandboxRequest, v2.RemoveSandboxResponse]
+	removeSandbox   *connect.Client[v2.RemoveSandboxRequest, v2.RemoveSandboxResponse]
+	getSandboxStats *connect.Client[v2.GetSandboxStatsRequest, v2.GetSandboxStatsResponse]
 }
 
 // RemoveSandbox calls agentcompose.v2.SandboxService.RemoveSandbox.
@@ -742,9 +810,15 @@ func (c *sandboxServiceClient) RemoveSandbox(ctx context.Context, req *connect.R
 	return c.removeSandbox.CallUnary(ctx, req)
 }
 
+// GetSandboxStats calls agentcompose.v2.SandboxService.GetSandboxStats.
+func (c *sandboxServiceClient) GetSandboxStats(ctx context.Context, req *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error) {
+	return c.getSandboxStats.CallUnary(ctx, req)
+}
+
 // SandboxServiceHandler is an implementation of the agentcompose.v2.SandboxService service.
 type SandboxServiceHandler interface {
 	RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error)
+	GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error)
 }
 
 // NewSandboxServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -760,10 +834,18 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sandboxServiceMethods.ByName("RemoveSandbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sandboxServiceGetSandboxStatsHandler := connect.NewUnaryHandler(
+		SandboxServiceGetSandboxStatsProcedure,
+		svc.GetSandboxStats,
+		connect.WithSchema(sandboxServiceMethods.ByName("GetSandboxStats")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentcompose.v2.SandboxService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SandboxServiceRemoveSandboxProcedure:
 			sandboxServiceRemoveSandboxHandler.ServeHTTP(w, r)
+		case SandboxServiceGetSandboxStatsProcedure:
+			sandboxServiceGetSandboxStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -775,4 +857,8 @@ type UnimplementedSandboxServiceHandler struct{}
 
 func (UnimplementedSandboxServiceHandler) RemoveSandbox(context.Context, *connect.Request[v2.RemoveSandboxRequest]) (*connect.Response[v2.RemoveSandboxResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.SandboxService.RemoveSandbox is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) GetSandboxStats(context.Context, *connect.Request[v2.GetSandboxStatsRequest]) (*connect.Response[v2.GetSandboxStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.SandboxService.GetSandboxStats is not implemented"))
 }

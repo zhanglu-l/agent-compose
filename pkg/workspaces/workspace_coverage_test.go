@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"mime/multipart"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -255,6 +256,123 @@ func TestWorkspaceGitHelpers(t *testing.T) {
 		t.Fatalf("MoveWorkspaceEntry merge returned error: %v", err)
 	}
 	assertFileContent(t, filepath.Join(dst, "nested", "file.txt"), "moved\n")
+}
+
+func TestWorkspaceGitPrepareWorkflow(t *testing.T) {
+	testWorkspaceGitPrepareWorkflow(t)
+}
+
+func TestIntegrationWorkspaceGitPrepareWorkflow(t *testing.T) {
+	testWorkspaceGitPrepareWorkflow(t)
+}
+
+func TestE2EWorkspaceGitPrepareWorkflow(t *testing.T) {
+	testWorkspaceGitPrepareWorkflow(t)
+}
+
+func testWorkspaceGitPrepareWorkflow(t *testing.T) {
+	t.Helper()
+	sourceRepo := createGitWorkspaceSourceRepo(t)
+	cloneURL := "file://" + filepath.ToSlash(sourceRepo.path)
+
+	rootWorkspace := t.TempDir()
+	rootWorkspaceConfig := encodeGitWorkspaceConfigForTest(t, GitWorkspaceConfig{
+		URL:    cloneURL,
+		Branch: "main",
+		Commit: sourceRepo.firstCommit,
+	})
+	if err := PrepareGitWorkspace(context.Background(), &domain.Session{
+		Summary: domain.SessionSummary{ID: "session-git-root", WorkspacePath: rootWorkspace},
+	}, domain.WorkspaceConfig{
+		ID:         "ws-git-root",
+		Name:       "Git Root Workspace",
+		Type:       "git",
+		ConfigJSON: rootWorkspaceConfig,
+	}); err != nil {
+		t.Fatalf("PrepareGitWorkspace root returned error: %v", err)
+	}
+	assertFileContent(t, filepath.Join(rootWorkspace, "README.md"), "first\n")
+	if _, err := os.Stat(filepath.Join(rootWorkspace, GitWorkspaceTempDirName)); !os.IsNotExist(err) {
+		t.Fatalf("temporary git clone directory still exists: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(rootWorkspace, "LOCAL.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+	if err := PrepareGitWorkspace(context.Background(), &domain.Session{
+		Summary: domain.SessionSummary{ID: "session-git-root", WorkspacePath: rootWorkspace},
+	}, domain.WorkspaceConfig{
+		ID:         "ws-git-root",
+		Name:       "Git Root Workspace",
+		Type:       "git",
+		ConfigJSON: rootWorkspaceConfig,
+	}); err != nil {
+		t.Fatalf("PrepareGitWorkspace initialized root returned error: %v", err)
+	}
+	assertFileContent(t, filepath.Join(rootWorkspace, "LOCAL.txt"), "keep\n")
+
+	nestedWorkspace := t.TempDir()
+	if err := PrepareGitWorkspace(context.Background(), &domain.Session{
+		Summary: domain.SessionSummary{ID: "session-git-nested", WorkspacePath: nestedWorkspace},
+	}, domain.WorkspaceConfig{
+		ID:   "ws-git-nested",
+		Name: "Git Nested Workspace",
+		Type: "git",
+		ConfigJSON: encodeGitWorkspaceConfigForTest(t, GitWorkspaceConfig{
+			URL:         cloneURL,
+			Branch:      "main",
+			CloneTarget: "nested/repo",
+		}),
+	}); err != nil {
+		t.Fatalf("PrepareGitWorkspace nested returned error: %v", err)
+	}
+	assertFileContent(t, filepath.Join(nestedWorkspace, "nested", "repo", "README.md"), "second\n")
+}
+
+type gitWorkspaceSourceRepo struct {
+	path        string
+	firstCommit string
+}
+
+func createGitWorkspaceSourceRepo(t *testing.T) gitWorkspaceSourceRepo {
+	t.Helper()
+	repo := t.TempDir()
+	runGitForTest(t, "", "init", "-b", "main", repo)
+	runGitForTest(t, repo, "config", "user.email", "agent-compose@example.test")
+	runGitForTest(t, repo, "config", "user.name", "Agent Compose")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("first\n"), 0o644); err != nil {
+		t.Fatalf("write first README.md: %v", err)
+	}
+	runGitForTest(t, repo, "add", "README.md")
+	runGitForTest(t, repo, "commit", "-m", "first")
+	firstCommit := strings.TrimSpace(runGitForTest(t, repo, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write second README.md: %v", err)
+	}
+	runGitForTest(t, repo, "commit", "-am", "second")
+	return gitWorkspaceSourceRepo{path: repo, firstCommit: firstCommit}
+}
+
+func runGitForTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return string(output)
+}
+
+func encodeGitWorkspaceConfigForTest(t *testing.T, cfg GitWorkspaceConfig) string {
+	t.Helper()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal git workspace config: %v", err)
+	}
+	return string(data)
 }
 
 func encodeFileWorkspaceConfigForTest(t *testing.T, root string) string {

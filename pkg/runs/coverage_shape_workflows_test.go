@@ -3,6 +3,7 @@ package runs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	appconfig "agent-compose/pkg/config"
 	"agent-compose/pkg/execution"
 	"agent-compose/pkg/images"
+	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/storage/sessionstore"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -88,7 +90,11 @@ func TestRunsCoordinatorAndHelperWorkflows(t *testing.T) {
 	if transition.ExitCode == 0 || !strings.Contains(transition.Error, "boom") {
 		t.Fatalf("transition from exec error = %#v", transition)
 	}
-	if !CleanupPolicyStopsSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION) || CleanupPolicyStopsSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING) {
+	if !CleanupPolicyStopsSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION) ||
+		!CleanupPolicyStopsSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
+		CleanupPolicyStopsSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING) ||
+		!CleanupPolicyRemovesSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
+		CleanupPolicyRemovesSession(agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION) {
 		t.Fatalf("cleanup policy mapping failed")
 	}
 }
@@ -263,8 +269,77 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	if !started || len(chunks) != 1 || !driver.started || !driver.stopped || executor.request.Message != "do work" {
 		t.Fatalf("started=%v chunks=%#v driver=%#v request=%#v", started, chunks, driver, executor.request)
 	}
+	if data, err := os.ReadFile(run.LogsPath); err != nil || string(data) != "chunk" {
+		t.Fatalf("agent run logs_path content = %q err=%v", string(data), err)
+	}
+	proxyState, err := store.GetProxyState(run.SessionID)
+	if err != nil {
+		t.Fatalf("GetProxyState returned error: %v", err)
+	}
+	if proxyState.Enabled {
+		t.Fatalf("proxy state = %+v, want default jupyter disabled", proxyState)
+	}
 	if len(bus.events) == 0 || len(dashboard.reasons) == 0 {
 		t.Fatalf("bus=%#v dashboard=%#v", bus.events, dashboard.reasons)
+	}
+}
+
+func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	config := &appconfig.Config{
+		DataRoot:             root,
+		SessionRoot:          filepath.Join(root, "sessions"),
+		RuntimeDriver:        "boxlite",
+		DefaultImage:         "guest:latest",
+		JupyterGuestPort:     8888,
+		JupyterProxyBasePath: "/jupyter",
+	}
+	store, err := sessionstore.NewWithConfig(config)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	configDB := &fakeControllerStore{
+		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
+		projectAgent: domain.ProjectAgentRecord{
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+		},
+		managed: ManagedAgentDefinition{
+			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+		},
+		revision: domain.ProjectRevisionRecord{
+			ProjectID: "project-1",
+			Revision:  1,
+			SpecJSON:  `{"agents":[{"name":"worker","jupyter":{"enabled":true,"guest_port":9999}}]}`,
+		},
+		agent: domain.AgentDefinition{ID: "agent-1", Provider: "codex", Model: "gpt"},
+		runs:  map[string]domain.ProjectRunRecord{},
+	}
+	controller := NewController(ControllerDependencies{
+		Config:   config,
+		Store:    store,
+		ConfigDB: configDB,
+		Driver:   &fakeControllerDriver{store: store},
+		Executor: &fakeControllerExecutor{},
+		Images:   fakeControllerImages{},
+	})
+	run, execErr, err := controller.RunProjectAgent(ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Prompt:          "do work",
+		Source:          domain.ProjectRunSourceScheduler,
+		ClientRequestID: "request-jupyter",
+		Jupyter:         &agentcomposev2.RunJupyterSpec{Expose: true},
+	}, nil)
+	if err != nil || execErr != nil {
+		t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	proxyState, err := store.GetProxyState(run.SessionID)
+	if err != nil {
+		t.Fatalf("GetProxyState returned error: %v", err)
+	}
+	if !proxyState.Enabled || !proxyState.Exposed || proxyState.GuestPort != 9999 || proxyState.HostPort == 0 || proxyState.Token == "" {
+		t.Fatalf("proxy state = %+v, want YAML guest port with CLI expose", proxyState)
 	}
 }
 
@@ -336,8 +411,44 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	if run.Status != domain.ProjectRunStatusSucceeded || run.Output != "command output\n" || run.ArtifactsDir == "" || run.LogsPath == "" {
 		t.Fatalf("command run = %#v", run)
 	}
-	if !started || len(chunks) != 1 || runtime.spec.Command != "bash" || strings.Join(runtime.spec.Args, " ") != "-lc echo command" {
+	transcriptData, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "transcript.txt"))
+	if err != nil || !strings.Contains(string(transcriptData), "$ bash -lc") || !strings.Contains(string(transcriptData), "command output\n") || strings.Contains(string(transcriptData), execution.CommandResultPrefix) {
+		t.Fatalf("command transcript artifact = %q err=%v", string(transcriptData), err)
+	}
+	requestData, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "command-request.json"))
+	if err != nil || !strings.Contains(string(requestData), `"mode": "shell"`) || !strings.Contains(string(requestData), `"script": "echo command"`) {
+		t.Fatalf("command request artifact = %q err=%v", string(requestData), err)
+	}
+	if data, err := os.ReadFile(filepath.Join(run.ArtifactsDir, "output.txt")); err != nil || string(data) != "command output\n" {
+		t.Fatalf("command output artifact = %q err=%v", string(data), err)
+	}
+	if !started || len(chunks) != 2 || strings.Contains(chunks[0].Text+chunks[1].Text, execution.CommandResultPrefix) || runtime.spec.Command != "sh" || !strings.Contains(strings.Join(runtime.spec.Args, " "), "agent-compose-runtime exec") {
 		t.Fatalf("started=%v chunks=%#v spec=%#v", started, chunks, runtime.spec)
+	}
+	second, secondExecErr, secondErr := controller.RunProjectAgent(ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Command:         "pwd",
+		SessionID:       run.SessionID,
+		Source:          domain.ProjectRunSourceAPI,
+		ClientRequestID: "command-request-2",
+		CleanupPolicy:   agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING,
+	}, nil)
+	if secondErr != nil || secondExecErr != nil {
+		t.Fatalf("second command run err=%v execErr=%v run=%#v", secondErr, secondExecErr, second)
+	}
+	if second.RunID == run.RunID || second.ArtifactsDir == run.ArtifactsDir || second.LogsPath == run.LogsPath {
+		t.Fatalf("command runs should have independent ids/artifacts/logs: first=%#v second=%#v", run, second)
+	}
+	if !strings.Contains(second.ArtifactsDir, second.RunID) || !strings.Contains(second.LogsPath, second.RunID) {
+		t.Fatalf("second command paths do not include run id: artifacts=%q logs=%q run=%q", second.ArtifactsDir, second.LogsPath, second.RunID)
+	}
+	secondRequestData, err := os.ReadFile(filepath.Join(second.ArtifactsDir, "command-request.json"))
+	if err != nil || !strings.Contains(string(secondRequestData), `"script": "pwd"`) {
+		t.Fatalf("second command request artifact = %q err=%v", string(secondRequestData), err)
+	}
+	if _, err := os.Stat(filepath.Join(run.ArtifactsDir, "command-request.json")); err != nil {
+		t.Fatalf("first command artifact should remain after second run: %v", err)
 	}
 	if _, _, err := controller.RunProjectAgent(ctx, RunAgentRequest{
 		ProjectID: "project-1", AgentName: "worker", Command: "echo command", Prompt: "prompt",
@@ -352,6 +463,339 @@ func TestIntegrationRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 
 func TestE2ERunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	TestRunsControllerRunProjectAgentCommandWorkflow(t)
+}
+
+type controllerRunFixture struct {
+	ctx        context.Context
+	config     *appconfig.Config
+	store      *sessionstore.Store
+	configDB   *fakeControllerStore
+	driver     *fakeControllerDriver
+	executor   *fakeControllerExecutor
+	dashboard  *fakeControllerDashboard
+	controller *Controller
+}
+
+func newControllerRunFixture(t *testing.T) *controllerRunFixture {
+	t.Helper()
+	ctx := context.Background()
+	root := t.TempDir()
+	config := &appconfig.Config{
+		DataRoot:      root,
+		SessionRoot:   filepath.Join(root, "sessions"),
+		RuntimeDriver: "boxlite",
+		DefaultImage:  "guest:latest",
+	}
+	store, err := sessionstore.NewWithConfig(config)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	configDB := &fakeControllerStore{
+		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
+		projectAgent: domain.ProjectAgentRecord{
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+		},
+		managed: ManagedAgentDefinition{
+			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+		},
+		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
+		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
+		runs:     map[string]domain.ProjectRunRecord{},
+	}
+	driver := &fakeControllerDriver{store: store}
+	executor := &fakeControllerExecutor{}
+	dashboard := &fakeControllerDashboard{}
+	controller := NewController(ControllerDependencies{
+		Config:       config,
+		Store:        store,
+		ConfigDB:     configDB,
+		Driver:       driver,
+		Executor:     executor,
+		Images:       fakeControllerImages{},
+		LoaderEngine: &loaders.QJSLoaderEngine{},
+		Dashboard:    dashboard,
+	})
+	return &controllerRunFixture{
+		ctx:        ctx,
+		config:     config,
+		store:      store,
+		configDB:   configDB,
+		driver:     driver,
+		executor:   executor,
+		dashboard:  dashboard,
+		controller: controller,
+	}
+}
+
+func runAgentWithRemoveOnCompletion(t *testing.T, fixture *controllerRunFixture, extra func(*RunAgentRequest)) (domain.ProjectRunRecord, error, error) {
+	t.Helper()
+	req := RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Prompt:          "do work",
+		Source:          domain.ProjectRunSourceAPI,
+		ClientRequestID: uuidForTest(t.Name()),
+		CleanupPolicy:   agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION,
+	}
+	if extra != nil {
+		extra(&req)
+	}
+	return fixture.controller.RunProjectAgent(fixture.ctx, req, nil)
+}
+
+func uuidForTest(name string) string {
+	return strings.NewReplacer("/", "-", " ", "-").Replace(name)
+}
+
+func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
+	t.Run("success removes created session", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || execErr != nil {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusSucceeded || run.SessionID == "" || run.CleanupError != "" {
+			t.Fatalf("run = %#v", run)
+		}
+		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		}
+		if !fixture.driver.stopped || !containsString(fixture.dashboard.reasons, "session_removed") {
+			t.Fatalf("driver=%#v dashboard=%#v", fixture.driver, fixture.dashboard.reasons)
+		}
+	})
+
+	t.Run("agent failure removes created session and preserves original error", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		fixture.executor.execErr = errors.New("agent failed")
+		fixture.executor.cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "failed", Success: false, ExitCode: 7, Stderr: "agent failed"}
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || execErr == nil || !strings.Contains(execErr.Error(), "agent failed") {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusFailed || run.CleanupError != "" {
+			t.Fatalf("run = %#v", run)
+		}
+		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		}
+	})
+
+	t.Run("context cancel marks canceled and removes created session", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		fixture.executor.execErr = context.Canceled
+		fixture.executor.cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "canceled", Success: false, ExitCode: 1, Stderr: "canceled"}
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || !errors.Is(execErr, context.Canceled) {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusCanceled || run.CleanupError != "" {
+			t.Fatalf("run = %#v", run)
+		}
+		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		}
+	})
+
+	t.Run("existing session is stopped but not removed", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		session, err := fixture.store.CreateSession(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CreateSession returned error: %v", err)
+		}
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, func(req *RunAgentRequest) {
+			req.SessionID = session.Summary.ID
+		})
+		if err != nil || execErr != nil {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		loaded, err := fixture.store.GetSession(fixture.ctx, session.Summary.ID)
+		if err != nil {
+			t.Fatalf("existing session was removed: %v", err)
+		}
+		if run.SessionID != session.Summary.ID || loaded.Summary.VMStatus != domain.VMStatusStopped {
+			t.Fatalf("run=%#v loaded session=%#v", run, loaded.Summary)
+		}
+	})
+}
+
+func TestRunsControllerRunProjectAgentCleanupErrorRecording(t *testing.T) {
+	t.Run("successful run reports cleanup error", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		fixture.driver.stopErr = errors.New("stop failed")
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || execErr != nil {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusSucceeded || !strings.Contains(run.CleanupError, "stop failed") {
+			t.Fatalf("run = %#v", run)
+		}
+		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); statErr != nil {
+			t.Fatalf("session dir should remain when cleanup fails: %v", statErr)
+		}
+	})
+
+	t.Run("failed run keeps original error and records cleanup error", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		fixture.driver.stopErr = errors.New("stop failed")
+		fixture.executor.execErr = errors.New("agent failed")
+		fixture.executor.cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "failed", Success: false, ExitCode: 7, Stderr: "agent failed"}
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || execErr == nil || !strings.Contains(execErr.Error(), "agent failed") {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusFailed || !strings.Contains(run.Error, "agent failed") || !strings.Contains(run.CleanupError, "stop failed") {
+			t.Fatalf("run = %#v", run)
+		}
+	})
+
+	t.Run("session start failure cleans created session", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		fixture.driver.startErr = errors.New("start failed")
+		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
+		if err != nil || execErr == nil || !strings.Contains(execErr.Error(), "start failed") {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		if run.Status != domain.ProjectRunStatusFailed || run.SessionID == "" || run.CleanupError != "" {
+			t.Fatalf("run = %#v", run)
+		}
+		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		}
+	})
+}
+
+func TestRunsControllerRunProjectAgentManualTriggerResolution(t *testing.T) {
+	fixture := newControllerRunFixture(t)
+	trigger := domain.LoaderTrigger{
+		LoaderID:   "loader-1",
+		ID:         "trigger-1",
+		Kind:       domain.LoaderTriggerKindInterval,
+		IntervalMs: 1000,
+		Enabled:    false,
+		SpecJSON:   `{"kind":"interval","intervalMs":1000}`,
+	}
+	fixture.configDB.schedulers = []domain.ProjectSchedulerRecord{{
+		ProjectID:       "project-1",
+		SchedulerID:     "scheduler-1",
+		AgentName:       "worker",
+		ManagedLoaderID: "loader-1",
+		Enabled:         true,
+		TriggerCount:    1,
+	}}
+	fixture.configDB.loaders = map[string]domain.Loader{
+		"loader-1": {
+			Summary: domain.LoaderSummary{
+				ID:                 "loader-1",
+				Enabled:            true,
+				Runtime:            domain.LoaderRuntimeScheduler,
+				ManagedProjectID:   "project-1",
+				ManagedAgentName:   "worker",
+				ManagedSchedulerID: "scheduler-1",
+			},
+			Script:   `scheduler.interval("trigger-1", async function() { return scheduler.agent("resolved prompt", { sessionEnv: [{ name: "TRIGGER_ENV", value: "yes" }] }); }, 1000);`,
+			Triggers: []domain.LoaderTrigger{trigger},
+		},
+	}
+	run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Source:          domain.ProjectRunSourceManual,
+		TriggerID:       "trigger-1",
+		ClientRequestID: "manual-trigger",
+	}, nil)
+	if err != nil || execErr != nil {
+		t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if run.Status != domain.ProjectRunStatusSucceeded || run.Prompt != "resolved prompt" || run.TriggerID != "trigger-1" || run.SchedulerID != "scheduler-1" {
+		t.Fatalf("run = %#v", run)
+	}
+	session, err := fixture.store.GetSession(fixture.ctx, run.SessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if fixture.executor.request.Message != "resolved prompt" || envItemValue(session.EnvItems, "TRIGGER_ENV") != "yes" {
+		t.Fatalf("executor request = %#v", fixture.executor.request)
+	}
+	if len(run.Warnings) != 1 || !strings.Contains(run.Warnings[0], "trigger trigger-1 is disabled") {
+		t.Fatalf("warnings = %#v", run.Warnings)
+	}
+}
+
+func TestRunsControllerRunProjectAgentManualTriggerMissingDoesNotCreateRun(t *testing.T) {
+	fixture := newControllerRunFixture(t)
+	fixture.configDB.schedulers = []domain.ProjectSchedulerRecord{{
+		ProjectID:       "project-1",
+		SchedulerID:     "scheduler-1",
+		AgentName:       "worker",
+		ManagedLoaderID: "loader-1",
+		Enabled:         true,
+	}}
+	fixture.configDB.loaders = map[string]domain.Loader{
+		"loader-1": {
+			Summary: domain.LoaderSummary{
+				ID:                 "loader-1",
+				Enabled:            true,
+				Runtime:            domain.LoaderRuntimeScheduler,
+				ManagedProjectID:   "project-1",
+				ManagedAgentName:   "worker",
+				ManagedSchedulerID: "scheduler-1",
+			},
+			Script:   `scheduler.interval("trigger-1", async function() { return scheduler.agent("resolved prompt"); }, 1000);`,
+			Triggers: []domain.LoaderTrigger{{LoaderID: "loader-1", ID: "trigger-1", Kind: domain.LoaderTriggerKindInterval, IntervalMs: 1000, Enabled: true}},
+		},
+	}
+	run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
+		ProjectID:       "project-1",
+		AgentName:       "worker",
+		Source:          domain.ProjectRunSourceManual,
+		TriggerID:       "missing",
+		ClientRequestID: "missing-trigger",
+	}, nil)
+	if !errors.Is(err, domain.ErrNotFound) || execErr != nil {
+		t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+	}
+	if len(fixture.configDB.runs) != 0 {
+		t.Fatalf("runs created before trigger resolution failure: %#v", fixture.configDB.runs)
+	}
+}
+
+func TestRunsProjectRunLogAppendChunk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "runs", "run-1", "output.txt")
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stdout\n"}); err != nil {
+		t.Fatalf("append stdout returned error: %v", err)
+	}
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{Text: "stderr\n", IsStderr: true}); err != nil {
+		t.Fatalf("append stderr returned error: %v", err)
+	}
+	if err := appendProjectRunLogChunk(path, domain.ExecChunk{}); err != nil {
+		t.Fatalf("append empty returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(data) != "stdout\nstderr\n" {
+		t.Fatalf("log content = %q", string(data))
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func envItemValue(items []domain.SessionEnvVar, name string) string {
+	for _, item := range items {
+		if item.Name == name {
+			return item.Value
+		}
+	}
+	return ""
 }
 
 type fakeRunStore struct {
@@ -445,6 +889,8 @@ type fakeControllerStore struct {
 	agent        domain.AgentDefinition
 	global       []domain.SessionEnvVar
 	runs         map[string]domain.ProjectRunRecord
+	schedulers   []domain.ProjectSchedulerRecord
+	loaders      map[string]domain.Loader
 }
 
 func (s *fakeControllerStore) GetProject(context.Context, string) (domain.ProjectRecord, error) {
@@ -499,14 +945,40 @@ func (s *fakeControllerStore) GetWorkspaceConfig(context.Context, string) (domai
 	return domain.WorkspaceConfig{}, domain.ErrNotFound
 }
 
+func (s *fakeControllerStore) ListProjectSchedulers(_ context.Context, projectID string) ([]domain.ProjectSchedulerRecord, error) {
+	var items []domain.ProjectSchedulerRecord
+	for _, scheduler := range s.schedulers {
+		if scheduler.ProjectID == projectID {
+			items = append(items, scheduler)
+		}
+	}
+	return items, nil
+}
+
+func (s *fakeControllerStore) GetLoader(_ context.Context, loaderID string) (domain.Loader, error) {
+	if s.loaders == nil {
+		return domain.Loader{}, domain.ErrNotFound
+	}
+	loader, ok := s.loaders[loaderID]
+	if !ok {
+		return domain.Loader{}, domain.ErrNotFound
+	}
+	return loader, nil
+}
+
 type fakeControllerDriver struct {
-	started bool
-	stopped bool
-	store   *sessionstore.Store
+	started  bool
+	stopped  bool
+	startErr error
+	stopErr  error
+	store    *sessionstore.Store
 }
 
 func (d *fakeControllerDriver) StartSessionVM(_ context.Context, session *domain.Session) error {
 	d.started = true
+	if d.startErr != nil {
+		return d.startErr
+	}
 	if d.store != nil {
 		return d.store.SaveVMState(session.Summary.ID, domain.VMState{Driver: session.Summary.Driver, BoxID: "box-1"})
 	}
@@ -515,11 +987,16 @@ func (d *fakeControllerDriver) StartSessionVM(_ context.Context, session *domain
 
 func (d *fakeControllerDriver) StopSessionVM(context.Context, *domain.Session) error {
 	d.stopped = true
+	if d.stopErr != nil {
+		return d.stopErr
+	}
 	return nil
 }
 
 type fakeControllerExecutor struct {
 	request execution.ExecuteAgentRequest
+	cell    domain.NotebookCell
+	execErr error
 }
 
 func (e *fakeControllerExecutor) ExecuteAgentRequest(_ context.Context, _ *domain.Session, req execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SessionEvent, domain.SessionEvent, error) {
@@ -534,10 +1011,14 @@ func (e *fakeControllerExecutor) ExecuteAgentRequest(_ context.Context, _ *domai
 			return domain.NotebookCell{}, domain.SessionEvent{}, domain.SessionEvent{}, err
 		}
 	}
-	return domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "done", Success: true, ExitCode: 0},
+	cell := e.cell
+	if strings.TrimSpace(cell.ID) == "" {
+		cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "done", Success: true, ExitCode: 0}
+	}
+	return cell,
 		domain.SessionEvent{ID: "user", Type: "user", Message: req.Message},
 		domain.SessionEvent{ID: "assistant", Type: "assistant", Message: "done"},
-		nil
+		e.execErr
 }
 
 type fakeControllerRuntime struct {
@@ -546,8 +1027,16 @@ type fakeControllerRuntime struct {
 
 func (r *fakeControllerRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, writer domain.ExecStreamWriter) (domain.ExecResult, error) {
 	r.spec = spec
+	writer(domain.ExecChunk{Text: "$ bash -lc 'echo command'\n"})
 	writer(domain.ExecChunk{Text: "command output\n"})
-	return domain.ExecResult{Stdout: "command output\n", Output: "command output\n", ExitCode: 0, Success: true}, nil
+	payload := fakeRuntimeCommandPayload(domain.RuntimeCommandResult{Stdout: "command output\n", Output: "command output\n", ExitCode: 0, Success: true})
+	writer(domain.ExecChunk{Text: payload})
+	return domain.ExecResult{Stdout: payload, Output: "$ bash -lc 'echo command'\ncommand output\n" + payload, ExitCode: 0, Success: true}, nil
+}
+
+func fakeRuntimeCommandPayload(result domain.RuntimeCommandResult) string {
+	data, _ := json.Marshal(result)
+	return execution.CommandResultPrefix + string(data) + "\n"
 }
 
 type fakeControllerImages struct{}

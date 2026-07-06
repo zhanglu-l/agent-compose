@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ import (
 	"github.com/samber/do/v2"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 
 	"agent-compose/pkg/fxgo/echofn"
 	"agent-compose/pkg/fxgo/restful"
@@ -46,6 +48,8 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
+
+const optionalRunModeFlagNoValue = "\x00agent-compose-run-mode"
 
 type daemonRunner func(context.Context) error
 
@@ -420,6 +424,9 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	}
 	root.SetOut(out)
 	root.SetErr(errOut)
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		return commandExitError{Code: exitCodeUsage, Err: err}
+	})
 	root.CompletionOptions.DisableDefaultCmd = true
 
 	root.PersistentFlags().StringVar(&options.Host, "host", "", "Daemon HTTP endpoint")
@@ -523,6 +530,12 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	runCmd.Flags().StringVar(&runOptions.SessionID, "session-id", "", "Reuse an existing session")
 	runCmd.Flags().BoolVar(&runOptions.KeepRunning, "keep-running", false, "Keep the session runtime running after completion")
 	runCmd.Flags().BoolVar(&runOptions.Remove, "rm", false, "Remove the sandbox after a successful run")
+	runCmd.Flags().BoolVar(&runOptions.Jupyter, "jupyter", false, "Enable Jupyter for this run")
+	runCmd.Flags().BoolVar(&runOptions.JupyterExpose, "jupyter-expose", false, "Mark the Jupyter proxy endpoint for this run as user-accessible")
+	runCmd.Flags().BoolVarP(&runOptions.Detach, "detach", "d", false, "Start the run in the daemon and return immediately")
+	runCmd.Flags().BoolVarP(&runOptions.Interactive, "interactive", "i", false, "Reserved for future interactive runs")
+	runCmd.Flags().Lookup("prompt").NoOptDefVal = optionalRunModeFlagNoValue
+	runCmd.Flags().Lookup("command").NoOptDefVal = optionalRunModeFlagNoValue
 
 	logsOptions := composeLogsOptions{}
 	logsCmd := &cobra.Command{
@@ -554,6 +567,15 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	psCmd.Flags().BoolVarP(&psOptions.All, "all", "a", false, "Show all recognizable sandboxes")
 	psCmd.Flags().StringVar(&psOptions.Status, "status", "", "Filter sandboxes by status, comma-separated")
 	psCmd.Flags().BoolVar(&psOptions.Verbose, "verbose", false, "Show more sandbox details")
+
+	statsCmd := &cobra.Command{
+		Use:   "stats <sandbox>",
+		Short: "Print sandbox resource stats",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runComposeStatsCommand(cmd, options, args[0])
+		},
+	}
 
 	stopCmd := &cobra.Command{
 		Use:   "stop <sandbox> [<sandbox N>]",
@@ -600,6 +622,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	// Deprecated: use `agent-compose exec <sandbox>` instead.
 	execCmd.Flags().StringVar(&execOptions.SessionID, "session-id", "", "Execute in a specific session")
 	execCmd.Flags().StringVar(&execOptions.Command, "command", "", "Shell command to execute in the sandbox")
+	execCmd.Flags().BoolVarP(&execOptions.Interactive, "interactive", "i", false, "Reserved for future interactive exec")
 	execCmd.Flags().StringVar(&execOptions.Cwd, "cwd", "", "Guest working directory")
 
 	imageListOptions := composeImageListOptions{}
@@ -713,7 +736,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 
-	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
+	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, logsCmd, psCmd, statsCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, imageCmd, pullCmd, rmiCmd, inspectCmd)
 	return root
 }
 
@@ -735,13 +758,17 @@ type composeListProjectsOptions struct {
 }
 
 type composeRunOptions struct {
-	Prompt      string
-	Trigger     string
-	Command     string
-	SessionID   string
-	SandboxID   string
-	KeepRunning bool
-	Remove      bool
+	Prompt        string
+	Trigger       string
+	Command       string
+	SessionID     string
+	SandboxID     string
+	KeepRunning   bool
+	Remove        bool
+	Jupyter       bool
+	JupyterExpose bool
+	Detach        bool
+	Interactive   bool
 }
 
 type composeLogsOptions struct {
@@ -761,11 +788,12 @@ type composePSOptions struct {
 }
 
 type composeExecOptions struct {
-	AgentName string
-	RunID     string
-	SessionID string
-	Command   string
-	Cwd       string
+	AgentName   string
+	RunID       string
+	SessionID   string
+	Command     string
+	Cwd         string
+	Interactive bool
 }
 
 type composeSandboxActionOutput struct {
@@ -1078,32 +1106,82 @@ func removeSandbox(ctx context.Context, client agentcomposev2connect.SandboxServ
 	return err
 }
 
+func runComposeStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID string) error {
+	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	sandboxID = strings.TrimSpace(sandboxID)
+	resp, err := clients.sandbox.GetSandboxStats(cmd.Context(), connect.NewRequest(&agentcomposev2.GetSandboxStatsRequest{SandboxId: sandboxID}))
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("get sandbox %s stats: %w", sandboxID, err))
+	}
+	output := composeStatsOutputFromProto(resp.Msg.GetStats())
+	if cli.JSON {
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	return writeStatsText(cmd.OutOrStdout(), output)
+}
+
 func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRunOptions, args []string) error {
 	normalizedOptions, err := normalizeComposeRunOptions(cmd, options)
 	if err != nil {
 		return err
+	}
+	promptFlagChanged := cmd.Flags().Changed("prompt")
+	commandFlagChanged := cmd.Flags().Changed("command")
+	prompt := normalizeOptionalRunModeValue(normalizedOptions.Prompt)
+	commandText := normalizeOptionalRunModeValue(normalizedOptions.Command)
+	triggerID := strings.TrimSpace(normalizedOptions.Trigger)
+	if promptFlagChanged && normalizedOptions.Prompt == optionalRunModeFlagNoValue && len(args) > 1 {
+		prompt = strings.TrimSpace(args[1])
+		args = append(args[:1], args[2:]...)
+	}
+	if commandFlagChanged && normalizedOptions.Command == optionalRunModeFlagNoValue && len(args) > 1 {
+		commandText = strings.TrimSpace(args[1])
+		args = append(args[:1], args[2:]...)
+	}
+	if normalizedOptions.Detach && normalizedOptions.Interactive {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run -d/--detach cannot be combined with -i/--interactive")}
+	}
+	if normalizedOptions.Interactive && cli.JSON {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run -i/--interactive cannot be combined with --json")}
+	}
+	if normalizedOptions.Interactive && triggerID != "" {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run -i/--interactive cannot be combined with --trigger")}
+	}
+	if normalizedOptions.Interactive && promptFlagChanged == commandFlagChanged {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run -i/--interactive requires exactly one of --prompt or --command")}
 	}
 	_, normalized, projectID, err := resolveComposeProject(cli)
 	if err != nil {
 		return err
 	}
 	agentName := strings.TrimSpace(args[0])
-	prompt := strings.TrimSpace(normalizedOptions.Prompt)
-	triggerID := strings.TrimSpace(normalizedOptions.Trigger)
-	commandText := strings.TrimSpace(normalizedOptions.Command)
-	if cmd.Flags().Changed("command") && commandText == "" {
+	if normalizedOptions.Interactive && promptFlagChanged {
+		if err := validateInteractivePromptProvider(normalized, agentName); err != nil {
+			return err
+		}
+	}
+	if !normalizedOptions.Interactive && cmd.Flags().Changed("command") && commandText == "" {
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run --command requires a non-empty command")}
 	}
 	modeCount := 0
-	for _, value := range []string{prompt, triggerID, commandText} {
-		if value != "" {
-			modeCount++
+	if !normalizedOptions.Interactive {
+		for _, value := range []string{prompt, triggerID, commandText} {
+			if value != "" {
+				modeCount++
+			}
 		}
 	}
 	if modeCount > 1 {
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run requires only one of --trigger, --prompt, or --command")}
 	}
-	if (triggerID != "" || prompt != "" || commandText != "") && len(args) > 1 {
+	if !normalizedOptions.Interactive && (triggerID != "" || prompt != "" || commandText != "") && len(args) > 1 {
 		mode := "--prompt"
 		if triggerID != "" {
 			mode = "--trigger"
@@ -1112,7 +1190,10 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		}
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run with %s does not accept legacy positional prompt arguments", mode)}
 	}
-	if prompt == "" && len(args) > 1 {
+	if normalizedOptions.Interactive && len(args) > 1 {
+		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run -i/--interactive does not accept legacy positional prompt arguments")}
+	}
+	if !normalizedOptions.Interactive && prompt == "" && len(args) > 1 {
 		// Deprecated: positional prompt arguments will become the trigger position in a future release.
 		if err := writeDeprecatedWarning(cmd.ErrOrStderr(), "agent-compose run <agent> [prompt...]", "agent-compose run <agent> --prompt"); err != nil {
 			return err
@@ -1126,9 +1207,18 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	cleanupPolicy := agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION
 	if normalizedOptions.KeepRunning {
 		cleanupPolicy = agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING
+	} else if normalizedOptions.Remove {
+		cleanupPolicy = agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION
 	}
 	client := agentcomposev2connect.NewRunServiceClient(newDaemonHTTPClient(clientConfig), clientConfig.BaseURL)
-	stream, err := client.RunAgentStream(cmd.Context(), connect.NewRequest(&agentcomposev2.RunAgentRequest{
+	var jupyter *agentcomposev2.RunJupyterSpec
+	if normalizedOptions.Jupyter || normalizedOptions.JupyterExpose {
+		jupyter = &agentcomposev2.RunJupyterSpec{
+			Enabled: normalizedOptions.Jupyter || normalizedOptions.JupyterExpose,
+			Expose:  normalizedOptions.JupyterExpose,
+		}
+	}
+	runReq := &agentcomposev2.RunAgentRequest{
 		ProjectId:       projectID,
 		AgentName:       agentName,
 		Prompt:          prompt,
@@ -1138,41 +1228,27 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		TriggerId:       triggerID,
 		CleanupPolicy:   cleanupPolicy,
 		ClientRequestId: manualRunClientRequestID(normalized.Name, agentName, firstNonEmptyString(prompt, triggerID, commandText)),
-	}))
+		Jupyter:         jupyter,
+	}
+	if normalizedOptions.Detach {
+		return startDetachedRun(cmd, cli, normalized.Name, client, runReq)
+	}
+	if normalizedOptions.Interactive {
+		runReq.Prompt = ""
+		runReq.Command = ""
+		runReq.TriggerId = ""
+		runReq.CleanupPolicy = agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING
+		sandboxClient := agentcomposev2connect.NewSandboxServiceClient(newDaemonHTTPClient(clientConfig), clientConfig.BaseURL)
+		return runInteractiveComposeRun(cmd, normalizedOptions, normalized.Name, client, sandboxClient, runReq, promptFlagChanged, prompt, commandText)
+	}
+	detail, completed, warnings, err := runComposeRunStreamAndDetail(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), client, projectID, normalized.Name, runReq, cli.JSON)
 	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", normalized.Name, agentName, err))
-	}
-	var completed *agentcomposev2.RunSummary
-	for stream.Receive() {
-		event := stream.Msg()
-		switch event.GetEventType() {
-		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT:
-			if cli.JSON {
-				continue
-			}
-			target := cmd.OutOrStdout()
-			if event.GetIsStderr() {
-				target = cmd.ErrOrStderr()
-			}
-			if _, err := io.WriteString(target, event.GetChunk()); err != nil {
-				return err
-			}
-		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED:
-			completed = event.GetRun()
-		}
-	}
-	if err := stream.Err(); err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", normalized.Name, agentName, err))
-	}
-	if completed == nil {
-		return fmt.Errorf("run project %s agent %s: stream completed without terminal run", normalized.Name, agentName)
-	}
-	detail, err := getRunDetail(cmd.Context(), client, projectID, completed.GetRunId())
-	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", completed.GetRunId(), normalized.Name, err))
+		return err
 	}
 	if cli.JSON {
-		data, err := json.MarshalIndent(composeRunOutputFromDetail(detail.Msg.GetRun()), "", "  ")
+		output := composeRunOutputFromDetail(detail)
+		output.Warnings = appendUniqueStrings(output.Warnings, warnings...)
+		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -1180,29 +1256,226 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 			return err
 		}
 	}
-	if runSummaryFailed(completed) {
-		return commandExitError{Code: runSummaryExitCode(completed), Err: fmt.Errorf("run %s for project %s agent %s failed: %s", completed.GetRunId(), normalized.Name, agentName, firstNonEmptyString(completed.GetError(), runStatusText(completed.GetStatus())))}
+	if !cli.JSON {
+		if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
+			return err
+		}
 	}
-	if normalizedOptions.Remove {
-		sandboxID := strings.TrimSpace(completed.GetSessionId())
-		if sandboxID == "" && detail.Msg.GetRun() != nil {
-			sandboxID = strings.TrimSpace(detail.Msg.GetRun().GetSummary().GetSessionId())
+	return composeRunCompletionError(normalized.Name, agentName, completed, detail)
+}
+
+func runComposeRunStreamAndDetail(ctx context.Context, stdout, stderr io.Writer, client agentcomposev2connect.RunServiceClient, projectID, projectName string, runReq *agentcomposev2.RunAgentRequest, suppressOutput bool) (*agentcomposev2.RunDetail, *agentcomposev2.RunSummary, []string, error) {
+	stream, err := client.RunAgentStream(ctx, connect.NewRequest(runReq))
+	if err != nil {
+		return nil, nil, nil, commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", projectName, runReq.GetAgentName(), err))
+	}
+	var completed *agentcomposev2.RunSummary
+	var warnings []string
+	var runID string
+	defer func() {
+		if ctx.Err() != nil && strings.TrimSpace(runID) != "" {
+			_, _ = client.StopRun(context.Background(), connect.NewRequest(&agentcomposev2.StopRunRequest{
+				RunId:  runID,
+				Reason: "client interrupted",
+			}))
 		}
-		if sandboxID == "" {
-			return fmt.Errorf("run %s for project %s agent %s completed without sandbox id for --rm", completed.GetRunId(), normalized.Name, agentName)
+	}()
+	for stream.Receive() {
+		event := stream.Msg()
+		if strings.TrimSpace(event.GetRunId()) != "" {
+			runID = event.GetRunId()
 		}
-		clients, err := newCLIServiceClients(cli)
+		warnings = appendUniqueStrings(warnings, event.GetWarnings()...)
+		if event.GetRun() != nil {
+			warnings = appendUniqueStrings(warnings, event.GetRun().GetWarnings()...)
+		}
+		switch event.GetEventType() {
+		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT:
+			if suppressOutput {
+				continue
+			}
+			if err := writeTranscriptOrChunk(stdout, stderr, event.GetTranscript(), event.GetChunk(), event.GetIsStderr()); err != nil {
+				return nil, nil, nil, err
+			}
+		case agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED:
+			completed = event.GetRun()
+			if completed.GetRunId() != "" {
+				runID = completed.GetRunId()
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, nil, nil, commandExitErrorForConnect(fmt.Errorf("run project %s agent %s: %w", projectName, runReq.GetAgentName(), err))
+	}
+	if completed == nil {
+		return nil, nil, nil, fmt.Errorf("run project %s agent %s: stream completed without terminal run", projectName, runReq.GetAgentName())
+	}
+	warnings = appendUniqueStrings(warnings, completed.GetWarnings()...)
+	detail, err := getRunDetail(ctx, client, projectID, completed.GetRunId())
+	if err != nil {
+		return nil, nil, nil, commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", completed.GetRunId(), projectName, err))
+	}
+	return detail.Msg.GetRun(), completed, warnings, nil
+}
+
+func composeRunCompletionError(projectName, agentName string, completed *agentcomposev2.RunSummary, detail *agentcomposev2.RunDetail) error {
+	cleanupErr := runDetailCleanupError(detail)
+	if runSummaryFailed(completed) {
+		message := fmt.Sprintf("run %s for project %s agent %s failed: %s", completed.GetRunId(), projectName, agentName, firstNonEmptyString(completed.GetError(), runStatusText(completed.GetStatus())))
+		if cleanupErr != "" {
+			message += fmt.Sprintf("; cleanup warning: %s", cleanupErr)
+		}
+		return commandExitError{Code: runSummaryExitCode(completed), Err: fmt.Errorf("%s", message)}
+	}
+	if cleanupErr != "" {
+		return commandExitError{Code: exitCodeGeneral, Err: fmt.Errorf("run %s for project %s agent %s succeeded but sandbox cleanup failed: %s", completed.GetRunId(), projectName, agentName, cleanupErr)}
+	}
+	return nil
+}
+
+func runInteractiveComposeRun(cmd *cobra.Command, options composeRunOptions, projectName string, client agentcomposev2connect.RunServiceClient, sandboxClient agentcomposev2connect.SandboxServiceClient, baseReq *agentcomposev2.RunAgentRequest, promptMode bool, firstPrompt, firstCommand string) (err error) {
+	sessionID := strings.TrimSpace(baseReq.GetSessionId())
+	removeOnExit := options.Remove && sessionID == ""
+	defer func() {
+		if !removeOnExit || strings.TrimSpace(sessionID) == "" {
+			return
+		}
+		removeErr := removeSandbox(context.Background(), sandboxClient, sessionID, true)
+		if removeErr == nil {
+			return
+		}
+		wrapped := commandExitErrorForConnect(fmt.Errorf("remove interactive sandbox %s: %w", sessionID, removeErr))
+		if err == nil {
+			err = wrapped
+			return
+		}
+		_ = writeRunWarnings(cmd.ErrOrStderr(), []string{fmt.Sprintf("interactive sandbox cleanup failed: %v", removeErr)})
+	}()
+
+	firstInput := firstCommand
+	if promptMode {
+		firstInput = firstPrompt
+	}
+	pending := make([]string, 0, 1)
+	if strings.TrimSpace(firstInput) != "" {
+		pending = append(pending, firstInput)
+	}
+	scanner := bufio.NewScanner(cmd.InOrStdin())
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for {
+		var line string
+		if len(pending) > 0 {
+			line = pending[0]
+			pending = pending[1:]
+		} else {
+			if !scanner.Scan() {
+				if scanErr := scanner.Err(); scanErr != nil {
+					return scanErr
+				}
+				return nil
+			}
+			line = scanner.Text()
+		}
+		input := strings.TrimSpace(line)
+		if input == "" {
+			continue
+		}
+		if input == "/exit" {
+			return nil
+		}
+		runReq := proto.Clone(baseReq).(*agentcomposev2.RunAgentRequest)
+		runReq.SessionId = sessionID
+		runReq.ClientRequestId = manualRunClientRequestID(projectName, baseReq.GetAgentName(), input)
+		if promptMode {
+			runReq.Prompt = input
+			runReq.Command = ""
+		} else {
+			runReq.Prompt = ""
+			runReq.Command = input
+		}
+		detail, completed, warnings, runErr := runComposeRunStreamAndDetail(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), client, baseReq.GetProjectId(), projectName, runReq, false)
+		if runErr != nil {
+			return runErr
+		}
+		if completed.GetSessionId() != "" {
+			sessionID = completed.GetSessionId()
+		}
+		if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
+			return err
+		}
+		if err := composeRunCompletionError(projectName, baseReq.GetAgentName(), completed, detail); err != nil {
+			return err
+		}
+	}
+}
+
+func startDetachedRun(cmd *cobra.Command, cli cliOptions, projectName string, client agentcomposev2connect.RunServiceClient, req *agentcomposev2.RunAgentRequest) error {
+	resp, err := client.StartRun(cmd.Context(), connect.NewRequest(&agentcomposev2.StartRunRequest{Run: req}))
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("start run project %s agent %s: %w", projectName, req.GetAgentName(), err))
+	}
+	run := resp.Msg.GetRun()
+	if run == nil {
+		return fmt.Errorf("start run project %s agent %s: response did not include run summary", projectName, req.GetAgentName())
+	}
+	warnings := appendUniqueStrings(append([]string(nil), resp.Msg.GetWarnings()...), run.GetWarnings()...)
+	logsCommand := detachedRunLogsCommand(cli, run.GetRunId())
+	if cli.JSON {
+		output := composeRunOutputFromSummary(run, projectName, logsCommand)
+		output.Warnings = warnings
+		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return err
 		}
-		if err := removeSandbox(cmd.Context(), clients.sandbox, sandboxID, true); err != nil {
-			return commandExitErrorForConnect(fmt.Errorf("remove sandbox %s after run %s: %w", sandboxID, completed.GetRunId(), err))
+		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+	}
+	if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
+		return err
+	}
+	return writeDetachedRunText(cmd.OutOrStdout(), run, logsCommand)
+}
+
+func runDetailCleanupError(detail *agentcomposev2.RunDetail) string {
+	if detail == nil {
+		return ""
+	}
+	return strings.TrimSpace(detail.GetCleanupError())
+}
+
+func writeRunWarnings(out io.Writer, warnings []string) error {
+	for _, warning := range appendUniqueStrings(nil, warnings...) {
+		if _, err := fmt.Fprintf(out, "warning: %s\n", warning); err != nil {
+			return err
 		}
-		if !cli.JSON {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "removed sandbox %s\n", sandboxID); err != nil {
-				return err
-			}
-		}
+	}
+	return nil
+}
+
+func writeTranscriptOrChunk(stdout, stderr io.Writer, transcript *agentcomposev2.TranscriptEvent, chunk string, isStderr bool) error {
+	text := chunk
+	if transcript != nil {
+		text = transcript.GetText()
+		isStderr = transcript.GetIsStderr()
+	}
+	if text == "" {
+		return nil
+	}
+	target := stdout
+	if isStderr {
+		target = stderr
+	}
+	_, err := io.WriteString(target, text)
+	return err
+}
+
+func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCommand string) error {
+	if _, err := fmt.Fprintf(out, "Run: %s\nSandbox: %s\nStatus: %s\nLogs: %s\n",
+		firstNonEmptyString(run.GetRunId(), "-"),
+		firstNonEmptyString(run.GetSessionId(), "-"),
+		runStatusText(run.GetStatus()),
+		logsCommand,
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1220,6 +1493,47 @@ func normalizeComposeRunOptions(cmd *cobra.Command, options composeRunOptions) (
 		options.SessionID = options.SandboxID
 	}
 	return options, nil
+}
+
+func normalizeOptionalRunModeValue(value string) string {
+	if value == optionalRunModeFlagNoValue {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func validateInteractivePromptProvider(project *compose.NormalizedProjectSpec, agentName string) error {
+	provider := "codex"
+	for _, agent := range project.Agents {
+		if strings.TrimSpace(agent.Name) == strings.TrimSpace(agentName) {
+			if normalized := normalizeInteractivePromptProvider(agent.Provider); normalized != "" {
+				provider = normalized
+			}
+			break
+		}
+	}
+	switch provider {
+	case "codex", "claude", "opencode":
+		return nil
+	default:
+		return commandExitError{
+			Code: exitCodeUnsupported,
+			Err:  fmt.Errorf("run -i --prompt is unsupported for provider %s; supported providers: codex, claude, opencode", provider),
+		}
+	}
+}
+
+func normalizeInteractivePromptProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "":
+		return ""
+	case "claude-code", "claude_code":
+		return "claude"
+	case "open-code", "open_code":
+		return "opencode"
+	default:
+		return strings.ToLower(strings.TrimSpace(provider))
+	}
 }
 
 func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLogsOptions, args []string) error {
@@ -1243,6 +1557,9 @@ func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLo
 		run, err := getRunDetail(cmd.Context(), client, projectID, normalizedOptions.RunID)
 		if err != nil {
 			return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", strings.TrimSpace(normalizedOptions.RunID), normalized.Name, err))
+		}
+		if normalizedOptions.Follow {
+			return followRunLogStream(cmd.Context(), cmd.OutOrStdout(), client, projectID, run.Msg.GetRun().GetSummary(), normalizedOptions)
 		}
 		return writeLogsForRun(cmd.OutOrStdout(), run.Msg.GetRun(), cli.JSON, normalizedOptions)
 	}
@@ -1310,6 +1627,9 @@ func runComposePSCommand(cmd *cobra.Command, cli cliOptions, options composePSOp
 }
 
 func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeExecOptions, args []string) error {
+	if options.Interactive {
+		return commandExitError{Code: exitCodeUnsupported, Err: fmt.Errorf("exec -i/--interactive is not supported")}
+	}
 	_, normalized, projectID, err := resolveComposeProject(cli)
 	if err != nil {
 		return err
@@ -1334,11 +1654,7 @@ func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeEx
 			if cli.JSON {
 				continue
 			}
-			target := cmd.OutOrStdout()
-			if event.GetIsStderr() {
-				target = cmd.ErrOrStderr()
-			}
-			if _, err := io.WriteString(target, event.GetChunk()); err != nil {
+			if err := writeTranscriptOrChunk(cmd.OutOrStdout(), cmd.ErrOrStderr(), event.GetTranscript(), event.GetChunk(), event.GetIsStderr()); err != nil {
 				return err
 			}
 		case agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_COMPLETED:
@@ -1509,7 +1825,7 @@ func runComposePullCommand(cmd *cobra.Command, cli cliOptions, options composeIm
 		}
 		output.Images = append(output.Images, item)
 		if !cli.JSON {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s\nResolved: %s\n", item.ImageRef, firstNonEmptyString(item.ResolvedRef, "-")); err != nil {
+			if err := writeImagePullText(cmd.OutOrStdout(), item); err != nil {
 				return err
 			}
 		}
@@ -1561,8 +1877,7 @@ func runComposeImagePullCommand(cmd *cobra.Command, cli cliOptions, options comp
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s\nResolved: %s\n", output.ImageRef, firstNonEmptyString(output.ResolvedRef, "-"))
-	return err
+	return writeImagePullText(cmd.OutOrStdout(), output)
 }
 
 func pullImage(ctx context.Context, client agentcomposev2connect.ImageServiceClient, imageRef string, platform *agentcomposev2.ImagePlatform) (composeImagePullOutput, error) {
@@ -1574,6 +1889,32 @@ func pullImage(ctx context.Context, client agentcomposev2connect.ImageServiceCli
 		return composeImagePullOutput{}, err
 	}
 	return composeImagePullOutputFromResponse(resp.Msg), nil
+}
+
+func writeImagePullText(out io.Writer, output composeImagePullOutput) error {
+	status := "Pulled"
+	if imagePullSkipped(output) {
+		status = "Skipped"
+	}
+	if _, err := fmt.Fprintf(out, "%s %s\nResolved: %s\n", status, output.ImageRef, firstNonEmptyString(output.ResolvedRef, "-")); err != nil {
+		return err
+	}
+	for _, warning := range output.Warnings {
+		if _, err := fmt.Fprintf(out, "Warning: %s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func imagePullSkipped(output composeImagePullOutput) bool {
+	for _, warning := range output.Warnings {
+		normalized := strings.ToLower(strings.TrimSpace(warning))
+		if strings.Contains(normalized, "skipped") || strings.Contains(normalized, "already exists") {
+			return true
+		}
+	}
+	return false
 }
 
 func runComposeImageRemoveCommand(cmd *cobra.Command, cli cliOptions, options composeImageRemoveOptions, imageRef string) error {
@@ -1890,26 +2231,28 @@ type composeUpChangeOutput struct {
 }
 
 type composeRunOutput struct {
-	RunID        string `json:"run_id"`
-	ProjectID    string `json:"project_id"`
-	ProjectName  string `json:"project_name"`
-	AgentName    string `json:"agent_name"`
-	Source       string `json:"source"`
-	Status       string `json:"status"`
-	SessionID    string `json:"session_id"`
-	ExitCode     int32  `json:"exit_code"`
-	Error        string `json:"error,omitempty"`
-	StartedAt    string `json:"started_at,omitempty"`
-	CompletedAt  string `json:"completed_at,omitempty"`
-	DurationMs   int64  `json:"duration_ms,omitempty"`
-	Prompt       string `json:"prompt,omitempty"`
-	Output       string `json:"output,omitempty"`
-	ResultJSON   string `json:"result_json,omitempty"`
-	LogsPath     string `json:"logs_path,omitempty"`
-	ArtifactsDir string `json:"artifacts_dir,omitempty"`
-	CleanupError string `json:"cleanup_error,omitempty"`
-	Driver       string `json:"driver,omitempty"`
-	ImageRef     string `json:"image_ref,omitempty"`
+	RunID        string   `json:"run_id"`
+	ProjectID    string   `json:"project_id"`
+	ProjectName  string   `json:"project_name"`
+	AgentName    string   `json:"agent_name"`
+	Source       string   `json:"source"`
+	Status       string   `json:"status"`
+	SessionID    string   `json:"session_id"`
+	ExitCode     int32    `json:"exit_code"`
+	Error        string   `json:"error,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	CompletedAt  string   `json:"completed_at,omitempty"`
+	DurationMs   int64    `json:"duration_ms,omitempty"`
+	Prompt       string   `json:"prompt,omitempty"`
+	Output       string   `json:"output,omitempty"`
+	ResultJSON   string   `json:"result_json,omitempty"`
+	LogsPath     string   `json:"logs_path,omitempty"`
+	ArtifactsDir string   `json:"artifacts_dir,omitempty"`
+	CleanupError string   `json:"cleanup_error,omitempty"`
+	Driver       string   `json:"driver,omitempty"`
+	ImageRef     string   `json:"image_ref,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+	LogsCommand  string   `json:"logs_command,omitempty"`
 }
 
 type composeLogsOutput struct {
@@ -1940,6 +2283,28 @@ type composePSSandboxOutput struct {
 	Driver    string `json:"driver,omitempty"`
 	Image     string `json:"image,omitempty"`
 	Workspace string `json:"workspace,omitempty"`
+}
+
+type composeStatsOutput struct {
+	Sandbox          string              `json:"sandbox"`
+	Driver           string              `json:"driver"`
+	SampledAt        string              `json:"sampled_at"`
+	CPUPercent       composeMetricOutput `json:"cpu_percent"`
+	MemoryUsageBytes composeMetricOutput `json:"memory_usage_bytes"`
+	MemoryLimitBytes composeMetricOutput `json:"memory_limit_bytes"`
+	MemoryPercent    composeMetricOutput `json:"memory_percent"`
+	NetworkRxBytes   composeMetricOutput `json:"network_rx_bytes"`
+	NetworkTxBytes   composeMetricOutput `json:"network_tx_bytes"`
+	BlockReadBytes   composeMetricOutput `json:"block_read_bytes"`
+	BlockWriteBytes  composeMetricOutput `json:"block_write_bytes"`
+	UptimeSeconds    composeMetricOutput `json:"uptime_seconds"`
+}
+
+type composeMetricOutput struct {
+	Value   *float64 `json:"value"`
+	Unit    string   `json:"unit"`
+	Status  string   `json:"status"`
+	Message string   `json:"message,omitempty"`
 }
 
 type composeProjectOutput struct {
@@ -2594,6 +2959,88 @@ func writePSText(out io.Writer, output composePSOutput, verbose bool) error {
 	return tw.Flush()
 }
 
+func composeStatsOutputFromProto(stats *agentcomposev2.SandboxStats) composeStatsOutput {
+	if stats == nil {
+		return composeStatsOutput{}
+	}
+	return composeStatsOutput{
+		Sandbox:          stats.GetSandboxId(),
+		Driver:           stats.GetDriver(),
+		SampledAt:        stats.GetSampledAt(),
+		CPUPercent:       composeMetricOutputFromProto(stats.GetCpuPercent()),
+		MemoryUsageBytes: composeMetricOutputFromProto(stats.GetMemoryUsageBytes()),
+		MemoryLimitBytes: composeMetricOutputFromProto(stats.GetMemoryLimitBytes()),
+		MemoryPercent:    composeMetricOutputFromProto(stats.GetMemoryPercent()),
+		NetworkRxBytes:   composeMetricOutputFromProto(stats.GetNetworkRxBytes()),
+		NetworkTxBytes:   composeMetricOutputFromProto(stats.GetNetworkTxBytes()),
+		BlockReadBytes:   composeMetricOutputFromProto(stats.GetBlockReadBytes()),
+		BlockWriteBytes:  composeMetricOutputFromProto(stats.GetBlockWriteBytes()),
+		UptimeSeconds:    composeMetricOutputFromProto(stats.GetUptimeSeconds()),
+	}
+}
+
+func composeMetricOutputFromProto(metric *agentcomposev2.MetricValue) composeMetricOutput {
+	if metric == nil {
+		return composeMetricOutput{Status: "unknown"}
+	}
+	return composeMetricOutput{
+		Value:   metric.Value,
+		Unit:    metric.GetUnit(),
+		Status:  metricStatusText(metric.GetStatus()),
+		Message: metric.GetMessage(),
+	}
+}
+
+func metricStatusText(status agentcomposev2.MetricStatus) string {
+	switch status {
+	case agentcomposev2.MetricStatus_METRIC_STATUS_OK:
+		return "ok"
+	case agentcomposev2.MetricStatus_METRIC_STATUS_UNAVAILABLE:
+		return "unavailable"
+	case agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN, agentcomposev2.MetricStatus_METRIC_STATUS_UNSPECIFIED:
+		fallthrough
+	default:
+		return "unknown"
+	}
+}
+
+func writeStatsText(out io.Writer, output composeStatsOutput) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "SANDBOX\tDRIVER\tCPU%\tMEM\tMEM_LIMIT\tMEM%\tNET_RX\tNET_TX\tBLOCK_READ\tBLOCK_WRITE\tUPTIME"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		output.Sandbox,
+		firstNonEmptyString(output.Driver, "-"),
+		formatMetricForText(output.CPUPercent),
+		formatMetricForText(output.MemoryUsageBytes),
+		formatMetricForText(output.MemoryLimitBytes),
+		formatMetricForText(output.MemoryPercent),
+		formatMetricForText(output.NetworkRxBytes),
+		formatMetricForText(output.NetworkTxBytes),
+		formatMetricForText(output.BlockReadBytes),
+		formatMetricForText(output.BlockWriteBytes),
+		formatMetricForText(output.UptimeSeconds),
+	); err != nil {
+		return err
+	}
+	return tw.Flush()
+}
+
+func formatMetricForText(metric composeMetricOutput) string {
+	if metric.Status != "ok" || metric.Value == nil {
+		return "-"
+	}
+	switch metric.Unit {
+	case "percent":
+		return fmt.Sprintf("%.2f", *metric.Value)
+	case "seconds":
+		return fmt.Sprintf("%.0fs", *metric.Value)
+	default:
+		return fmt.Sprintf("%.0f", *metric.Value)
+	}
+}
+
 func composeProjectOutputFromProject(project *agentcomposev2.Project) composeProjectOutput {
 	output := composeProjectOutput{Project: composeProjectSummaryOutput(project.GetSummary())}
 	for _, agent := range project.GetAgents() {
@@ -2676,6 +3123,25 @@ func composeRunOutputFromDetail(run *agentcomposev2.RunDetail) composeRunOutput 
 	return composeRunOutputFromDetailWithOptions(run, composeLogsOptions{TailLines: -1})
 }
 
+func composeRunOutputFromSummary(run *agentcomposev2.RunSummary, projectName, logsCommand string) composeRunOutput {
+	return composeRunOutput{
+		RunID:       run.GetRunId(),
+		ProjectID:   run.GetProjectId(),
+		ProjectName: firstNonEmptyString(run.GetProjectName(), projectName),
+		AgentName:   run.GetAgentName(),
+		Source:      runSourceText(run.GetSource()),
+		Status:      runStatusText(run.GetStatus()),
+		SessionID:   run.GetSessionId(),
+		ExitCode:    run.GetExitCode(),
+		Error:       run.GetError(),
+		StartedAt:   run.GetStartedAt(),
+		CompletedAt: run.GetCompletedAt(),
+		DurationMs:  run.GetDurationMs(),
+		Warnings:    appendUniqueStrings(nil, run.GetWarnings()...),
+		LogsCommand: logsCommand,
+	}
+}
+
 func composeRunOutputFromDetailWithOptions(run *agentcomposev2.RunDetail, options composeLogsOptions) composeRunOutput {
 	summary := run.GetSummary()
 	return composeRunOutput{
@@ -2699,6 +3165,7 @@ func composeRunOutputFromDetailWithOptions(run *agentcomposev2.RunDetail, option
 		CleanupError: run.GetCleanupError(),
 		Driver:       run.GetDriver(),
 		ImageRef:     run.GetImageRef(),
+		Warnings:     appendUniqueStrings(append([]string(nil), summary.GetWarnings()...), run.GetWarnings()...),
 	}
 }
 
@@ -2854,6 +3321,18 @@ func composeSessionOutputFromSummary(summary *agentcomposev1.SessionSummary) com
 }
 
 func followOrPrintProjectLogs(cmd *cobra.Command, cli cliOptions, client agentcomposev2connect.RunServiceClient, projectID, projectName string, options composeLogsOptions) error {
+	if options.Follow && !cli.JSON {
+		runs, err := listLogRuns(cmd.Context(), client, projectID, options)
+		if err != nil {
+			return commandExitErrorForConnect(fmt.Errorf("list logs for project %s: %w", projectName, err))
+		}
+		for _, summary := range runs {
+			if err := followRunLogStream(cmd.Context(), cmd.OutOrStdout(), client, projectID, summary, options); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	printed := map[string]int{}
 	for {
 		runs, err := listLogRuns(cmd.Context(), client, projectID, options)
@@ -2924,6 +3403,40 @@ func listLogRuns(ctx context.Context, client agentcomposev2connect.RunServiceCli
 		return nil, err
 	}
 	return resp.Msg.GetRuns(), nil
+}
+
+func followRunLogStream(ctx context.Context, out io.Writer, client agentcomposev2connect.RunServiceClient, projectID string, summary *agentcomposev2.RunSummary, options composeLogsOptions) error {
+	if summary == nil {
+		return nil
+	}
+	tailLines := uint32(0)
+	if options.TailLines > 0 {
+		tailLines = uint32(options.TailLines)
+	}
+	stream, err := client.FollowRunLogs(ctx, connect.NewRequest(&agentcomposev2.FollowRunLogsRequest{
+		ProjectId: strings.TrimSpace(projectID),
+		RunId:     summary.GetRunId(),
+		TailLines: tailLines,
+		Follow:    true,
+	}))
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("follow run %s logs: %w", summary.GetRunId(), err))
+	}
+	for stream.Receive() {
+		chunk := stream.Msg()
+		if chunk.GetData() != "" {
+			if err := writePrefixedRunOutput(out, summary, chunk.GetData(), options.Timestamp); err != nil {
+				return err
+			}
+		}
+		if chunk.GetIsFinal() {
+			return nil
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("follow run %s logs: %w", summary.GetRunId(), err))
+	}
+	return nil
 }
 
 func getRunDetail(ctx context.Context, client agentcomposev2connect.RunServiceClient, projectID, runID string) (*connect.Response[agentcomposev2.GetRunResponse], error) {
@@ -3193,6 +3706,51 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+func detachedRunLogsCommand(cli cliOptions, runID string) string {
+	parts := []string{"agent-compose"}
+	if value := strings.TrimSpace(cli.Host); value != "" {
+		parts = append(parts, "--host", value)
+	}
+	if value := strings.TrimSpace(cli.ComposeFile); value != "" {
+		parts = append(parts, "--file", value)
+	}
+	if value := strings.TrimSpace(cli.ProjectName); value != "" {
+		parts = append(parts, "--project-name", value)
+	}
+	parts = append(parts, "logs", "--run-id", strings.TrimSpace(runID), "--follow")
+	for i, part := range parts {
+		parts[i] = shellQuoteCLIArg(part)
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuoteCLIArg(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();&|<>#") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(additions))
+	result := make([]string, 0, len(values)+len(additions))
+	for _, value := range append(values, additions...) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 type commandExitError struct {
 	Code int
 	Err  error
@@ -3213,6 +3771,7 @@ const (
 	exitCodeGeneral     = 1
 	exitCodeUsage       = 2
 	exitCodeUnavailable = 3
+	exitCodeUnsupported = 4
 )
 
 func commandExitCode(err error) int {
@@ -3228,6 +3787,8 @@ func commandExitCode(err error) int {
 
 func commandExitErrorForConnect(err error) error {
 	switch connect.CodeOf(err) {
+	case connect.CodeUnimplemented:
+		return commandExitError{Code: exitCodeUnsupported, Err: err}
 	case connect.CodeUnavailable:
 		return commandExitError{Code: exitCodeUnavailable, Err: err}
 	case connect.CodeInvalidArgument, connect.CodeFailedPrecondition, connect.CodeNotFound:
