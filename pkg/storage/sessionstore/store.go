@@ -250,6 +250,9 @@ func (s *Store) RemoveSession(_ context.Context, id string) error {
 	if err := validateSessionIDForRemove(id); err != nil {
 		return err
 	}
+	unlock := s.lockSession(id)
+	defer unlock()
+
 	path := s.sessionDir(id)
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("stat session dir %s: %w", id, err)
@@ -257,6 +260,7 @@ func (s *Store) RemoveSession(_ context.Context, id string) error {
 	if err := os.RemoveAll(path); err != nil {
 		return fmt.Errorf("remove session dir %s: %w", id, err)
 	}
+	s.sessionLocks.Delete(id)
 	return nil
 }
 
@@ -492,6 +496,17 @@ func (s *Store) loadSessionCounts(id string) (SessionSummary, error) {
 		return SessionSummary{}, fmt.Errorf("decode session metadata %s: %w", id, err)
 	}
 	return session.Summary, nil
+}
+
+func (s *Store) saveEventCount(id string, eventCount int) error {
+	session, err := s.loadSession(id)
+	if err != nil {
+		return err
+	}
+	session.Summary.EventCount = eventCount
+	s.hydrateSessionGuestImage(session)
+	session.Summary.UpdatedAt = time.Now().UTC()
+	return s.saveSession(session)
 }
 
 func (s *Store) SaveSession(session *Session) error {
@@ -777,7 +792,10 @@ func (s *Store) saveEvents(id string, events []SessionEvent) error {
 func (s *Store) SaveEvents(id string, events []SessionEvent) error {
 	unlock := s.lockSession(id)
 	defer unlock()
-	return s.saveEvents(id, events)
+	if err := s.saveEvents(id, events); err != nil {
+		return err
+	}
+	return s.saveEventCount(id, len(events))
 }
 
 func (s *Store) GetVMState(id string) (VMState, error) {

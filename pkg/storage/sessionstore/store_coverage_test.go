@@ -173,12 +173,31 @@ func TestStoreSaveEventsReplacesWithJSONLAndRemovesLegacy(t *testing.T) {
 	if len(loaded) != 2 || loaded[0].ID != "replacement-1" || loaded[1].ID != "replacement-2" {
 		t.Fatalf("loaded replacement events = %#v", loaded)
 	}
+	metadata, err := store.GetSession(ctx, session.Summary.ID)
+	if err != nil {
+		t.Fatalf("GetSession after SaveEvents returned error: %v", err)
+	}
+	if metadata.Summary.EventCount != 2 {
+		t.Fatalf("EventCount after SaveEvents = %d, want 2", metadata.Summary.EventCount)
+	}
 	data, err := os.ReadFile(store.eventsJSONLPath(session.Summary.ID))
 	if err != nil {
 		t.Fatalf("read events.jsonl returned error: %v", err)
 	}
 	if strings.Contains(string(data), "[") || strings.Count(string(data), "\n") != 2 {
 		t.Fatalf("events.jsonl data = %q, want two JSONL records", string(data))
+	}
+
+	replacement := []SessionEvent{{ID: "replacement-final", Type: "session.replaced", Level: "info", Message: "final", CreatedAt: time.Now().UTC().Round(0)}}
+	if err := store.SaveEvents(session.Summary.ID, replacement); err != nil {
+		t.Fatalf("SaveEvents final replacement returned error: %v", err)
+	}
+	metadata, err = store.GetSession(ctx, session.Summary.ID)
+	if err != nil {
+		t.Fatalf("GetSession after final SaveEvents returned error: %v", err)
+	}
+	if metadata.Summary.EventCount != 1 {
+		t.Fatalf("EventCount after final SaveEvents = %d, want 1", metadata.Summary.EventCount)
 	}
 }
 
