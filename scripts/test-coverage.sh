@@ -13,6 +13,10 @@ go_cgo_enabled="${CGO_ENABLED:-0}"
 go_coverpkg="${GO_COVERPKG:-${AGENT_COMPOSE_GO_COVERPKG:-./cmd/...,./pkg/...}}"
 go_cover_packages=(./cmd/... ./pkg/... ./proto/health/v1 ./proto/health/v1/healthv1connect ./proto/agentcompose/v1 ./proto/agentcompose/v1/agentcomposev1connect ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect)
 go_exclude_regex="${GO_COVER_EXCLUDE_REGEX:-${AGENT_COMPOSE_GO_COVER_EXCLUDE_REGEX:-/(boxlite|boxlite_cgo|boxlite_guest_cgo|boxlite_runtime|boxlite_stub|docker_runtime|microsandbox_runtime|microsandbox_runtime_stub|local_docker_oci|env_path)\\.go:|/proto/.*/.*(\\.pb|\\.connect)\\.go:}}"
+unit_threshold="${COVERAGE_UNIT_THRESHOLD:-65}"
+integration_threshold="${COVERAGE_INTEGRATION_THRESHOLD:-65}"
+e2e_threshold="${COVERAGE_E2E_THRESHOLD:-65}"
+combined_threshold="${COVERAGE_COMBINED_THRESHOLD:-75}"
 
 mkdir -p "$coverage_root" "$go_cache"
 rm -rf "$coverage_root"/*
@@ -197,7 +201,7 @@ Go coverpkg: ${go_coverpkg}
 Go coverage exclude regex: ${go_exclude_regex:-<none>}
 EOF
 
-assert_pct "Unit" "$unit_pct" 60
-assert_pct "Integration" "$integration_pct" 60
-assert_pct "E2E" "$e2e_pct" 60
-assert_pct "Combined" "$combined_pct" 70
+assert_pct "Unit" "$unit_pct" "$unit_threshold"
+assert_pct "Integration" "$integration_pct" "$integration_threshold"
+assert_pct "E2E" "$e2e_pct" "$e2e_threshold"
+assert_pct "Combined" "$combined_pct" "$combined_threshold"

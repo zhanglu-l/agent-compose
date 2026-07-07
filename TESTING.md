@@ -75,16 +75,16 @@ coverage tooling or the `test` task implementation.
 ## Coverage Baselines
 
 Minimum required coverage:
-- unit tests: at least 60%
-- integration tests: at least 60%
-- E2E tests: at least 60%
-- total combined coverage: at least 70%
+- unit tests: at least 65%
+- integration tests: at least 65%
+- E2E tests: at least 65%
+- total combined coverage: at least 75%
 
 Recommended coverage targets:
 - unit tests: at least 80%
 - integration tests: at least 70%
-- E2E tests: at least 60%
-- total combined coverage: at least 70%
+- E2E tests: at least 65%
+- total combined coverage: at least 75%
 
 The required baselines are release-blocking. The recommended targets are the
 preferred engineering standard for new and substantially changed code.
