@@ -289,12 +289,13 @@ func (h *RuntimeHost) ProjectAgent(ctx context.Context, prompt string, request d
 func (h *RuntimeHost) Command(ctx context.Context, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error) {
 	cleanupSession := h.commandRequiresCleanup(request)
 	agentRequest := domain.LoaderAgentRequest{
-		SessionPolicy: request.SessionPolicy,
-		Title:         request.Title,
-		Driver:        request.Driver,
-		GuestImage:    request.GuestImage,
-		WorkspaceID:   request.WorkspaceID,
-		SessionEnv:    request.SessionEnv,
+		SessionPolicy:  request.SessionPolicy,
+		Title:          request.Title,
+		Driver:         request.Driver,
+		GuestImage:     request.GuestImage,
+		WorkspaceID:    request.WorkspaceID,
+		JupyterEnabled: request.JupyterEnabled,
+		SessionEnv:     request.SessionEnv,
 	}
 	session, eventType, err := h.ensureCommandSession(ctx, agentRequest, cleanupSession)
 	if err != nil {

@@ -999,6 +999,7 @@ func parseLoaderAgentRequest(args []*qjs.Value) (domain.LoaderAgentRequest, erro
 	request.Driver = loaderStringOption(options, "driver")
 	request.GuestImage = loaderStringOption(options, "guestImage", "guest_image")
 	request.WorkspaceID = loaderStringOption(options, "workspaceId", "workspace_id")
+	request.JupyterEnabled = loaderBoolOption(options, "jupyter")
 	request.SessionEnv, err = loaderSessionEnvOption(options)
 	if err != nil {
 		return domain.LoaderAgentRequest{}, err
@@ -1142,12 +1143,13 @@ func parseLoaderShellRequest(args []*qjs.Value) (domain.LoaderCommandRequest, er
 func loaderCommandRequestFromOptions(options map[string]any, apiName string) (domain.LoaderCommandRequest, error) {
 	var err error
 	request := domain.LoaderCommandRequest{
-		Cwd:           loaderStringOption(options, "cwd"),
-		SessionPolicy: normalizeLoaderSessionPolicy(loaderStringOption(options, "sessionPolicy", "session_policy")),
-		Title:         loaderStringOption(options, "title"),
-		Driver:        loaderStringOption(options, "driver"),
-		GuestImage:    loaderStringOption(options, "guestImage", "guest_image"),
-		WorkspaceID:   loaderStringOption(options, "workspaceId", "workspace_id"),
+		Cwd:            loaderStringOption(options, "cwd"),
+		SessionPolicy:  normalizeLoaderSessionPolicy(loaderStringOption(options, "sessionPolicy", "session_policy")),
+		Title:          loaderStringOption(options, "title"),
+		Driver:         loaderStringOption(options, "driver"),
+		GuestImage:     loaderStringOption(options, "guestImage", "guest_image"),
+		WorkspaceID:    loaderStringOption(options, "workspaceId", "workspace_id"),
+		JupyterEnabled: loaderBoolOption(options, "jupyter"),
 	}
 	request.Env, err = loaderStringMapOption(options, "env")
 	if err != nil {
@@ -1218,6 +1220,19 @@ func loaderStringOption(options map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func loaderBoolOption(options map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		value, ok := options[key]
+		if !ok || value == nil {
+			continue
+		}
+		if raw, ok := value.(bool); ok {
+			return raw
+		}
+	}
+	return false
 }
 
 func loaderStringArrayOption(options map[string]any, keys ...string) ([]string, error) {
