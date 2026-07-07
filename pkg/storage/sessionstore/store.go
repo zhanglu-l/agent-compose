@@ -692,7 +692,7 @@ func (s *Store) loadJSONLEvents(id string) ([]SessionEvent, error) {
 		}
 		return nil, fmt.Errorf("read events jsonl: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := bufio.NewReader(file)
 	var events []SessionEvent
