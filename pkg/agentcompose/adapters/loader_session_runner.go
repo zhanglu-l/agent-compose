@@ -299,7 +299,28 @@ func (r *LoaderSessionRunner) resolveVolumeMounts(ctx context.Context, loader do
 	if r.Volumes == nil {
 		return nil, nil, fmt.Errorf("volume resolver is required")
 	}
-	return r.Volumes.ResolveMounts(ctx, specs, volumes.ResolveOptions{})
+	projectVolumes, err := r.loaderProjectVolumes(ctx, loader)
+	if err != nil {
+		return nil, nil, err
+	}
+	return r.Volumes.ResolveMounts(ctx, specs, volumes.ResolveOptions{
+		ProjectVolumes: projectVolumes,
+	})
+}
+
+func (r *LoaderSessionRunner) loaderProjectVolumes(ctx context.Context, loader domain.Loader) (map[string]domain.VolumeRecord, error) {
+	projectID := strings.TrimSpace(loader.Summary.ManagedProjectID)
+	if projectID == "" {
+		return nil, nil
+	}
+	if r.ConfigDB == nil {
+		return nil, fmt.Errorf("config store is required")
+	}
+	projectVolumes, err := r.ConfigDB.ListProjectVolumes(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list loader project volumes %s: %w", projectID, err)
+	}
+	return projectVolumes, nil
 }
 
 func mergeLoaderVolumeMountSpecs(groups ...[]domain.VolumeMountSpec) ([]domain.VolumeMountSpec, error) {

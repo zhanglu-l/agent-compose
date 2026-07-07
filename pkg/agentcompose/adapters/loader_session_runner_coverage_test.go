@@ -101,8 +101,15 @@ func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
 		warnings: []string{"volume target /cache overlaps test path"},
 	}
 	runner := NewLoaderSessionRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, resolver, bridge.streams, nil)
+	projectVolume, err := bridge.configDB.CreateVolume(ctx, domain.VolumeRecord{ID: "vol-request-cache", Name: "project_request-cache", Driver: domain.VolumeDriverLocal, Path: t.TempDir()})
+	if err != nil {
+		t.Fatalf("CreateVolume returned error: %v", err)
+	}
+	if err := bridge.configDB.UpsertProjectVolume(ctx, "project-1", "request-cache", projectVolume.ID, false); err != nil {
+		t.Fatalf("UpsertProjectVolume returned error: %v", err)
+	}
 	loader := domain.Loader{
-		Summary: domain.LoaderSummary{ID: "loader-1", Name: "Loader", Driver: driverpkg.RuntimeDriverDocker},
+		Summary: domain.LoaderSummary{ID: "loader-1", Name: "Loader", Driver: driverpkg.RuntimeDriverDocker, ManagedProjectID: "project-1"},
 		Volumes: []domain.VolumeMountSpec{{
 			Type:   domain.VolumeMountTypeVolume,
 			Source: "loader-cache",
@@ -126,6 +133,9 @@ func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
 	}
 	if len(resolver.specs) != 1 || resolver.specs[0].Source != "request-cache" {
 		t.Fatalf("resolver specs = %#v", resolver.specs)
+	}
+	if resolver.options.ProjectVolumes["request-cache"].ID != projectVolume.ID {
+		t.Fatalf("resolver project volumes = %#v", resolver.options.ProjectVolumes)
 	}
 	if len(session.VolumeMounts) != 1 || session.VolumeMounts[0].HostPath != hostPath {
 		t.Fatalf("session volume mounts = %#v", session.VolumeMounts)
