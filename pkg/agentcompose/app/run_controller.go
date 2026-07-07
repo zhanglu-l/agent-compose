@@ -147,6 +147,7 @@ func runAgentRequestFromProto(msg *agentcomposev2.RunAgentRequest) runs.RunAgent
 		OutputSchemaJSON: msg.GetOutputSchemaJson(),
 		CleanupPolicy:    msg.GetCleanupPolicy(),
 		Jupyter:          msg.GetJupyter(),
+		Volumes:          volumeMountSpecsFromProto(msg.GetVolumes()),
 	}
 }
 
@@ -157,6 +158,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func volumeMountSpecsFromProto(values []*agentcomposev2.VolumeMountSpec) []domain.VolumeMountSpec {
+	out := make([]domain.VolumeMountSpec, 0, len(values))
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		out = append(out, domain.VolumeMountSpec{
+			Type:     value.GetType(),
+			Source:   value.GetSource(),
+			Target:   value.GetTarget(),
+			ReadOnly: value.GetReadOnly(),
+		})
+	}
+	return out
 }
 
 func runConnectError(err error) error {
