@@ -5272,6 +5272,31 @@ func TestIntegrationCLIImageRemoveAliasesAndJSON(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIImageRemoveMissingImageMessage(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		image: imageServiceStub{
+			removeImage: func(ctx context.Context, req *connect.Request[agentcomposev2.RemoveImageRequest]) (*connect.Response[agentcomposev2.RemoveImageResponse], error) {
+				if req.Msg.GetImageRef() != "missing:latest" {
+					t.Fatalf("RemoveImage image_ref = %q", req.Msg.GetImageRef())
+				}
+				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("remove image: image %s: endpoint unix:///var/run/docker.sock: Error response from daemon: No such image: %s", req.Msg.GetImageRef(), req.Msg.GetImageRef()))
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("rmi", "--host", server.URL, "missing:latest")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("rmi missing image exit code = %d, want %d; stderr=%q", exitCode, exitCodeUsage, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("rmi missing image stdout = %q", stdout)
+	}
+	if want := "image missing:latest does not exist\n"; stderr != want {
+		t.Fatalf("rmi missing image stderr = %q, want %q", stderr, want)
+	}
+}
+
 func TestIntegrationCLIImageInspectJSON(t *testing.T) {
 	calls := 0
 	server := newComposeServiceStubServer(t, composeServiceStubs{
@@ -5320,6 +5345,31 @@ func TestIntegrationCLIImageInspectJSON(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("InspectImage calls = %d, want 2", calls)
+	}
+}
+
+func TestIntegrationCLIImageInspectMissingImageMessage(t *testing.T) {
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		image: imageServiceStub{
+			inspectImage: func(ctx context.Context, req *connect.Request[agentcomposev2.InspectImageRequest]) (*connect.Response[agentcomposev2.InspectImageResponse], error) {
+				if req.Msg.GetImageRef() != "missing:latest" {
+					t.Fatalf("InspectImage image_ref = %q", req.Msg.GetImageRef())
+				}
+				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("inspect image: image %s: endpoint unix:///var/run/docker.sock: Error response from daemon: No such image: %s", req.Msg.GetImageRef(), req.Msg.GetImageRef()))
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("inspect", "--host", server.URL, "image", "missing:latest")
+	if exitCode != exitCodeUsage {
+		t.Fatalf("inspect image missing exit code = %d, want %d; stderr=%q", exitCode, exitCodeUsage, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("inspect image missing stdout = %q", stdout)
+	}
+	if want := "image missing:latest does not exist\n"; stderr != want {
+		t.Fatalf("inspect image missing stderr = %q, want %q", stderr, want)
 	}
 }
 

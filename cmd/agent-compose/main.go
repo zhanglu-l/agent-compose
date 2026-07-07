@@ -3043,7 +3043,7 @@ func runComposeImageRemoveCommand(cmd *cobra.Command, cli cliOptions, options co
 		PruneChildren: options.PruneChildren,
 	}))
 	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("remove image %s: %w", strings.TrimSpace(imageRef), err))
+		return commandExitErrorForImageTarget("remove image", strings.TrimSpace(imageRef), err)
 	}
 	output := composeImageRemoveOutputFromResponse(resp.Msg)
 	if cli.JSON {
@@ -3070,6 +3070,16 @@ func runComposeImageRemoveCommand(cmd *cobra.Command, cli cliOptions, options co
 	return nil
 }
 
+func commandExitErrorForImageTarget(operation, imageRef string, err error) error {
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return commandExitError{
+			Code: exitCodeUsage,
+			Err:  fmt.Errorf("image %s does not exist", imageRef),
+		}
+	}
+	return commandExitErrorForConnect(fmt.Errorf("%s %s: %w", operation, imageRef, err))
+}
+
 func runComposeImageInspectCommand(cmd *cobra.Command, cli cliOptions, imageRef string) error {
 	clients, err := newCLIServiceClients(cli)
 	if err != nil {
@@ -3079,7 +3089,7 @@ func runComposeImageInspectCommand(cmd *cobra.Command, cli cliOptions, imageRef 
 		ImageRef: strings.TrimSpace(imageRef),
 	}))
 	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("inspect image %s: %w", strings.TrimSpace(imageRef), err))
+		return commandExitErrorForImageTarget("inspect image", strings.TrimSpace(imageRef), err)
 	}
 	output := composeImageInspectOutputFromResponse(resp.Msg)
 	data, err := json.MarshalIndent(output, "", "  ")
