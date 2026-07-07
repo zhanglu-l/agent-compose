@@ -146,6 +146,61 @@ func TestRuntimeLLMFacadeProtocolAndStreamCoverage(t *testing.T) {
 			t.Fatalf("stream response kept forbidden headers: %#v", rec.Header())
 		}
 	})
+
+	t.Run("responses stream bridge from chat", func(t *testing.T) {
+		body := strings.Join([]string{
+			`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":0,"model":"gpt","choices":[{"index":0,"delta":{"role":"assistant","content":"hel"},"finish_reason":null}]}`,
+			"",
+			`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":0,"model":"gpt","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}`,
+			"",
+			`data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":0,"model":"gpt","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			"",
+			"data: [DONE]",
+			"",
+			"",
+		}, "\n")
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), httptest.NewRecorder())
+		if err := BridgeRuntimeLLMStreamResponse(c, resp, protocolbridge.ProtocolOpenAIResponses, protocolbridge.ProtocolOpenAIChat, llms.ProviderFamilyOpenAI, "gpt"); err != nil {
+			t.Fatalf("BridgeRuntimeLLMStreamResponse returned error: %v", err)
+		}
+		rec := c.Response().Writer.(*httptest.ResponseRecorder)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "response.output_text.delta") || !strings.Contains(rec.Body.String(), "hello") {
+			t.Fatalf("responses stream bridge status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("stream bridge decode error is encoded", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(errRuntimeLLMReader{}),
+		}
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), httptest.NewRecorder())
+		if err := BridgeRuntimeLLMStreamResponse(c, resp, protocolbridge.ProtocolOpenAIChat, protocolbridge.ProtocolOpenAIChat, llms.ProviderFamilyOpenAI, "gpt"); err != nil {
+			t.Fatalf("BridgeRuntimeLLMStreamResponse returned error: %v", err)
+		}
+		rec := c.Response().Writer.(*httptest.ResponseRecorder)
+		if rec.Code != http.StatusOK || !strings.Contains(strings.ToLower(rec.Body.String()), "error") {
+			t.Fatalf("decode error stream status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("unsupported stream bridge", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		}
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), httptest.NewRecorder())
+		if err := BridgeRuntimeLLMStreamResponse(c, resp, protocolbridge.ProtocolOpenAIResponses, protocolbridge.ProtocolAnthropicMessages, "unknown", "gpt"); err == nil {
+			t.Fatalf("BridgeRuntimeLLMStreamResponse returned nil for unsupported bridge")
+		}
+	})
 }
 
 func TestRuntimeLLMFacadeRejectsInvalidSecurityContext(t *testing.T) {
@@ -411,30 +466,82 @@ func TestRuntimeLLMFacadeHandlerEdgeBranches(t *testing.T) {
 }
 
 func TestRuntimeLLMFacadeTransparentGenericResponsesTextParts(t *testing.T) {
-	e := echo.New()
-	client := &fakeRuntimeLLMHTTPClient{
-		status: http.StatusOK,
-		body:   `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"gpt","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
-	}
-	RegisterRuntimeLLMFacadeRoutes(e, RuntimeLLMOptions{
-		Tokens:   fakeRuntimeLLMTokens{token: llms.FacadeToken{SessionID: "session-1", Model: "gpt", ProviderID: "provider-1", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)}},
-		Sessions: fakeRuntimeLLMSessions{session: &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning}}},
-		ResolveTarget: func(context.Context, string, string) (llms.ResolvedTarget, error) {
-			return llms.ResolvedTarget{
-				Provider: llms.Provider{ID: "provider-1", ProviderType: llms.ProviderFamilyOpenAI, BaseURL: "http://upstream.test/v1", UseGenericResponsesTextParts: true},
-				Model:    llms.Model{Name: "gpt"},
-				WireAPI:  llms.APIProtocolResponses,
-			}, nil
+	tests := []struct {
+		name     string
+		client   *fakeRuntimeLLMHTTPClient
+		want     int
+		contains string
+	}{
+		{
+			name: "non stream",
+			client: &fakeRuntimeLLMHTTPClient{
+				status: http.StatusOK,
+				body:   `{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"gpt","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`,
+			},
+			want:     http.StatusOK,
+			contains: "chatcmpl-1",
 		},
-		Client: client,
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/runtime/sessions/session-1/llm/openai/v1/responses", strings.NewReader(`{"model":"gpt","input":"hi"}`))
-	req.Header.Set("Authorization", "Bearer raw-token")
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "chatcmpl-1") || client.calls != 1 {
-		t.Fatalf("generic responses text parts status=%d body=%s calls=%d", rec.Code, rec.Body.String(), client.calls)
+		{
+			name: "stream",
+			client: &fakeRuntimeLLMHTTPClient{
+				status: http.StatusOK,
+				header: http.Header{"Content-Type": []string{"text/event-stream"}},
+				body: strings.Join([]string{
+					`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":0,"model":"gpt","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`,
+					"",
+					`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":0,"model":"gpt","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+					"",
+					"data: [DONE]",
+					"",
+					"",
+				}, "\n"),
+			},
+			want:     http.StatusOK,
+			contains: "response.completed",
+		},
+		{
+			name: "read error",
+			client: &fakeRuntimeLLMHTTPClient{
+				status:     http.StatusOK,
+				bodyReader: errRuntimeLLMReader{},
+			},
+			want:     http.StatusBadGateway,
+			contains: "read upstream llm response failed",
+		},
+		{
+			name: "encode error",
+			client: &fakeRuntimeLLMHTTPClient{
+				status: http.StatusOK,
+				body:   `{bad json`,
+			},
+			want:     http.StatusBadRequest,
+			contains: "error",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			RegisterRuntimeLLMFacadeRoutes(e, RuntimeLLMOptions{
+				Tokens:   fakeRuntimeLLMTokens{token: llms.FacadeToken{SessionID: "session-1", Model: "gpt", ProviderID: "provider-1", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)}},
+				Sessions: fakeRuntimeLLMSessions{session: &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusRunning}}},
+				ResolveTarget: func(context.Context, string, string) (llms.ResolvedTarget, error) {
+					return llms.ResolvedTarget{
+						Provider: llms.Provider{ID: "provider-1", ProviderType: llms.ProviderFamilyOpenAI, BaseURL: "http://upstream.test/v1", UseGenericResponsesTextParts: true},
+						Model:    llms.Model{Name: "gpt"},
+						WireAPI:  llms.APIProtocolResponses,
+					}, nil
+				},
+				Client: tc.client,
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/runtime/sessions/session-1/llm/openai/v1/responses", strings.NewReader(`{"model":"gpt","input":"hi"}`))
+			req.Header.Set("Authorization", "Bearer raw-token")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want || !strings.Contains(rec.Body.String(), tc.contains) || tc.client.calls != 1 {
+				t.Fatalf("generic responses text parts status=%d body=%s calls=%d, want status=%d contains=%q", rec.Code, rec.Body.String(), tc.client.calls, tc.want, tc.contains)
+			}
+		})
 	}
 }
 

@@ -622,7 +622,10 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		t.Fatalf("stats text = %q", out.String())
 	}
 	if formatMetricForText(composeMetricOutput{Status: "ok", Unit: "bytes", Value: &value}) != "42" ||
-		formatMetricForText(composeMetricOutput{Status: "unavailable", Unit: "bytes", Value: &value}) != "-" {
+		formatMetricForText(composeMetricOutput{Status: "unavailable", Unit: "bytes", Value: &value}) != "-" ||
+		formatMetricForText(composeMetricOutput{Status: "ok", Unit: "percent", Value: &value}) != "42.50" ||
+		formatMetricForText(composeMetricOutput{Status: "ok", Unit: "seconds", Value: &value}) != "42s" ||
+		formatMetricForText(composeMetricOutput{Status: "ok"}) != "-" {
 		t.Fatalf("formatMetricForText returned unexpected values")
 	}
 
@@ -772,9 +775,54 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		t.Fatalf("images text = %q", out.String())
 	}
 	if imagePlatformText(&agentcomposev2.ImagePlatform{Os: "linux"}) != "linux" ||
+		imagePlatformText(&agentcomposev2.ImagePlatform{Os: "linux", Architecture: "arm64", Variant: "v8"}) != "linux/arm64/v8" ||
 		shortImageID("short") != "short" ||
 		cloneStringMapForCLI(nil) != nil {
 		t.Fatalf("image helper edge cases returned unexpected values")
+	}
+	if imageStoreText(agentcomposev2.ImageStoreKind_IMAGE_STORE_KIND_UNSPECIFIED) != "unspecified" ||
+		imageAvailabilityStatusText(agentcomposev2.ImageAvailabilityStatus_IMAGE_AVAILABILITY_STATUS_MISSING) != "missing" ||
+		imageAvailabilityStatusText(agentcomposev2.ImageAvailabilityStatus_IMAGE_AVAILABILITY_STATUS_ERROR) != "error" ||
+		imageAvailabilityStatusText(agentcomposev2.ImageAvailabilityStatus_IMAGE_AVAILABILITY_STATUS_UNSPECIFIED) != "unspecified" ||
+		imageOperationStatusText(agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED) != "succeeded" ||
+		imageOperationStatusText(agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_UNSPECIFIED) != "unspecified" ||
+		cacheRefSessionText(composeCacheOutput{SandboxID: "sandbox-only"}) != "sandbox-only" ||
+		cacheRefSessionText(composeCacheOutput{ResolvedRef: "resolved-only"}) != "resolved-only" ||
+		firstNonEmptyString("", " ", "fallback") != "fallback" ||
+		runStatusText(agentcomposev2.RunStatus_RUN_STATUS_CANCELED) != "canceled" ||
+		runStatusText(agentcomposev2.RunStatus_RUN_STATUS_UNSPECIFIED) != "unspecified" ||
+		runSourceText(agentcomposev2.RunSource_RUN_SOURCE_SCHEDULER) != "scheduler" ||
+		runSourceText(agentcomposev2.RunSource_RUN_SOURCE_API) != "api" ||
+		runSourceText(agentcomposev2.RunSource_RUN_SOURCE_UNSPECIFIED) != "unspecified" ||
+		metricStatusText(agentcomposev2.MetricStatus_METRIC_STATUS_UNSPECIFIED) != "unknown" {
+		t.Fatalf("text helper edge cases returned unexpected values")
+	}
+	if err := writeImagesText(failingWriter{}, imageList.Images); err == nil {
+		t.Fatalf("writeImagesText failing writer returned nil error")
+	}
+	if err := writeCacheListText(failingWriter{}, cacheList); err == nil {
+		t.Fatalf("writeCacheListText failing writer returned nil error")
+	}
+	if err := writeCacheInspectText(failingWriter{}, cacheInspect); err == nil {
+		t.Fatalf("writeCacheInspectText failing writer returned nil error")
+	}
+	if err := writeStatsText(failingWriter{}, []composeStatsOutput{stats}); err == nil {
+		t.Fatalf("writeStatsText failing writer returned nil error")
+	}
+	if err := writeStringListSection(failingWriter{}, "Warnings", []string{"warn"}); err == nil {
+		t.Fatalf("writeStringListSection failing writer returned nil error")
+	}
+	if err := writeCacheReferencesSection(failingWriter{}, cacheInspect.Cache.References); err == nil {
+		t.Fatalf("writeCacheReferencesSection failing writer returned nil error")
+	}
+	if err := writeCacheOperationTable(failingWriter{}, []composeCacheOutput{cacheInspect.Cache}); err == nil {
+		t.Fatalf("writeCacheOperationTable failing writer returned nil error")
+	}
+	if err := writeSandboxPruneMatchedTable(failingWriter{}, []composePSSandboxOutput{{Sandbox: "sandbox"}}, "matched"); err == nil {
+		t.Fatalf("writeSandboxPruneMatchedTable failing writer returned nil error")
+	}
+	if err := writeSandboxPruneSkippedTable(failingWriter{}, []composeSandboxPruneSkipped{{Sandbox: "sandbox"}}); err == nil {
+		t.Fatalf("writeSandboxPruneSkippedTable failing writer returned nil error")
 	}
 
 	session := composeSessionOutputFromSummary(&agentcomposev1.SessionSummary{

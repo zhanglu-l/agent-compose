@@ -8,6 +8,8 @@ import (
 
 	"connectrpc.com/connect"
 
+	appconfig "agent-compose/pkg/config"
+	"agent-compose/pkg/events/webhooks"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/projects"
 	"agent-compose/pkg/runs"
@@ -169,10 +171,37 @@ func TestStopProjectSessionCoverage(t *testing.T) {
 	}
 }
 
+func TestReserveLoaderEventQueueSlotsCoverage(t *testing.T) {
+	config := &appconfig.Config{WebhookQueueDefaultWorkers: 1}
+	var queue *webhooks.RunQueue
+	if reservations, ok := reserveLoaderEventQueueSlots(config, &queue, domain.LoaderTopicEvent{Source: domain.TopicEventSourceWebhook}, 0); !ok || reservations != nil {
+		t.Fatalf("zero reservations = %#v ok=%v", reservations, ok)
+	}
+	reservations, ok := reserveLoaderEventQueueSlots(config, &queue, domain.LoaderTopicEvent{Source: domain.TopicEventSourceLoader}, 2)
+	if !ok || len(reservations) != 2 || queue != nil {
+		t.Fatalf("non-webhook reservations = %#v ok=%v queue=%#v", reservations, ok, queue)
+	}
+	reservations, ok = reserveLoaderEventQueueSlots(config, &queue, domain.LoaderTopicEvent{Source: domain.TopicEventSourceWebhook, Topic: "runtime.topic"}, 1)
+	if !ok || len(reservations) != 1 || queue == nil {
+		t.Fatalf("webhook reservations = %#v ok=%v queue=%#v", reservations, ok, queue)
+	}
+	defer reservations[0].Release()
+	if reservations, ok := reserveLoaderEventQueueSlots(config, &queue, domain.LoaderTopicEvent{Source: domain.TopicEventSourceWebhook, Topic: "runtime.topic"}, 1); ok || reservations != nil {
+		t.Fatalf("saturated reservations = %#v ok=%v", reservations, ok)
+	}
+
+	var fallbackQueue *webhooks.RunQueue
+	reservations, ok = reserveLoaderEventQueueSlots(&appconfig.Config{WebhookQueueRulesJSON: `bad`}, &fallbackQueue, domain.LoaderTopicEvent{Source: domain.TopicEventSourceWebhook}, 1)
+	if !ok || len(reservations) != 1 || fallbackQueue == nil {
+		t.Fatalf("fallback reservations = %#v ok=%v queue=%#v", reservations, ok, fallbackQueue)
+	}
+}
+
 func TestIntegrationAppControllerHelperCoverage(t *testing.T) {
 	TestAppProjectControllerHelperCoverage(t)
 	TestAppRunControllerHelperCoverage(t)
 	TestStopProjectSessionCoverage(t)
+	TestReserveLoaderEventQueueSlotsCoverage(t)
 }
 
 func TestE2EAppControllerHelperCoverage(t *testing.T) {

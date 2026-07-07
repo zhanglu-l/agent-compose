@@ -14,6 +14,7 @@ import (
 	"agent-compose/pkg/capability"
 	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
+	"agent-compose/pkg/dashboard"
 	"agent-compose/pkg/execution"
 	"agent-compose/pkg/imagecache"
 	"agent-compose/pkg/images"
@@ -291,6 +292,52 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 	}
 	if issue := ProjectValidationIssue("", "generic"); issue.GetPath() != "spec" {
 		t.Fatalf("default validation issue = %#v", issue)
+	}
+}
+
+func TestAPIHandlerDelegateAndDashboardWorkflows(t *testing.T) {
+	ctx := context.Background()
+	sessionDelegate := &fakeSessionDelegate{}
+	sessionHandler := NewSessionHandler(sessionDelegate, nil, nil)
+	created, err := sessionHandler.CreateSession(ctx, connect.NewRequest(&agentcomposev1.CreateSessionRequest{Title: "created"}))
+	if err != nil || created.Msg.GetSession().GetSummary().GetTitle() != "created" {
+		t.Fatalf("CreateSession response=%#v err=%v", created, err)
+	}
+	if _, err := sessionHandler.ResumeSession(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "session-1"})); err != nil {
+		t.Fatalf("ResumeSession returned error: %v", err)
+	}
+	if _, err := sessionHandler.StopSession(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "session-1"})); err != nil {
+		t.Fatalf("StopSession returned error: %v", err)
+	}
+	if _, err := sessionHandler.GetSessionProxy(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "session-1"})); err != nil {
+		t.Fatalf("GetSessionProxy returned error: %v", err)
+	}
+	if len(sessionDelegate.stopCalls) != 1 || sessionDelegate.stopCalls[0] != "session-1" {
+		t.Fatalf("stop calls = %#v", sessionDelegate.stopCalls)
+	}
+
+	runDelegate := &fakeRunDelegate{}
+	runHandler := NewRunHandler(runDelegate, nil)
+	runResp, err := runHandler.RunAgent(ctx, connect.NewRequest(&agentcomposev2.RunAgentRequest{ProjectId: "project-1", AgentName: "worker"}))
+	if err != nil || runResp.Msg.GetRun().GetSummary().GetRunId() != "run-1" {
+		t.Fatalf("RunAgent response=%#v err=%v", runResp, err)
+	}
+	startResp, err := runHandler.StartRun(ctx, connect.NewRequest(&agentcomposev2.StartRunRequest{Run: &agentcomposev2.RunAgentRequest{ProjectId: "project-1", AgentName: "worker"}}))
+	if err != nil || !startResp.Msg.GetStarted() {
+		t.Fatalf("StartRun response=%#v err=%v", startResp, err)
+	}
+	if _, err := NewRunHandler(nil, nil).StartRun(ctx, connect.NewRequest(&agentcomposev2.StartRunRequest{})); connect.CodeOf(err) != connect.CodeUnimplemented {
+		t.Fatalf("nil StartRun error = %v", err)
+	}
+
+	dashboardCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	aggregator := dashboard.NewAggregator(fakeDashboardSessionStore{}, fakeDashboardRunStore{})
+	aggregator.SetClock(func() time.Time { return time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC) })
+	hub := dashboard.NewHub(dashboardCtx, aggregator, time.Millisecond)
+	dashboardResp, err := NewDashboardHandler(hub).GetDashboardOverview(ctx, connect.NewRequest(&emptypb.Empty{}))
+	if err != nil || dashboardResp.Msg.GetOverview().GetRuns().GetRunningCount() != 2 {
+		t.Fatalf("dashboard response=%#v err=%v", dashboardResp, err)
 	}
 }
 
@@ -794,6 +841,42 @@ func (d *fakeSessionDelegate) StopSession(_ context.Context, req *connect.Reques
 
 func (d *fakeSessionDelegate) GetSessionProxy(context.Context, *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionProxyResponse], error) {
 	return connect.NewResponse(&agentcomposev1.SessionProxyResponse{}), nil
+}
+
+type fakeRunDelegate struct{}
+
+func (fakeRunDelegate) RunAgent(context.Context, *connect.Request[agentcomposev2.RunAgentRequest]) (*connect.Response[agentcomposev2.RunAgentResponse], error) {
+	return connect.NewResponse(&agentcomposev2.RunAgentResponse{Run: ProjectRunDetailToProto(domain.ProjectRunRecord{
+		RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusSucceeded,
+	})}), nil
+}
+
+func (fakeRunDelegate) StartRun(context.Context, *connect.Request[agentcomposev2.StartRunRequest]) (*connect.Response[agentcomposev2.StartRunResponse], error) {
+	return connect.NewResponse(&agentcomposev2.StartRunResponse{Run: ProjectRunSummaryToProto(domain.ProjectRunRecord{
+		RunID: "run-1", ProjectID: "project-1", AgentName: "worker", Status: domain.ProjectRunStatusRunning,
+	}), Started: true}), nil
+}
+
+func (fakeRunDelegate) RunAgentStream(context.Context, *connect.Request[agentcomposev2.RunAgentRequest], *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+	return nil
+}
+
+type fakeDashboardSessionStore struct{}
+
+func (fakeDashboardSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+	return domain.SessionListResult{Sessions: []*domain.Session{
+		{Summary: domain.SessionSummary{ID: "session-running", VMStatus: domain.VMStatusRunning}},
+		{Summary: domain.SessionSummary{ID: "session-failed", VMStatus: domain.VMStatusFailed}},
+	}}, nil
+}
+
+type fakeDashboardRunStore struct{}
+
+func (fakeDashboardRunStore) ListRecentLoaderRuns(context.Context, int) ([]domain.LoaderRunSummary, error) {
+	return []domain.LoaderRunSummary{
+		{ID: "run-running", Status: domain.VMStatusRunning},
+		{ID: "run-failed", Status: domain.VMStatusFailed},
+	}, nil
 }
 
 type fakeLoaderController struct {
