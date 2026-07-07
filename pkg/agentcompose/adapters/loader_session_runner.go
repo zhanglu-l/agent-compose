@@ -125,7 +125,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if agentDefinition != nil {
 		tags = append(tags, api.SessionTagsFromProto(api.AgentDefinitionTagsToProto(*agentDefinition))...)
 	}
-	session, err := r.Store.CreateSession(ctx, title, "", driver, guestImage, workspaceID, domain.SessionTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags)
+	session, err := r.Store.CreateSessionWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SessionTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSessionOptions{JupyterEnabled: request.JupyterEnabled})
 	if err != nil {
 		return nil, "", err
 	}
