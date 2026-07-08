@@ -223,3 +223,11 @@ task test
 - [Webhook design](design/webhook_design.md)
 - [Webhook queue design](design/webhook_queue_design.md)
 - [Loader script API](../../loader-script/README.md)
+
+##  社区与支持
+欢迎加入技术社区，与更多开发者交流 Agent-copose 的使用、部署和开发经验。
+<table>
+  <tr>
+    <td align="center"><img src="https://github.com/user-attachments/assets/fcdbb42b-2e06-409e-b116-60544461fbc1" width="160" /><br/>微信交流群</td>
+  </tr>
+</table>
