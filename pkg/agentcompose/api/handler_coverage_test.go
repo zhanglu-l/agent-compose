@@ -582,6 +582,9 @@ func TestProjectAndRunHandlersStoreBackedWorkflows(t *testing.T) {
 	if err != nil || len(listProjects.Msg.GetProjects()) != 1 {
 		t.Fatalf("ListProjects resp=%#v err=%v", listProjects, err)
 	}
+	if summary := listProjects.Msg.GetProjects()[0]; summary.GetAgentCount() != 1 || summary.GetSchedulerCount() != 1 {
+		t.Fatalf("ListProjects summary counts = agents %d schedulers %d", summary.GetAgentCount(), summary.GetSchedulerCount())
+	}
 	store.projects = append(store.projects, domain.ProjectRecord{ID: "project-2", Name: "Project"})
 	if _, err := projectHandler.GetProject(ctx, connect.NewRequest(&agentcomposev2.GetProjectRequest{Project: &agentcomposev2.ProjectRef{Name: "Project"}})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("expected ambiguous project error, got %v", err)

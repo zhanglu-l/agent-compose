@@ -111,7 +111,15 @@ func (h *ProjectHandler) ListProjects(ctx context.Context, req *connect.Request[
 		NextOffset: uint32(result.NextOffset),
 	}
 	for _, project := range result.Projects {
-		resp.Projects = append(resp.Projects, ProjectSummaryToProto(project, nil, nil))
+		agents, err := h.store.ListProjectAgents(ctx, project.ID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		schedulers, err := h.store.ListProjectSchedulers(ctx, project.ID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		resp.Projects = append(resp.Projects, ProjectSummaryToProto(project, agents, schedulers))
 	}
 	return connect.NewResponse(resp), nil
 }
