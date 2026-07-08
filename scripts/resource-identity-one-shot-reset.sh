@@ -87,7 +87,7 @@ compose_cmd_available() {
 compose_service_exists() {
   [[ -f "$COMPOSE_FILE" ]] || return 1
   compose_cmd_available || return 1
-  docker compose -f "$COMPOSE_FILE" config --services 2>/dev/null | grep -Fxq "$SERVICE"
+  docker compose --project-directory "$COMPOSE_PROJECT_DIR" -f "$COMPOSE_FILE" config --services 2>/dev/null | grep -Fxq "$SERVICE"
 }
 
 stop_daemon() {
@@ -97,7 +97,7 @@ stop_daemon() {
   fi
   if compose_service_exists; then
     log "stopping compose service $SERVICE"
-    run docker compose -f "$COMPOSE_FILE" stop "$SERVICE"
+    run docker compose --project-directory "$COMPOSE_PROJECT_DIR" -f "$COMPOSE_FILE" stop "$SERVICE"
     return 0
   fi
   if docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
@@ -116,7 +116,7 @@ restart_daemon() {
     die "cannot restart: compose service $SERVICE not found in $COMPOSE_FILE"
   fi
   log "starting compose service $SERVICE"
-  run docker compose -f "$COMPOSE_FILE" up -d "$SERVICE"
+  run docker compose --project-directory "$COMPOSE_PROJECT_DIR" -f "$COMPOSE_FILE" up -d "$SERVICE"
 }
 
 move_if_exists() {
@@ -213,6 +213,7 @@ done
 
 DATA_DIR="$(abs_path "$DATA_DIR")"
 COMPOSE_FILE="$(abs_path "$COMPOSE_FILE")"
+COMPOSE_PROJECT_DIR="$(dirname "$COMPOSE_FILE")"
 if [[ -z "$BACKUP_DIR" ]]; then
   BACKUP_DIR="$DATA_DIR/.resource-identity-backups"
 else
