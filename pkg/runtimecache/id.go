@@ -69,13 +69,13 @@ func ValidateCacheIDReference(ref string) error {
 
 func ResolveCacheID(items []Item, ref string) (string, error) {
 	ref = strings.TrimSpace(strings.ToLower(ref))
-	if _, err := ParseCacheID(ref); err == nil {
+	if parsed, err := ParseCacheID(ref); err == nil {
 		for _, item := range items {
-			if strings.EqualFold(item.CacheID, ref) {
+			if strings.EqualFold(item.CacheID, parsed.ID) {
 				return item.CacheID, nil
 			}
 		}
-		return ref, nil
+		return parsed.ID, nil
 	}
 	if !identity.IsIDPrefix(ref) {
 		return "", fmt.Errorf("%w: %s", ErrInvalidCacheID, ref)

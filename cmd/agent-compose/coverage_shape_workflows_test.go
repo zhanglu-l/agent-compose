@@ -673,7 +673,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 	}
 	inspect := composeImageInspectOutputFromResponse(&agentcomposev2.InspectImageResponse{Image: image, StoreStatus: store})
 	remove := composeImageRemoveOutputFromResponse(&agentcomposev2.RemoveImageResponse{ImageRef: "guest:latest", UntaggedRefs: []string{"guest:latest"}, DeletedIds: []string{"sha256:123"}, Warnings: []string{"warn"}})
-	if inspect.Image.ImageID == "" || remove.DeletedIDs[0] != "sha256:123" {
+	if inspect.Image.ImageID == "" || remove.DeletedIDs[0] != "123" {
 		t.Fatalf("inspect=%#v remove=%#v", inspect, remove)
 	}
 	cacheItem := &agentcomposev2.CacheItem{

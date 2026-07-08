@@ -1385,7 +1385,8 @@ func runComposeSandboxPruneCommand(cmd *cobra.Command, cli cliOptions, options c
 	if options.Force {
 		output.DryRun = false
 		for _, sandbox := range output.Matched {
-			if err := removeSandbox(cmd.Context(), clients.sandbox, sandbox.ID, false); err != nil {
+			removeID := firstNonEmptyString(sandbox.RawID, sandbox.ID)
+			if err := removeSandbox(cmd.Context(), clients.sandbox, removeID, false); err != nil {
 				output.Skipped = append(output.Skipped, composeSandboxPruneSkipped{
 					Sandbox:   sandbox.ID,
 					Agent:     sandbox.Agent,
@@ -1732,7 +1733,7 @@ func runComposeSchedulerListCommand(cmd *cobra.Command, cli cliOptions, args []s
 		return err
 	}
 	output := composeSchedulerListOutput{
-		Project:  composeUpProjectOutput{ID: projectID, Name: normalized.Name},
+		Project:  composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name},
 		Triggers: triggers,
 	}
 	if cli.JSON {
@@ -1781,10 +1782,10 @@ func runComposeSchedulerTriggerCommand(cmd *cobra.Command, cli cliOptions, optio
 		Source:          agentcomposev2.RunSource_RUN_SOURCE_MANUAL,
 		SessionId:       strings.TrimSpace(options.SandboxID),
 		Driver:          strings.TrimSpace(options.Driver),
-		SchedulerId:     trigger.SchedulerID,
-		TriggerId:       trigger.TriggerID,
+		SchedulerId:     firstNonEmptyString(trigger.RawSchedulerID, trigger.SchedulerID),
+		TriggerId:       firstNonEmptyString(trigger.RawTriggerID, trigger.TriggerID),
 		CleanupPolicy:   cleanupPolicy,
-		ClientRequestId: manualRunClientRequestID(normalized.Name, trigger.AgentName, trigger.TriggerID),
+		ClientRequestId: manualRunClientRequestID(normalized.Name, trigger.AgentName, firstNonEmptyString(trigger.RawTriggerID, trigger.TriggerID)),
 		Jupyter:         jupyter,
 	}
 	return executeComposeRunRequest(cmd, cli, normalized.Name, projectID, clients.run, runReq, options.Detach)
@@ -1804,7 +1805,7 @@ func runComposeSchedulerInspectCommand(cmd *cobra.Command, cli cliOptions, agent
 		return err
 	}
 	output := composeSchedulerInspectOutput{
-		Project:   composeUpProjectOutput{ID: projectID, Name: normalized.Name},
+		Project:   composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name},
 		Source:    trigger.Source,
 		AgentName: trigger.AgentName,
 		Trigger:   trigger,
@@ -1900,7 +1901,7 @@ func resolveComposeSchedulerTrigger(ctx context.Context, clients cliServiceClien
 	}
 	var matches []composeSchedulerTriggerItem
 	for _, item := range items {
-		if item.TriggerID == triggerRef || (item.Name != "" && item.Name == triggerRef) {
+		if item.TriggerID == triggerRef || item.RawTriggerID == triggerRef || (item.Name != "" && item.Name == triggerRef) {
 			matches = append(matches, item)
 		}
 	}
@@ -1918,11 +1919,14 @@ func schedulerTriggerItemFromDeclarative(agentName, schedulerID, managedLoaderID
 	return composeSchedulerTriggerItem{
 		AgentName:        agentName,
 		Name:             strings.TrimSpace(trigger.Name),
-		TriggerID:        triggerID,
+		TriggerID:        displayOpaqueID(triggerID),
+		RawTriggerID:     triggerID,
 		Kind:             trigger.Kind,
 		Source:           "declarative",
-		SchedulerID:      schedulerID,
-		ManagedLoaderID:  managedLoaderID,
+		SchedulerID:      displayOpaqueID(schedulerID),
+		RawSchedulerID:   schedulerID,
+		ManagedLoaderID:  displayOpaqueID(managedLoaderID),
+		RawManagedLoader: managedLoaderID,
 		SchedulerEnabled: schedulerEnabled,
 		TriggerEnabled:   true,
 		declarative:      protoTrigger,
@@ -1932,11 +1936,14 @@ func schedulerTriggerItemFromDeclarative(agentName, schedulerID, managedLoaderID
 func schedulerTriggerItemFromRegistered(agentName, schedulerID, managedLoaderID string, schedulerEnabled bool, trigger *agentcomposev1.LoaderTrigger) composeSchedulerTriggerItem {
 	return composeSchedulerTriggerItem{
 		AgentName:        agentName,
-		TriggerID:        trigger.GetTriggerId(),
+		TriggerID:        displayOpaqueID(trigger.GetTriggerId()),
+		RawTriggerID:     trigger.GetTriggerId(),
 		Kind:             loaderTriggerKindText(trigger.GetKind()),
 		Source:           "script",
-		SchedulerID:      schedulerID,
-		ManagedLoaderID:  managedLoaderID,
+		SchedulerID:      displayOpaqueID(schedulerID),
+		RawSchedulerID:   schedulerID,
+		ManagedLoaderID:  displayOpaqueID(managedLoaderID),
+		RawManagedLoader: managedLoaderID,
 		SchedulerEnabled: schedulerEnabled,
 		TriggerEnabled:   trigger.GetEnabled(),
 		Topic:            trigger.GetTopic(),
@@ -1985,8 +1992,8 @@ func writeSchedulerInspectText(out io.Writer, output composeSchedulerInspectOutp
 
 func loaderTriggerYAMLShape(trigger *agentcomposev1.LoaderTrigger) map[string]any {
 	raw := map[string]any{
-		"loader_id":     trigger.GetLoaderId(),
-		"trigger_id":    trigger.GetTriggerId(),
+		"loader_id":     displayOpaqueID(trigger.GetLoaderId()),
+		"trigger_id":    displayOpaqueID(trigger.GetTriggerId()),
 		"kind":          loaderTriggerKindText(trigger.GetKind()),
 		"enabled":       trigger.GetEnabled(),
 		"auto_id":       trigger.GetAutoId(),
@@ -2223,8 +2230,8 @@ func writeTranscriptOrChunk(stdout, stderr io.Writer, transcript *agentcomposev2
 
 func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCommand string) error {
 	if _, err := fmt.Fprintf(out, "Run: %s\nSandbox: %s\nStatus: %s\nLogs: %s\n",
-		firstNonEmptyString(run.GetRunId(), "-"),
-		firstNonEmptyString(run.GetSessionId(), "-"),
+		firstNonEmptyString(displayOpaqueID(run.GetRunId()), "-"),
+		firstNonEmptyString(displayOpaqueID(run.GetSessionId()), "-"),
 		runStatusText(run.GetStatus()),
 		logsCommand,
 	); err != nil {
@@ -3609,6 +3616,7 @@ type composePSOutput struct {
 
 type composePSSandboxOutput struct {
 	ID         string `json:"id"`
+	RawID      string `json:"-"`
 	ShortID    string `json:"short_id"`
 	Agent      string `json:"agent,omitempty"`
 	Status     string `json:"status"`
@@ -3709,10 +3717,13 @@ type composeSchedulerTriggerItem struct {
 	AgentName        string `json:"agent_name"`
 	Name             string `json:"name,omitempty"`
 	TriggerID        string `json:"trigger_id"`
+	RawTriggerID     string `json:"-"`
 	Kind             string `json:"kind"`
 	Source           string `json:"source"`
 	SchedulerID      string `json:"scheduler_id,omitempty"`
+	RawSchedulerID   string `json:"-"`
 	ManagedLoaderID  string `json:"managed_loader_id,omitempty"`
+	RawManagedLoader string `json:"-"`
 	SchedulerEnabled bool   `json:"scheduler_enabled"`
 	TriggerEnabled   bool   `json:"trigger_enabled"`
 	Topic            string `json:"topic,omitempty"`
@@ -3900,7 +3911,7 @@ func composeProjectListItemFromSummary(summary *agentcomposev2.ProjectSummary) c
 		projectDir = filepath.Dir(configFile)
 	}
 	return composeProjectListItem{
-		ID:              summary.GetProjectId(),
+		ID:              displayOpaqueID(summary.GetProjectId()),
 		Name:            summary.GetName(),
 		ShortID:         shortOpaqueID(summary.GetProjectId()),
 		ConfigFile:      configFile,
@@ -3911,7 +3922,7 @@ func composeProjectListItemFromSummary(summary *agentcomposev2.ProjectSummary) c
 		SchedulerCount:  summary.GetSchedulerCount(),
 		ServiceCount:    nil,
 		RunningRunCount: summary.GetRunningRunCount(),
-		LatestRunID:     summary.GetLatestRunId(),
+		LatestRunID:     displayOpaqueID(summary.GetLatestRunId()),
 		CreatedAt:       summary.GetCreatedAt(),
 		UpdatedAt:       summary.GetUpdatedAt(),
 		RemovedAt:       summary.GetRemovedAt(),
@@ -3926,7 +3937,7 @@ func composeUpOutputFromResponse(resp *agentcomposev2.ApplyProjectResponse) comp
 		changes = append(changes, composeUpChangeOutput{
 			Action:       projectChangeActionText(change.GetAction()),
 			ResourceType: change.GetResourceType(),
-			ID:           change.GetResourceId(),
+			ID:           displayOpaqueID(change.GetResourceId()),
 			ShortID:      shortOpaqueID(change.GetResourceId()),
 			Name:         change.GetName(),
 			Message:      change.GetMessage(),
@@ -3934,7 +3945,7 @@ func composeUpOutputFromResponse(resp *agentcomposev2.ApplyProjectResponse) comp
 	}
 	return composeUpOutput{
 		Project: composeUpProjectOutput{
-			ID:              summary.GetProjectId(),
+			ID:              displayOpaqueID(summary.GetProjectId()),
 			Name:            summary.GetName(),
 			ShortID:         shortOpaqueID(summary.GetProjectId()),
 			SourcePath:      summary.GetSourcePath(),
@@ -3977,7 +3988,7 @@ func composeChangeOutputs(changes []*agentcomposev2.ProjectChange) []composeUpCh
 		output = append(output, composeUpChangeOutput{
 			Action:       projectChangeActionText(change.GetAction()),
 			ResourceType: change.GetResourceType(),
-			ID:           change.GetResourceId(),
+			ID:           displayOpaqueID(change.GetResourceId()),
 			ShortID:      shortOpaqueID(change.GetResourceId()),
 			Name:         change.GetName(),
 			Message:      change.GetMessage(),
@@ -4179,11 +4190,12 @@ func composePSOutputFromProject(ctx context.Context, clients cliServiceClients, 
 		agent := firstNonEmptyString(run.GetAgentName(), tags["agent"])
 		runID := firstNonEmptyString(run.GetRunId(), tags["run_id"])
 		output.Sandboxes = append(output.Sandboxes, composePSSandboxOutput{
-			ID:         session.GetSessionId(),
+			ID:         displayOpaqueID(session.GetSessionId()),
+			RawID:      session.GetSessionId(),
 			ShortID:    shortOpaqueID(session.GetSessionId()),
 			Agent:      agent,
 			Status:     status,
-			RunID:      runID,
+			RunID:      displayOpaqueID(runID),
 			RunShortID: shortOpaqueID(runID),
 			CreatedAt:  session.GetCreatedAt(),
 			UpdatedAt:  session.GetUpdatedAt(),
@@ -4412,7 +4424,7 @@ func composeStatsOutputFromProto(stats *agentcomposev2.SandboxStats) composeStat
 		return composeStatsOutput{}
 	}
 	return composeStatsOutput{
-		ID:               stats.GetSandboxId(),
+		ID:               displayOpaqueID(stats.GetSandboxId()),
 		ShortID:          shortOpaqueID(stats.GetSandboxId()),
 		Driver:           stats.GetDriver(),
 		SampledAt:        stats.GetSampledAt(),
@@ -4446,7 +4458,8 @@ func composeProjectStatsOutputFromProject(ctx context.Context, clients cliServic
 	}
 	output.Stats = make([]composeStatsOutput, 0, len(psOutput.Sandboxes))
 	for _, sandbox := range psOutput.Sandboxes {
-		stats, err := composeStatsOutputForSandbox(ctx, clients.sandbox, sandbox.ID)
+		sandboxID := firstNonEmptyString(sandbox.RawID, sandbox.ID)
+		stats, err := composeStatsOutputForSandbox(ctx, clients.sandbox, sandboxID)
 		if err != nil {
 			return composeProjectStatsOutput{}, fmt.Errorf("get sandbox %s stats: %w", sandbox.ID, err)
 		}
@@ -4565,7 +4578,7 @@ func composeAgentInspectOutputFor(ctx context.Context, clients cliServiceClients
 
 func composeProjectSummaryOutput(summary *agentcomposev2.ProjectSummary) composeUpProjectOutput {
 	return composeUpProjectOutput{
-		ID:              summary.GetProjectId(),
+		ID:              displayOpaqueID(summary.GetProjectId()),
 		Name:            summary.GetName(),
 		ShortID:         shortOpaqueID(summary.GetProjectId()),
 		SourcePath:      summary.GetSourcePath(),
@@ -4578,7 +4591,7 @@ func composeProjectSummaryOutput(summary *agentcomposev2.ProjectSummary) compose
 
 func composeProjectAgentOutputFromProto(agent *agentcomposev2.ProjectAgent) composeProjectAgentOutput {
 	return composeProjectAgentOutput{
-		ID:               agent.GetManagedAgentId(),
+		ID:               displayOpaqueID(agent.GetManagedAgentId()),
 		Name:             agent.GetAgentName(),
 		ShortID:          shortOpaqueID(agent.GetManagedAgentId()),
 		Provider:         agent.GetProvider(),
@@ -4592,8 +4605,8 @@ func composeProjectAgentOutputFromProto(agent *agentcomposev2.ProjectAgent) comp
 func composeProjectSchedulerOutputFromProto(scheduler *agentcomposev2.ProjectScheduler) composeProjectSchedulerOutput {
 	return composeProjectSchedulerOutput{
 		AgentName:       scheduler.GetAgentName(),
-		SchedulerID:     scheduler.GetSchedulerId(),
-		ManagedLoaderID: scheduler.GetManagedLoaderId(),
+		SchedulerID:     displayOpaqueID(scheduler.GetSchedulerId()),
+		ManagedLoaderID: displayOpaqueID(scheduler.GetManagedLoaderId()),
 		Enabled:         scheduler.GetEnabled(),
 		TriggerCount:    scheduler.GetTriggerCount(),
 	}
@@ -4605,14 +4618,14 @@ func composeRunOutputFromDetail(run *agentcomposev2.RunDetail) composeRunOutput 
 
 func composeRunOutputFromSummary(run *agentcomposev2.RunSummary, projectName, logsCommand string) composeRunOutput {
 	return composeRunOutput{
-		ID:             run.GetRunId(),
+		ID:             displayOpaqueID(run.GetRunId()),
 		ShortID:        shortOpaqueID(run.GetRunId()),
-		ProjectID:      run.GetProjectId(),
+		ProjectID:      displayOpaqueID(run.GetProjectId()),
 		ProjectName:    firstNonEmptyString(run.GetProjectName(), projectName),
 		AgentName:      run.GetAgentName(),
 		Source:         runSourceText(run.GetSource()),
 		Status:         runStatusText(run.GetStatus()),
-		SandboxID:      run.GetSessionId(),
+		SandboxID:      displayOpaqueID(run.GetSessionId()),
 		SandboxShortID: shortOpaqueID(run.GetSessionId()),
 		ExitCode:       run.GetExitCode(),
 		Error:          run.GetError(),
@@ -4627,14 +4640,14 @@ func composeRunOutputFromSummary(run *agentcomposev2.RunSummary, projectName, lo
 func composeRunOutputFromDetailWithOptions(run *agentcomposev2.RunDetail, options composeLogsOptions) composeRunOutput {
 	summary := run.GetSummary()
 	return composeRunOutput{
-		ID:             summary.GetRunId(),
+		ID:             displayOpaqueID(summary.GetRunId()),
 		ShortID:        shortOpaqueID(summary.GetRunId()),
-		ProjectID:      summary.GetProjectId(),
+		ProjectID:      displayOpaqueID(summary.GetProjectId()),
 		ProjectName:    summary.GetProjectName(),
 		AgentName:      summary.GetAgentName(),
 		Source:         runSourceText(summary.GetSource()),
 		Status:         runStatusText(summary.GetStatus()),
-		SandboxID:      summary.GetSessionId(),
+		SandboxID:      displayOpaqueID(summary.GetSessionId()),
 		SandboxShortID: shortOpaqueID(summary.GetSessionId()),
 		ExitCode:       summary.GetExitCode(),
 		Error:          summary.GetError(),
@@ -4655,9 +4668,9 @@ func composeRunOutputFromDetailWithOptions(run *agentcomposev2.RunDetail, option
 
 func composeExecOutputFromResult(result *agentcomposev2.ExecResult) composeExecOutput {
 	return composeExecOutput{
-		ExecID:    result.GetExecId(),
-		SandboxID: result.GetSessionId(),
-		RunID:     result.GetRunId(),
+		ExecID:    displayOpaqueID(result.GetExecId()),
+		SandboxID: displayOpaqueID(result.GetSessionId()),
+		RunID:     displayOpaqueID(result.GetRunId()),
 		Command:   result.GetCommand().GetCommand(),
 		Args:      append([]string(nil), result.GetCommand().GetArgs()...),
 		Cwd:       result.GetCwd(),
@@ -4695,7 +4708,7 @@ func composeImagePullOutputFromResponse(resp *agentcomposev2.PullImageResponse) 
 	}
 	for _, item := range resp.GetProgress() {
 		output.Progress = append(output.Progress, composeImageProgressItem{
-			ID:           item.GetId(),
+			ID:           displayOpaqueID(item.GetId()),
 			Status:       item.GetStatus(),
 			Progress:     item.GetProgress(),
 			CurrentBytes: item.GetCurrentBytes(),
@@ -4734,7 +4747,7 @@ func composeCacheOperationOutputFromPruneResponse(resp *agentcomposev2.PruneCach
 	output := composeCacheOperationOutput{
 		DryRun:   resp.GetDryRun(),
 		Matched:  make([]composeCacheOutput, 0, len(resp.GetMatched())),
-		Removed:  append([]string(nil), resp.GetRemoved()...),
+		Removed:  displayOpaqueIDs(resp.GetRemoved()),
 		Skipped:  make([]composeCacheOutput, 0, len(resp.GetSkipped())),
 		Warnings: append([]string(nil), resp.GetWarnings()...),
 	}
@@ -4751,7 +4764,7 @@ func composeCacheOperationOutputFromRemoveResponse(resp *agentcomposev2.RemoveCa
 	output := composeCacheOperationOutput{
 		DryRun:   resp.GetDryRun(),
 		Matched:  make([]composeCacheOutput, 0, len(resp.GetMatched())),
-		Removed:  append([]string(nil), resp.GetRemoved()...),
+		Removed:  displayOpaqueIDs(resp.GetRemoved()),
 		Skipped:  make([]composeCacheOutput, 0, len(resp.GetSkipped())),
 		Warnings: append([]string(nil), resp.GetWarnings()...),
 	}
@@ -4768,7 +4781,7 @@ func composeImageRemoveOutputFromResponse(resp *agentcomposev2.RemoveImageRespon
 	return composeImageRemoveOutput{
 		ImageRef:     resp.GetImageRef(),
 		UntaggedRefs: append([]string(nil), resp.GetUntaggedRefs()...),
-		DeletedIDs:   append([]string(nil), resp.GetDeletedIds()...),
+		DeletedIDs:   displayOpaqueIDs(resp.GetDeletedIds()),
 		Warnings:     append([]string(nil), resp.GetWarnings()...),
 	}
 }
@@ -4781,7 +4794,7 @@ func composeCacheOutputFromProto(cache *agentcomposev2.CacheItem) composeCacheOu
 	for _, ref := range cache.GetReferences() {
 		refs = append(refs, composeCacheReferenceOutput{
 			Type:        ref.GetType(),
-			ID:          ref.GetId(),
+			ID:          displayOpaqueID(ref.GetId()),
 			Name:        ref.GetName(),
 			Path:        ref.GetPath(),
 			Status:      ref.GetStatus(),
@@ -4789,7 +4802,7 @@ func composeCacheOutputFromProto(cache *agentcomposev2.CacheItem) composeCacheOu
 		})
 	}
 	return composeCacheOutput{
-		ID:             cache.GetCacheId(),
+		ID:             displayOpaqueID(cache.GetCacheId()),
 		ShortID:        identity.ShortID(cache.GetCacheId()),
 		Domain:         cacheDomainText(cache.GetDomain()),
 		Type:           cacheTypeText(cache.GetDomain()),
@@ -4797,11 +4810,11 @@ func composeCacheOutputFromProto(cache *agentcomposev2.CacheItem) composeCacheOu
 		Kind:           cache.GetKind(),
 		Path:           cache.GetPath(),
 		SizeBytes:      cache.GetSizeBytes(),
-		ImageID:        cache.GetImageId(),
+		ImageID:        displayOpaqueID(cache.GetImageId()),
 		ImageRef:       cache.GetImageRef(),
 		ResolvedRef:    cache.GetResolvedRef(),
-		SessionID:      cache.GetSessionId(),
-		SandboxID:      cache.GetSandboxId(),
+		SessionID:      displayOpaqueID(cache.GetSessionId()),
+		SandboxID:      displayOpaqueID(cache.GetSandboxId()),
 		Status:         cacheStatusText(cache.GetStatus()),
 		Removable:      cache.GetRemovable(),
 		BlockedReasons: append([]string(nil), cache.GetBlockedReasons()...),
@@ -4817,7 +4830,7 @@ func composeImageOutputFromProto(image *agentcomposev2.Image) composeImageOutput
 		return composeImageOutput{}
 	}
 	return composeImageOutput{
-		ImageID:            image.GetImageId(),
+		ImageID:            displayOpaqueID(image.GetImageId()),
 		ShortID:            identity.ShortID(image.GetImageId()),
 		ImageRef:           image.GetImageRef(),
 		ResolvedRef:        image.GetResolvedRef(),
@@ -4858,10 +4871,11 @@ func writeImagesText(out io.Writer, images []composeImageOutput, verbose bool) e
 		return err
 	}
 	for _, image := range images {
+		ref := imageListRefForText(image)
 		diskUsage := formatImageSizeForText(firstNonZeroUint64(image.VirtualSizeBytes, image.SizeBytes))
 		if verbose {
 			if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				firstNonEmptyString(image.ImageRef, image.ResolvedRef, "-"),
+				ref,
 				shortImageID(image.ImageID),
 				firstNonEmptyString(image.Store, "-"),
 				firstNonEmptyString(image.AvailabilityStatus, "-"),
@@ -4876,13 +4890,36 @@ func writeImagesText(out io.Writer, images []composeImageOutput, verbose bool) e
 		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n",
 			shortImageID(image.ImageID),
-			firstNonEmptyString(image.ImageRef, image.ResolvedRef, "-"),
+			ref,
 			diskUsage,
 		); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
+}
+
+func imageListRefForText(image composeImageOutput) string {
+	if ref := firstNonEmptyString(image.RepoTags...); ref != "" {
+		return ref
+	}
+	ref := firstNonEmptyString(image.ImageRef, image.ResolvedRef)
+	if imageRefLooksUntagged(ref, image.ImageID) {
+		return "<none>"
+	}
+	return firstNonEmptyString(ref, "<none>")
+}
+
+func imageRefLooksUntagged(ref, imageID string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return true
+	}
+	trimmedID := strings.TrimSpace(imageID)
+	if trimmedID != "" && ref == trimmedID {
+		return true
+	}
+	return strings.HasPrefix(ref, "sha256:") || strings.Contains(ref, "@sha256:")
 }
 
 func formatImageSizeForText(size uint64) string {
@@ -5232,7 +5269,7 @@ func composeSessionOutputFromSummary(summary *agentcomposev1.SessionSummary) com
 		tags = nil
 	}
 	return composeSessionOutput{
-		ID:            summary.GetSessionId(),
+		ID:            displayOpaqueID(summary.GetSessionId()),
 		ShortID:       identity.ShortID(summary.GetSessionId()),
 		Title:         summary.GetTitle(),
 		Driver:        summary.GetDriver(),
@@ -5445,7 +5482,7 @@ func resolveComposeSandboxRefFromProject(ctx context.Context, clients cliService
 	matches := map[string]struct{}{}
 	for _, sandbox := range psOutput.Sandboxes {
 		if resourceIDMatchesRef(sandbox.ID, sandbox.ShortID, ref) {
-			matches[sandbox.ID] = struct{}{}
+			matches[firstNonEmptyString(sandbox.RawID, sandbox.ID)] = struct{}{}
 		}
 	}
 	if len(matches) == 0 {
@@ -5575,7 +5612,7 @@ func composeLogRunOutputFromDetail(run *agentcomposev2.RunDetail, options compos
 	summary := run.GetSummary()
 	return composeLogRunOutput{
 		AgentName:  summary.GetAgentName(),
-		RunID:      summary.GetRunId(),
+		RunID:      displayOpaqueID(summary.GetRunId()),
 		RunShortID: shortOpaqueID(summary.GetRunId()),
 		Time:       formatComposeLogTimestamp(runLogTimestamp(summary)),
 		Content:    tailLogOutput(run.GetOutput(), options.TailLines),
@@ -6017,19 +6054,33 @@ func imagePlatformText(platform *agentcomposev2.ImagePlatform) string {
 }
 
 func shortImageID(id string) string {
-	id = strings.TrimPrefix(strings.TrimSpace(id), "sha256:")
+	id = displayOpaqueID(id)
 	if len(id) > 12 {
 		return id[:12]
 	}
 	return id
 }
 
+func displayOpaqueID(id string) string {
+	return strings.TrimPrefix(strings.TrimSpace(id), identity.Prefix)
+}
+
+func displayOpaqueIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, displayOpaqueID(id))
+	}
+	return out
+}
+
 func shortOpaqueID(id string) string {
-	id = strings.TrimSpace(id)
+	id = displayOpaqueID(id)
 	if id == "" {
 		return ""
 	}
-	id = strings.TrimPrefix(id, "sha256:")
 	if len(id) > 12 {
 		return id[:12]
 	}

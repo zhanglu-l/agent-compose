@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"agent-compose/pkg/identity"
 )
 
 var testCacheIDRE = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -110,6 +112,15 @@ func TestResolveCacheIDExactAndPrefix(t *testing.T) {
 	}
 	if resolved != first.CacheID {
 		t.Fatalf("ResolveCacheID exact = %q, want %q", resolved, first.CacheID)
+	}
+
+	bareFirst := strings.TrimPrefix(first.CacheID, identity.Prefix)
+	resolved, err = ResolveCacheID(items, bareFirst)
+	if err != nil {
+		t.Fatalf("ResolveCacheID bare exact returned error: %v", err)
+	}
+	if resolved != first.CacheID {
+		t.Fatalf("ResolveCacheID bare exact = %q, want %q", resolved, first.CacheID)
 	}
 
 	prefix := ShortCacheID(second.CacheID)

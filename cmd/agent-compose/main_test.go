@@ -2528,7 +2528,7 @@ agents:
 	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
 		t.Fatalf("logs JSON decode failed: %v\n%s", err, stdout)
 	}
-	if len(decoded.Runs) != 1 || decoded.Runs[0].RunID != runID || decoded.Runs[0].Content != "stored log output\n" {
+	if len(decoded.Runs) != 1 || decoded.Runs[0].RunID != displayOpaqueID(runID) || decoded.Runs[0].Content != "stored log output\n" {
 		t.Fatalf("logs JSON = %#v", decoded)
 	}
 	if !sawFilteredList {
@@ -5058,7 +5058,7 @@ func TestIntegrationCLIRemoveImageDoesNotDeleteRuntimeCachesWithInProcessDaemon(
 	if err := json.Unmarshal([]byte(stdout), &removed); err != nil {
 		t.Fatalf("rmi JSON decode failed: %v\n%s", err, stdout)
 	}
-	if len(removed.DeletedIDs) != 1 || removed.DeletedIDs[0] != imageID || len(removed.Warnings) == 0 {
+	if len(removed.DeletedIDs) != 1 || removed.DeletedIDs[0] != displayOpaqueID(imageID) || len(removed.Warnings) == 0 {
 		t.Fatalf("rmi output = %#v", removed)
 	}
 	for _, path := range []string{
@@ -5440,7 +5440,7 @@ func TestIntegrationCLIImageRemoveAliasesAndJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
 		t.Fatalf("rmi JSON decode failed: %v\n%s", err, stdout)
 	}
-	if decoded.ImageRef != "agent:old" || decoded.UntaggedRefs[0] != "agent:old" || decoded.DeletedIDs[0] != "sha256:old" {
+	if decoded.ImageRef != "agent:old" || decoded.UntaggedRefs[0] != "agent:old" || decoded.DeletedIDs[0] != "old" {
 		t.Fatalf("rmi JSON = %#v", decoded)
 	}
 
@@ -5449,7 +5449,7 @@ func TestIntegrationCLIImageRemoveAliasesAndJSON(t *testing.T) {
 		t.Fatalf("image rm code/stderr = %d / %q", textCode, textErr)
 	}
 	assertDeprecatedWarning(t, textErr, "agent-compose rmi")
-	if !strings.Contains(textOut, "Untagged: agent:old") || !strings.Contains(textOut, "Deleted: sha256:old") {
+	if !strings.Contains(textOut, "Untagged: agent:old") || !strings.Contains(textOut, "Deleted: old") {
 		t.Fatalf("image rm output = %q", textOut)
 	}
 	if calls != 2 {
@@ -5572,7 +5572,7 @@ func TestComposeImageOutputFromProtoAcceptsOCIStatus(t *testing.T) {
 	}
 
 	output := composeImageOutputFromProto(image)
-	if output.Store != "oci-cache" || output.ImageID != "sha256:oci123456789" || output.ImageRef != "agent:latest" || output.Platform != "linux/amd64" {
+	if output.Store != "oci-cache" || output.ImageID != "oci123456789" || output.ImageRef != "agent:latest" || output.Platform != "linux/amd64" {
 		t.Fatalf("OCI image output = %#v", output)
 	}
 }
@@ -5906,6 +5906,21 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 		t.Fatalf("images text = %q", text.String())
 	}
 	text.Reset()
+	untaggedImage := composeImageOutput{
+		ImageID:          "sha256:7e31c0c15f55c1c4bc9ccbd8d435987df0893c71f1ecdb324e87df0bc77e1c2a",
+		ShortID:          "7e31c0c15f55",
+		ImageRef:         "sha256:7e31c0c15f55c1c4bc9ccbd8d435987df0893c71f1ecdb324e87df0bc77e1c2a",
+		ResolvedRef:      "example.com/agent@sha256:7e31c0c15f55c1c4bc9ccbd8d435987df0893c71f1ecdb324e87df0bc77e1c2a",
+		SizeBytes:        559279329,
+		VirtualSizeBytes: 559279329,
+	}
+	if err := writeImagesText(&text, []composeImageOutput{untaggedImage}, false); err != nil {
+		t.Fatalf("writeImagesText untagged returned error: %v", err)
+	}
+	if !strings.Contains(text.String(), "<none>") || strings.Contains(text.String(), "example.com/agent@sha256") || strings.Contains(text.String(), "sha256:7e31c0c15f55") {
+		t.Fatalf("untagged images text = %q", text.String())
+	}
+	text.Reset()
 	if err := writeImagesText(&text, listOutput.Images, true); err != nil {
 		t.Fatalf("writeImagesText verbose returned error: %v", err)
 	}
@@ -5920,6 +5935,9 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	}
 	if formatImageCreatedForText("") != "-" || formatImageCreatedForText("created") != "created" || formatImageAgeForText(2*time.Hour) != "2 hours" {
 		t.Fatalf("image time helper output mismatch")
+	}
+	if imageListRefForText(untaggedImage) != "<none>" || imageRefLooksUntagged("example.com/agent@sha256:def", "") != true || imageRefLooksUntagged("agent:latest", "") {
+		t.Fatalf("image ref text helper output mismatch")
 	}
 
 	cache := composeCacheOutputFromProto(testCLICache("cache-full"))
