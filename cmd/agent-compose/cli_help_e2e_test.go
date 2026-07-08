@@ -104,7 +104,7 @@ func TestE2ECLIHelpCoversUserWorkflowCommandSurface(t *testing.T) {
 		{
 			name: "inspect",
 			args: []string{"inspect", "--help"},
-			want: []string{"Inspect project, agent, run, sandbox, image, or cache details"},
+			want: []string{"Inspect project, agent, run, sandbox, image, cache, or volume details"},
 		},
 	}
 
