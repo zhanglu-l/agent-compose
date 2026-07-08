@@ -5,10 +5,6 @@ playground
 .cache
 data
 build/*
-!build/boxlite/
-!build/boxlite/**
-!build/microsandbox/
-!build/microsandbox/**
 vendor
 node_modules
 runtime/javascript/node_modules

@@ -3,12 +3,6 @@ ARG GOPROXY=https://goproxy.cn,direct
 
 FROM ${REGISTRY_MIRROR}/library/golang:1-alpine AS golang-toolchain
 
-FROM scratch AS boxlite-local
-COPY build/boxlite /out
-
-FROM scratch AS microsandbox-local
-COPY build/microsandbox /out
-
 FROM ${REGISTRY_MIRROR}/library/debian:bookworm AS go-build
 ARG GOPROXY
 ARG HTTP_PROXY
@@ -25,16 +19,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY --from=golang-toolchain /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:${PATH}
 WORKDIR /app
-COPY --from=boxlite-local /out /app/build/boxlite
+COPY --from=boxlite-local / /app/build/boxlite
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY="${GOPROXY}" && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go env -w GOPROXY="${GOPROXY}" && go mod download
 COPY cmd ./cmd
 COPY pkg ./pkg
 COPY assets ./assets
 COPY proto ./proto
 ARG VERSION=0
 ARG TARGETARCH
-RUN target_arch="${TARGETARCH:-$(dpkg --print-architecture)}" && CGO_ENABLED=1 GOOS=linux GOARCH=${target_arch} go build -ldflags "-X agent-compose/pkg/config.BuildVersion=${VERSION}" -tags 'netgo,osusergo,boxlitecgo' -o /out/agent-compose ./cmd/agent-compose
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    target_arch="${TARGETARCH:-$(dpkg --print-architecture)}" && CGO_ENABLED=1 GOOS=linux GOARCH=${target_arch} go build -ldflags "-X agent-compose/pkg/config.BuildVersion=${VERSION}" -tags 'netgo,osusergo,boxlitecgo' -o /out/agent-compose ./cmd/agent-compose
 
 FROM scratch AS agent-compose-artifact
 COPY --from=go-build /out/agent-compose /out/agent-compose
@@ -46,8 +43,8 @@ RUN ln -sfv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shang
 WORKDIR /app
 COPY --from=go-build /out/agent-compose /app/agent-compose
 RUN ln -sf /app/agent-compose /usr/local/bin/agent-compose
-COPY --from=boxlite-local /out/runtime /app/boxlite/runtime
-COPY --from=microsandbox-local /out /app/microsandbox
+COPY --from=boxlite-local /runtime /app/boxlite/runtime
+COPY --from=microsandbox-local / /app/microsandbox
 ENV RUNTIME_DRIVER=docker
 ENV DATA_ROOT=/data
 ENV SESSION_ROOT=/data/sessions

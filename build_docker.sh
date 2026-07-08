@@ -30,6 +30,13 @@ build_args=(
   --build-arg "GOPROXY=$GOPROXY_VALUE"
 )
 
+if [[ "$(basename "$DOCKERFILE")" == "Dockerfile.agent-compose-local" ]]; then
+  build_args+=(
+    --build-context "boxlite-local=$ROOT_DIR/build/boxlite"
+    --build-context "microsandbox-local=$ROOT_DIR/build/microsandbox"
+  )
+fi
+
 if [[ "${NO_CACHE:-}" == "1" ]]; then
   build_args+=(--no-cache)
 fi
