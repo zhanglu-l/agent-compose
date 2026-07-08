@@ -198,7 +198,7 @@ tasks:
     dir: '{{.TASKFILE_DIR}}'
     cmds:
       - mkdir -p ./build/
-      - CGO_ENABLED=0 GOOS={{.GOOS}} GOARCH={{.GOARCH}} {{.GO_TOOLCHAIN_ENV}} go build -v -ldflags '{{.GO_LDFLAGS}}' -tags netgo,osusergo -o ./build/agent-compose ./cmd/agent-compose/
+      - GOCACHE={{.GO_BUILD_CACHE_DIR}} CGO_ENABLED=0 GOOS={{.GOOS}} GOARCH={{.GOARCH}} {{.GO_TOOLCHAIN_ENV}} go build -v -ldflags '{{.GO_LDFLAGS}}' -tags netgo,osusergo -o ./build/agent-compose ./cmd/agent-compose/
       - GOCACHE={{.GO_BUILD_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} go build ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect
 
   build:agent-compose:boxlite:
@@ -207,7 +207,7 @@ tasks:
     deps: ['prepare:boxlite-dev']
     cmds:
       - mkdir -p ./build/
-      - CGO_ENABLED=1 GOOS=linux GOARCH={{.GOARCH}} {{.GO_TOOLCHAIN_ENV}} go build -v -x -ldflags '{{.GO_LDFLAGS}}' -tags netgo,osusergo,boxlitecgo -o ./build/agent-compose ./cmd/agent-compose/
+      - GOCACHE={{.GO_BUILD_CACHE_DIR}} CGO_ENABLED=1 GOOS=linux GOARCH={{.GOARCH}} {{.GO_TOOLCHAIN_ENV}} go build -v -x -ldflags '{{.GO_LDFLAGS}}' -tags netgo,osusergo,boxlitecgo -o ./build/agent-compose ./cmd/agent-compose/
       - GOCACHE={{.GO_BUILD_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} go build ./proto/agentcompose/v2 ./proto/agentcompose/v2/agentcomposev2connect
 
   image:agent-compose:
