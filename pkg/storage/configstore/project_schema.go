@@ -20,7 +20,6 @@ func (s *projectStore) ensureProjectSchema(ctx context.Context) error {
 			removed_at INTEGER NOT NULL DEFAULT 0
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_name ON project(name, removed_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_project_short_id ON project(short_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_source_path ON project(source_path);`,
 		`CREATE TABLE IF NOT EXISTS project_revision (
 			project_id TEXT NOT NULL,
@@ -52,7 +51,6 @@ func (s *projectStore) ensureProjectSchema(ctx context.Context) error {
 			PRIMARY KEY(project_id, agent_name),
 			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_project_agent_id ON project_agent(id);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_agent_managed_agent ON project_agent(managed_agent_id);`,
 		`CREATE TABLE IF NOT EXISTS project_scheduler (
 			id TEXT NOT NULL DEFAULT '',
@@ -71,7 +69,6 @@ func (s *projectStore) ensureProjectSchema(ctx context.Context) error {
 			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE,
 			FOREIGN KEY(project_id, agent_name) REFERENCES project_agent(project_id, agent_name) ON DELETE CASCADE
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_project_scheduler_id ON project_scheduler(id);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_scheduler_agent ON project_scheduler(project_id, agent_name);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_scheduler_managed_loader ON project_scheduler(managed_loader_id);`,
 		`CREATE TABLE IF NOT EXISTS project_run (
@@ -105,10 +102,23 @@ func (s *projectStore) ensureProjectSchema(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_run_project_status ON project_run(project_id, status, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_run_agent ON project_run(project_id, agent_name, created_at DESC);`,
-		`CREATE INDEX IF NOT EXISTS idx_project_run_sandbox ON project_run(sandbox_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_project_run_scheduler ON project_run(project_id, scheduler_id, trigger_id);`,
 	}
 	for _, stmt := range statements {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("create project schema: %w", err)
+		}
+	}
+	if err := s.ensureProjectColumns(ctx); err != nil {
+		return err
+	}
+	indexStatements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_project_short_id ON project(short_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_project_agent_id ON project_agent(id);`,
+		`CREATE INDEX IF NOT EXISTS idx_project_scheduler_id ON project_scheduler(id);`,
+		`CREATE INDEX IF NOT EXISTS idx_project_run_sandbox ON project_run(sandbox_id);`,
+	}
+	for _, stmt := range indexStatements {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("create project schema: %w", err)
 		}
@@ -121,6 +131,60 @@ func (s *projectStore) ensureProjectSchema(ctx context.Context) error {
 
 func (s *projectStore) EnsureProjectSchema(ctx context.Context) error {
 	return s.ensureProjectSchema(ctx)
+}
+
+func (s *projectStore) ensureProjectColumns(ctx context.Context) error {
+	projectColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "short_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range projectColumns {
+		if err := ensureColumn(ctx, s.db, "project", column.name, column.definition); err != nil {
+			return fmt.Errorf("ensure project column %s: %w", column.name, err)
+		}
+	}
+
+	agentColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "short_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range agentColumns {
+		if err := ensureColumn(ctx, s.db, "project_agent", column.name, column.definition); err != nil {
+			return fmt.Errorf("ensure project agent column %s: %w", column.name, err)
+		}
+	}
+
+	schedulerColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "short_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range schedulerColumns {
+		if err := ensureColumn(ctx, s.db, "project_scheduler", column.name, column.definition); err != nil {
+			return fmt.Errorf("ensure project scheduler column %s: %w", column.name, err)
+		}
+	}
+
+	runColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "sandbox_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range runColumns {
+		if err := ensureColumn(ctx, s.db, "project_run", column.name, column.definition); err != nil {
+			return fmt.Errorf("ensure project run column %s: %w", column.name, err)
+		}
+	}
+	return nil
 }
 
 func (s *projectStore) ensureManagedResourceColumns(ctx context.Context) error {
