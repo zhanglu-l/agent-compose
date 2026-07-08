@@ -15,6 +15,8 @@ import (
 )
 
 func TestEnsureSessionLLMFacadeConfigCreatesCodexEnvAndToken(t *testing.T) {
+	isolateLLMEnv(t)
+
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
@@ -64,6 +66,8 @@ func TestEnsureSessionLLMFacadeConfigCreatesCodexEnvAndToken(t *testing.T) {
 }
 
 func TestEnsureSessionAgentRuntimeConfigClaudeAndOpenCodeWorkflows(t *testing.T) {
+	isolateLLMEnv(t)
+
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
@@ -150,5 +154,24 @@ func TestEnsureSessionAgentRuntimeConfigClaudeAndOpenCodeWorkflows(t *testing.T)
 	}
 	if got := firstNonEmpty(" \t", "value"); got != "value" {
 		t.Fatalf("firstNonEmpty = %q, want value", got)
+	}
+}
+
+func isolateLLMEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"LLM_API_ENDPOINT",
+		"LLM_API_PROTOCOL",
+		"LLM_API_KEY",
+		"OPENAI_API_KEY",
+		"LLM_MODEL",
+		"ANTHROPIC_BASE_URL",
+		"ANTHROPIC_API_ENDPOINT",
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_AUTH_TOKEN",
+		"ANTHROPIC_MODEL",
+		"CLAUDE_MODEL",
+	} {
+		t.Setenv(key, "")
 	}
 }

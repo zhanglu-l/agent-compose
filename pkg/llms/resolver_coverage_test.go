@@ -10,6 +10,8 @@ import (
 )
 
 func TestResolverBootstrapAndRuntimeTargetWorkflows(t *testing.T) {
+	isolateLLMEnv(t)
+
 	ctx := context.Background()
 	store := newResolverCoverageStore()
 	config := &appconfig.Config{
@@ -84,6 +86,25 @@ func TestResolverBootstrapAndRuntimeTargetWorkflows(t *testing.T) {
 	emptyStore := newResolverCoverageStore()
 	if _, err := ResolveRuntimeLLMTarget(ctx, &appconfig.Config{}, emptyStore, "", ""); err == nil {
 		t.Fatal("ResolveRuntimeLLMTarget returned nil error without model/provider")
+	}
+}
+
+func isolateLLMEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"LLM_API_ENDPOINT",
+		"LLM_API_PROTOCOL",
+		"LLM_API_KEY",
+		"OPENAI_API_KEY",
+		"LLM_MODEL",
+		"ANTHROPIC_BASE_URL",
+		"ANTHROPIC_API_ENDPOINT",
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_AUTH_TOKEN",
+		"ANTHROPIC_MODEL",
+		"CLAUDE_MODEL",
+	} {
+		t.Setenv(key, "")
 	}
 }
 

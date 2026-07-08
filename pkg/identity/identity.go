@@ -58,9 +58,7 @@ func ShortID(id string) string {
 
 func Hash(id string) (string, error) {
 	id = strings.TrimSpace(strings.ToLower(id))
-	if strings.HasPrefix(id, idPrefix) {
-		id = strings.TrimPrefix(id, idPrefix)
-	}
+	id = strings.TrimPrefix(id, idPrefix)
 	if len(id) != hashHexLength || !isLowerHex(id) {
 		return "", fmt.Errorf("invalid sha256 identity")
 	}
@@ -77,9 +75,7 @@ func IsID(id string) bool {
 
 func IsIDPrefix(id string) bool {
 	id = strings.TrimSpace(strings.ToLower(id))
-	if strings.HasPrefix(id, idPrefix) {
-		id = strings.TrimPrefix(id, idPrefix)
-	}
+	id = strings.TrimPrefix(id, idPrefix)
 	return len(id) >= shortIDLength && len(id) <= hashHexLength && isLowerHex(id)
 }
 
