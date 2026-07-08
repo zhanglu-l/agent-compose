@@ -959,8 +959,9 @@ type composeSandboxPruneOptions struct {
 }
 
 type composeImageListOptions struct {
-	Query string
-	All   bool
+	Query   string
+	All     bool
+	Verbose bool
 }
 
 type composeImagePullOptions struct {
@@ -1005,6 +1006,7 @@ type composeCacheRemoveOptions struct {
 func addImageListFlags(cmd *cobra.Command, options *composeImageListOptions) {
 	cmd.Flags().StringVar(&options.Query, "query", "", "Filter images by reference")
 	cmd.Flags().BoolVarP(&options.All, "all", "a", false, "Show all images")
+	cmd.Flags().BoolVar(&options.Verbose, "verbose", false, "Show all image details")
 }
 
 func addImagePullFlags(cmd *cobra.Command, options *composeImagePullOptions) {
@@ -1260,6 +1262,10 @@ func runComposeSandboxActionCommand(cmd *cobra.Command, cli cliOptions, action, 
 	if err != nil {
 		return err
 	}
+	sandboxes, err = resolveComposeSandboxRefsForCommand(cmd.Context(), cli, clients, sandboxes)
+	if err != nil {
+		return err
+	}
 	output := composeSandboxActionOutput{
 		Results: make([]composeSandboxActionResult, 0, len(sandboxes)),
 	}
@@ -1302,6 +1308,10 @@ func runComposeSandboxActionCommand(cmd *cobra.Command, cli cliOptions, action, 
 
 func runComposeSandboxRemoveCommand(cmd *cobra.Command, cli cliOptions, options composeSandboxRemoveOptions, sandboxes []string) error {
 	clients, err := newCLIServiceClients(cli)
+	if err != nil {
+		return err
+	}
+	sandboxes, err = resolveComposeSandboxRefsForCommand(cmd.Context(), cli, clients, sandboxes)
 	if err != nil {
 		return err
 	}
@@ -1533,6 +1543,10 @@ func runComposeSingleStatsCommand(cmd *cobra.Command, cli cliOptions, sandboxID 
 	if sandboxID == "" {
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("stats requires non-empty sandbox")}
 	}
+	sandboxID, err = resolveComposeSandboxRefForCommand(cmd.Context(), cli, clients, sandboxID)
+	if err != nil {
+		return err
+	}
 	output, err := composeStatsOutputForSandbox(cmd.Context(), clients.sandbox, sandboxID)
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("get sandbox %s stats: %w", sandboxID, err))
@@ -1621,9 +1635,16 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	if !normalizedOptions.Interactive && modeCount == 0 {
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("run requires --prompt or --command")}
 	}
-	clientConfig, err := resolveCLIClientConfig(cli.Host)
+	clients, err := newCLIServiceClients(cli)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(normalizedOptions.SandboxID) != "" {
+		sandboxID, err := resolveComposeSandboxRefForCommand(cmd.Context(), cli, clients, normalizedOptions.SandboxID)
+		if err != nil {
+			return err
+		}
+		normalizedOptions.SandboxID = sandboxID
 	}
 	cleanupPolicy := agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_STOP_ON_COMPLETION
 	if normalizedOptions.KeepRunning {
@@ -1631,7 +1652,7 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	} else if normalizedOptions.Remove {
 		cleanupPolicy = agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_REMOVE_ON_COMPLETION
 	}
-	client := agentcomposev2connect.NewRunServiceClient(newDaemonHTTPClient(clientConfig), clientConfig.BaseURL)
+	client := clients.run
 	var jupyter *agentcomposev2.RunJupyterSpec
 	if normalizedOptions.Jupyter || normalizedOptions.JupyterExpose {
 		jupyter = &agentcomposev2.RunJupyterSpec{
@@ -1658,8 +1679,7 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 		runReq.Prompt = ""
 		runReq.Command = ""
 		runReq.CleanupPolicy = agentcomposev2.RunSessionCleanupPolicy_RUN_SESSION_CLEANUP_POLICY_KEEP_RUNNING
-		sandboxClient := agentcomposev2connect.NewSandboxServiceClient(newDaemonHTTPClient(clientConfig), clientConfig.BaseURL)
-		return runInteractiveComposeRun(cmd, normalizedOptions, normalized.Name, client, sandboxClient, runReq, promptFlagChanged, prompt, commandText)
+		return runInteractiveComposeRun(cmd, normalizedOptions, normalized.Name, client, clients.sandbox, runReq, promptFlagChanged, prompt, commandText)
 	}
 	return executeComposeRunRequest(cmd, cli, normalized.Name, projectID, client, runReq, normalizedOptions.Detach)
 }
@@ -2539,7 +2559,7 @@ func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeEx
 	if err != nil {
 		return err
 	}
-	req, err := normalizeComposeExecRequest(cmd, normalized.Name, projectID, options, args)
+	req, err := normalizeComposeExecRequest(cmd, clients, normalized, projectID, options, args)
 	if err != nil {
 		return err
 	}
@@ -2583,7 +2603,7 @@ func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeEx
 	return nil
 }
 
-func normalizeComposeExecRequest(cmd *cobra.Command, projectName, projectID string, options composeExecOptions, args []string) (*agentcomposev2.ExecRequest, error) {
+func normalizeComposeExecRequest(cmd *cobra.Command, clients cliServiceClients, normalized *compose.NormalizedProjectSpec, projectID string, options composeExecOptions, args []string) (*agentcomposev2.ExecRequest, error) {
 	legacyTargetFlags := []string{}
 	if cmd.Flags().Changed("run-id") {
 		legacyTargetFlags = append(legacyTargetFlags, "--run-id")
@@ -2612,15 +2632,23 @@ func normalizeComposeExecRequest(cmd *cobra.Command, projectName, projectID stri
 			if runID == "" {
 				return nil, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("exec --run-id requires a value")}
 			}
+			runID, err = resolveComposeRunIDRef(cmd.Context(), clients.run, projectID, "", runID)
+			if err != nil {
+				return nil, err
+			}
 			req.Target = &agentcomposev2.ExecRequest_RunId{RunId: runID}
 		case "--agent":
 			agentName := strings.TrimSpace(options.AgentName)
 			if agentName == "" {
 				return nil, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("exec --agent requires a value")}
 			}
+			agentName, err = resolveComposeAgentNameFromSpec(normalized, projectID, agentName)
+			if err != nil {
+				return nil, err
+			}
 			req.Target = &agentcomposev2.ExecRequest_Selector{Selector: &agentcomposev2.ExecSessionSelector{
 				ProjectId:   projectID,
-				ProjectName: projectName,
+				ProjectName: normalized.Name,
 				AgentName:   agentName,
 			}}
 		}
@@ -2629,6 +2657,10 @@ func normalizeComposeExecRequest(cmd *cobra.Command, projectName, projectID stri
 	sandbox := strings.TrimSpace(args[0])
 	if sandbox == "" {
 		return nil, commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("exec requires non-empty sandbox")}
+	}
+	sandbox, err := resolveComposeSandboxRefWithProject(cmd.Context(), clients, projectID, sandbox)
+	if err != nil {
+		return nil, err
 	}
 	command, err := composeExecCommandFromArgs(options, args[1:])
 	if err != nil {
@@ -2676,7 +2708,7 @@ func runComposeImageListCommand(cmd *cobra.Command, cli cliOptions, options comp
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	return writeImagesText(cmd.OutOrStdout(), output.Images)
+	return writeImagesText(cmd.OutOrStdout(), output.Images, options.Verbose)
 }
 
 func runComposeCacheListCommand(cmd *cobra.Command, cli cliOptions, options composeCacheFilterOptions) error {
@@ -3305,6 +3337,10 @@ func runComposeInspectCommand(cmd *cobra.Command, cli cliOptions, args []string)
 		if target == "" {
 			return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("inspect run requires a run id")}
 		}
+		target, err = resolveComposeRunIDRef(cmd.Context(), clients.run, projectID, "", target)
+		if err != nil {
+			return err
+		}
 		run, err := getRunDetail(cmd.Context(), clients.run, projectID, target)
 		if err != nil {
 			return commandExitErrorForConnect(fmt.Errorf("inspect run %s in project %s: %w", target, normalized.Name, err))
@@ -3313,6 +3349,10 @@ func runComposeInspectCommand(cmd *cobra.Command, cli cliOptions, args []string)
 	case "sandbox":
 		if target == "" {
 			return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("inspect sandbox requires a sandbox")}
+		}
+		target, err = resolveComposeSandboxRefWithProject(cmd.Context(), clients, projectID, target)
+		if err != nil {
+			return err
 		}
 		output, err = composeSandboxInspectOutputFor(cmd.Context(), clients, target)
 		if err != nil {
@@ -3325,6 +3365,10 @@ func runComposeInspectCommand(cmd *cobra.Command, cli cliOptions, args []string)
 		}
 		if target == "" {
 			return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("inspect session requires a sandbox")}
+		}
+		target, err = resolveComposeSandboxRefWithProject(cmd.Context(), clients, projectID, target)
+		if err != nil {
+			return err
 		}
 		output, err = composeSandboxInspectOutputFor(cmd.Context(), clients, target)
 		if err != nil {
@@ -4804,23 +4848,106 @@ func composeImageStoreOutputFromProto(status *agentcomposev2.ImageStoreStatus) c
 	}
 }
 
-func writeImagesText(out io.Writer, images []composeImageOutput) error {
+func writeImagesText(out io.Writer, images []composeImageOutput, verbose bool) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "IMAGE ID\tREF\tSTATUS\tSIZE\tCREATED"); err != nil {
+	header := "IMAGE ID\tREF\tDISK USAGE"
+	if verbose {
+		header = "REF\tIMAGE ID\tSTORE\tSTATUS\tPLATFORM\tDISK USAGE\tCONTENT SIZE\tCREATED"
+	}
+	if _, err := fmt.Fprintln(tw, header); err != nil {
 		return err
 	}
 	for _, image := range images {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n",
+		diskUsage := formatImageSizeForText(firstNonZeroUint64(image.VirtualSizeBytes, image.SizeBytes))
+		if verbose {
+			if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				firstNonEmptyString(image.ImageRef, image.ResolvedRef, "-"),
+				shortImageID(image.ImageID),
+				firstNonEmptyString(image.Store, "-"),
+				firstNonEmptyString(image.AvailabilityStatus, "-"),
+				firstNonEmptyString(image.Platform, "-"),
+				diskUsage,
+				formatImageSizeForText(image.SizeBytes),
+				formatImageCreatedForText(image.CreatedAt),
+			); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n",
 			shortImageID(image.ImageID),
 			firstNonEmptyString(image.ImageRef, image.ResolvedRef, "-"),
-			firstNonEmptyString(image.AvailabilityStatus, "-"),
-			image.SizeBytes,
-			firstNonEmptyString(image.CreatedAt, "-"),
+			diskUsage,
 		); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
+}
+
+func formatImageSizeForText(size uint64) string {
+	const unit = 1000
+	if size < unit {
+		return fmt.Sprintf("%dB", size)
+	}
+	div := uint64(unit)
+	exp := 0
+	for n := size / unit; n >= unit && exp < len("KMGTPE")-1; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func formatImageCreatedForText(createdAt string) string {
+	createdAt = strings.TrimSpace(createdAt)
+	if createdAt == "" {
+		return "-"
+	}
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return createdAt
+	}
+	now := time.Now().UTC()
+	if created.After(now) {
+		return "in " + formatImageAgeForText(created.Sub(now))
+	}
+	return formatImageAgeForText(now.Sub(created)) + " ago"
+}
+
+func formatImageAgeForText(age time.Duration) string {
+	if age < time.Minute {
+		return "less than a minute"
+	}
+	if age < time.Hour {
+		return pluralizeImageAge(int(age/time.Minute), "minute")
+	}
+	if age < 24*time.Hour {
+		return pluralizeImageAge(int(age/time.Hour), "hour")
+	}
+	if age < 30*24*time.Hour {
+		return pluralizeImageAge(int(age/(24*time.Hour)), "day")
+	}
+	if age < 365*24*time.Hour {
+		return pluralizeImageAge(int(age/(30*24*time.Hour)), "month")
+	}
+	return pluralizeImageAge(int(age/(365*24*time.Hour)), "year")
+}
+
+func pluralizeImageAge(value int, unit string) string {
+	if value == 1 {
+		return fmt.Sprintf("1 %s", unit)
+	}
+	return fmt.Sprintf("%d %ss", value, unit)
+}
+
+func firstNonZeroUint64(values ...uint64) uint64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func writeCacheListText(out io.Writer, output composeCacheListOutput) error {
@@ -5215,6 +5342,9 @@ func resolveComposeRunIDRef(ctx context.Context, client agentcomposev2connect.Ru
 	if identity.IsID(ref) {
 		return ref, nil
 	}
+	if !shouldResolveComposeLogResourceRef(ref) {
+		return ref, nil
+	}
 	runs, err := listLogRunRefCandidates(ctx, client, projectID, agentName)
 	if err != nil {
 		return "", commandExitErrorForConnect(fmt.Errorf("resolve run %s: %w", ref, err))
@@ -5239,12 +5369,111 @@ func resolveComposeRunIDRef(ctx context.Context, client agentcomposev2connect.Ru
 	return matches[0].GetRunId(), nil
 }
 
+func resolveComposeSandboxRefsForCommand(ctx context.Context, cli cliOptions, clients cliServiceClients, refs []string) ([]string, error) {
+	resolved := make([]string, 0, len(refs))
+	var projectID string
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			resolved = append(resolved, ref)
+			continue
+		}
+		if identity.IsID(ref) {
+			resolved = append(resolved, ref)
+			continue
+		}
+		if !shouldResolveComposeLogResourceRef(ref) {
+			resolved = append(resolved, ref)
+			continue
+		}
+		if projectID == "" {
+			_, _, id, err := resolveComposeProject(cli)
+			if err != nil {
+				return nil, err
+			}
+			projectID = id
+		}
+		sandboxID, err := resolveComposeSandboxRefWithProject(ctx, clients, projectID, ref)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, sandboxID)
+	}
+	return resolved, nil
+}
+
+func resolveComposeSandboxRefForCommand(ctx context.Context, cli cliOptions, clients cliServiceClients, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || identity.IsID(ref) {
+		return ref, nil
+	}
+	if !shouldResolveComposeLogResourceRef(ref) {
+		return ref, nil
+	}
+	_, _, projectID, err := resolveComposeProject(cli)
+	if err != nil {
+		return "", err
+	}
+	return resolveComposeSandboxRefWithProject(ctx, clients, projectID, ref)
+}
+
+func resolveComposeSandboxRefWithProject(ctx context.Context, clients cliServiceClients, projectID, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox id is required")}
+	}
+	if identity.IsID(ref) {
+		return ref, nil
+	}
+	if !shouldResolveComposeLogResourceRef(ref) {
+		return ref, nil
+	}
+	project, err := clients.project.GetProject(ctx, connect.NewRequest(&agentcomposev2.GetProjectRequest{
+		Project: &agentcomposev2.ProjectRef{ProjectId: projectID},
+	}))
+	if err != nil {
+		return "", commandExitErrorForConnect(fmt.Errorf("resolve sandbox %s: %w", ref, err))
+	}
+	return resolveComposeSandboxRefFromProject(ctx, clients, project.Msg.GetProject(), ref)
+}
+
+func resolveComposeSandboxRefFromProject(ctx context.Context, clients cliServiceClients, project *agentcomposev2.Project, ref string) (string, error) {
+	psOutput, err := composePSOutputFromProject(ctx, clients, project, composePSOptions{All: true})
+	if err != nil {
+		return "", commandExitErrorForConnect(fmt.Errorf("resolve sandbox %s: %w", ref, err))
+	}
+	matches := map[string]struct{}{}
+	for _, sandbox := range psOutput.Sandboxes {
+		if resourceIDMatchesRef(sandbox.ID, sandbox.ShortID, ref) {
+			matches[sandbox.ID] = struct{}{}
+		}
+	}
+	if len(matches) == 0 {
+		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox %q not found in current project", ref)}
+	}
+	if len(matches) > 1 {
+		ids := make([]string, 0, len(matches))
+		for id := range matches {
+			ids = append(ids, shortOpaqueID(id))
+		}
+		sort.Strings(ids)
+		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox ref %q is ambiguous in current project; matches: %s", ref, strings.Join(ids, ", "))}
+	}
+	for id := range matches {
+		return id, nil
+	}
+	return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox %q not found in current project", ref)}
+}
+
 func resolveComposeSandboxIDRefFromRuns(ctx context.Context, client agentcomposev2connect.RunServiceClient, projectID, agentName, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox id is required")}
 	}
 	if identity.IsID(ref) {
+		return ref, nil
+	}
+	if !shouldResolveComposeLogResourceRef(ref) {
 		return ref, nil
 	}
 	runs, err := listLogRunRefCandidates(ctx, client, projectID, agentName)

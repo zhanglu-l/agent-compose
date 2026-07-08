@@ -538,8 +538,10 @@ func testComposeRunExecAndLogsEdgeHelpers(t *testing.T) {
 	if _, err := composeExecCommandFromArgs(composeExecOptions{Command: "echo ok"}, []string{"pwd"}); commandExitCode(err) != exitCodeUsage {
 		t.Fatalf("exec command conflict err=%v code=%d", err, commandExitCode(err))
 	}
-	req, err := normalizeComposeExecRequest(&cobra.Command{Use: "exec"}, "Project", "project-1", composeExecOptions{Cwd: " /repo "}, []string{" sandbox-1 ", "bash", "-lc", "pwd"})
-	if err != nil || req.GetSessionId() != "sandbox-1" || req.GetCwd() != "/repo" || req.GetCommand().GetCommand() != "bash" {
+	normalizedExecProject := &compose.NormalizedProjectSpec{Name: "Project"}
+	execSandboxID := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	req, err := normalizeComposeExecRequest(&cobra.Command{Use: "exec"}, cliServiceClients{}, normalizedExecProject, "project-1", composeExecOptions{Cwd: " /repo "}, []string{" " + execSandboxID + " ", "bash", "-lc", "pwd"})
+	if err != nil || req.GetSessionId() != execSandboxID || req.GetCwd() != "/repo" || req.GetCommand().GetCommand() != "bash" {
 		t.Fatalf("normalizeComposeExecRequest req=%#v err=%v", req, err)
 	}
 	for _, tc := range []struct {
@@ -579,7 +581,7 @@ func testComposeRunExecAndLogsEdgeHelpers(t *testing.T) {
 	} {
 		cmd := &cobra.Command{Use: "exec"}
 		options := tc.setup(cmd)
-		if _, err := normalizeComposeExecRequest(cmd, "Project", "project-1", options, tc.args); commandExitCode(err) != exitCodeUsage || !strings.Contains(err.Error(), tc.wantErr) {
+		if _, err := normalizeComposeExecRequest(cmd, cliServiceClients{}, normalizedExecProject, "project-1", options, tc.args); commandExitCode(err) != exitCodeUsage || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Fatalf("%s err=%v code=%d", tc.name, err, commandExitCode(err))
 		}
 	}
@@ -768,7 +770,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		t.Fatalf("cache text helper returned unexpected values")
 	}
 	out.Reset()
-	if err := writeImagesText(&out, imageList.Images); err != nil {
+	if err := writeImagesText(&out, imageList.Images, false); err != nil {
 		t.Fatalf("writeImagesText returned error: %v", err)
 	}
 	if !strings.Contains(out.String(), "1234567890ab") || !strings.Contains(out.String(), "guest:latest") {
@@ -797,7 +799,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		metricStatusText(agentcomposev2.MetricStatus_METRIC_STATUS_UNSPECIFIED) != "unknown" {
 		t.Fatalf("text helper edge cases returned unexpected values")
 	}
-	if err := writeImagesText(failingWriter{}, imageList.Images); err == nil {
+	if err := writeImagesText(failingWriter{}, imageList.Images, false); err == nil {
 		t.Fatalf("writeImagesText failing writer returned nil error")
 	}
 	if err := writeCacheListText(failingWriter{}, cacheList); err == nil {

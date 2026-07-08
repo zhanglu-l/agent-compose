@@ -3328,6 +3328,106 @@ func TestIntegrationCLIStopSandbox(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLIResolvesShortResourceIDsBeforeDaemonRequests(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-short-id-demo
+agents:
+  reviewer:
+    provider: codex
+`)
+	projectID := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sandboxID := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	runID := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	project := testCLIProject(projectID, "cli-short-id-demo", composePath)
+	session := testCLISessionSummary(sandboxID, "RUNNING", projectID, "reviewer", runID)
+	run := &agentcomposev2.RunSummary{
+		RunId:     runID,
+		ProjectId: projectID,
+		AgentName: "reviewer",
+		Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
+		SessionId: sandboxID,
+		UpdatedAt: "2026-06-11T00:00:01Z",
+	}
+	var stopped []string
+	var resumed []string
+	var execSandbox string
+	var runSandbox string
+	var inspectedRun string
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			getProject: func(ctx context.Context, req *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: project}), nil
+			},
+		},
+		run: runServiceStub{
+			listRuns: func(ctx context.Context, req *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+				return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{run}}), nil
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				inspectedRun = req.Msg.GetRunId()
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(projectID, req.Msg.GetRunId(), "reviewer", sandboxID, agentcomposev2.RunStatus_RUN_STATUS_RUNNING, 0, "ok")}), nil
+			},
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				runSandbox = req.Msg.GetSessionId()
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     runID,
+					Run:       run,
+				})
+			},
+		},
+		session: sessionServiceStub{
+			listSessions: func(ctx context.Context, req *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
+				return connect.NewResponse(&agentcomposev1.ListSessionsResponse{Sessions: []*agentcomposev1.SessionSummary{session}}), nil
+			},
+			stopSession: func(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
+				stopped = append(stopped, req.Msg.GetSessionId())
+				return connect.NewResponse(&agentcomposev1.SessionResponse{}), nil
+			},
+			resumeSession: func(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
+				resumed = append(resumed, req.Msg.GetSessionId())
+				return connect.NewResponse(&agentcomposev1.SessionResponse{}), nil
+			},
+		},
+		exec: execServiceStub{
+			execStream: func(ctx context.Context, req *connect.Request[agentcomposev2.ExecRequest], stream *connect.ServerStream[agentcomposev2.ExecStreamResponse]) error {
+				execSandbox = req.Msg.GetSessionId()
+				return stream.Send(&agentcomposev2.ExecStreamResponse{
+					EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_COMPLETED,
+					Result: &agentcomposev2.ExecResult{
+						ExecId:    "exec-short",
+						SessionId: req.Msg.GetSessionId(),
+						Command:   req.Msg.GetCommand(),
+						Success:   true,
+					},
+				})
+			},
+		},
+	})
+	defer server.Close()
+
+	sandboxShort := shortOpaqueID(sandboxID)
+	runShort := shortOpaqueID(runID)
+	if _, stderr, _, exitCode := executeCLICommand("stop", "--host", server.URL, "--file", composePath, sandboxShort); exitCode != 0 || stderr != "" {
+		t.Fatalf("stop short id code/stderr = %d / %q", exitCode, stderr)
+	}
+	if _, stderr, _, exitCode := executeCLICommand("resume", "--host", server.URL, "--file", composePath, sandboxShort); exitCode != 0 || stderr != "" {
+		t.Fatalf("resume short id code/stderr = %d / %q", exitCode, stderr)
+	}
+	if _, stderr, _, exitCode := executeCLICommand("exec", "--host", server.URL, "--file", composePath, sandboxShort, "--command", "true"); exitCode != 0 || stderr != "" {
+		t.Fatalf("exec short id code/stderr = %d / %q", exitCode, stderr)
+	}
+	if _, stderr, _, exitCode := executeCLICommand("inspect", "--host", server.URL, "--file", composePath, "--json", "run", runShort); exitCode != 0 || stderr != "" {
+		t.Fatalf("inspect run short id code/stderr = %d / %q", exitCode, stderr)
+	}
+	if _, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "--sandbox-id", sandboxShort, "reviewer", "--prompt", "hello"); exitCode != 0 || stderr != "" {
+		t.Fatalf("run --sandbox-id short code/stderr = %d / %q", exitCode, stderr)
+	}
+	if !reflect.DeepEqual(stopped, []string{sandboxID}) || !reflect.DeepEqual(resumed, []string{sandboxID}) || execSandbox != sandboxID || inspectedRun != runID || runSandbox != sandboxID {
+		t.Fatalf("resolved ids stopped=%#v resumed=%#v exec=%q inspect=%q run=%q", stopped, resumed, execSandbox, inspectedRun, runSandbox)
+	}
+}
+
 func TestIntegrationCLIResumeSandboxesJSON(t *testing.T) {
 	var resumed []string
 	server := newComposeServiceStubServer(t, composeServiceStubs{
@@ -4062,13 +4162,28 @@ func TestIntegrationCLIImagesAliasesAndJSON(t *testing.T) {
 		t.Fatalf("image ls code/stderr = %d / %q", textCode, textErr)
 	}
 	assertDeprecatedWarning(t, textErr, "agent-compose images")
-	for _, want := range []string{"IMAGE ID", "abc123456789", "agent:latest", "available"} {
+	for _, want := range []string{"IMAGE ID", "REF", "DISK USAGE", "abc123456789", "agent:latest", "1.0KB"} {
 		if !strings.Contains(textOut, want) {
 			t.Fatalf("image ls output %q does not contain %q", textOut, want)
 		}
 	}
-	if calls != 2 {
-		t.Fatalf("ListImages calls = %d, want 2", calls)
+	for _, notWant := range []string{"STORE", "STATUS", "CONTENT SIZE", "docker", "available"} {
+		if strings.Contains(textOut, notWant) {
+			t.Fatalf("image ls default output %q contains %q", textOut, notWant)
+		}
+	}
+
+	verboseOut, verboseErr, _, verboseCode := executeCLICommand("images", "--host", server.URL, "--verbose")
+	if verboseCode != 0 || verboseErr != "" {
+		t.Fatalf("images --verbose code/stderr = %d / %q", verboseCode, verboseErr)
+	}
+	for _, want := range []string{"REF", "IMAGE ID", "STORE", "STATUS", "PLATFORM", "DISK USAGE", "CONTENT SIZE", "CREATED", "docker", "available", "linux/amd64"} {
+		if !strings.Contains(verboseOut, want) {
+			t.Fatalf("images --verbose output %q does not contain %q", verboseOut, want)
+		}
+	}
+	if calls != 3 {
+		t.Fatalf("ListImages calls = %d, want 3", calls)
 	}
 }
 
@@ -5784,14 +5899,27 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 		t.Fatalf("image remove output = %#v", removeOutput)
 	}
 	text.Reset()
-	if err := writeImagesText(&text, listOutput.Images); err != nil {
+	if err := writeImagesText(&text, listOutput.Images, false); err != nil {
 		t.Fatalf("writeImagesText returned error: %v", err)
 	}
-	if !strings.Contains(text.String(), "IMAGE ID") || !strings.Contains(text.String(), "agent:latest") {
+	if !strings.Contains(text.String(), "IMAGE ID") || !strings.Contains(text.String(), "REF") || !strings.Contains(text.String(), "DISK USAGE") || !strings.Contains(text.String(), "agent:latest") || !strings.Contains(text.String(), "1.0KB") || strings.Contains(text.String(), "CONTENT SIZE") {
 		t.Fatalf("images text = %q", text.String())
+	}
+	text.Reset()
+	if err := writeImagesText(&text, listOutput.Images, true); err != nil {
+		t.Fatalf("writeImagesText verbose returned error: %v", err)
+	}
+	if !strings.Contains(text.String(), "STORE") || !strings.Contains(text.String(), "STATUS") || !strings.Contains(text.String(), "CONTENT SIZE") || !strings.Contains(text.String(), "CREATED") {
+		t.Fatalf("images verbose text = %q", text.String())
 	}
 	if shortImageID("sha256:1234567890abcdef") != "1234567890ab" || imagePlatformText(&agentcomposev2.ImagePlatform{Os: "linux"}) != "linux" {
 		t.Fatalf("image helper output mismatch")
+	}
+	if formatImageSizeForText(0) != "0B" || formatImageSizeForText(559279329) != "559.3MB" || firstNonZeroUint64(0, 42) != 42 {
+		t.Fatalf("image text helper output mismatch")
+	}
+	if formatImageCreatedForText("") != "-" || formatImageCreatedForText("created") != "created" || formatImageAgeForText(2*time.Hour) != "2 hours" {
+		t.Fatalf("image time helper output mismatch")
 	}
 
 	cache := composeCacheOutputFromProto(testCLICache("cache-full"))
