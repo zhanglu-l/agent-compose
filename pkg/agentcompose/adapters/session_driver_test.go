@@ -106,7 +106,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:             root,
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        driverpkg.RuntimeDriverBoxlite,
 		BoxliteHome:          filepath.Join(root, "boxlite"),
 		DefaultImage:         "guest:latest",
@@ -119,7 +119,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "adapter session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:            root,
-		SandboxRoot:         filepath.Join(root, "sessions"),
+		SandboxRoot:         filepath.Join(root, "sandboxes"),
 		RuntimeDriver:       driverpkg.RuntimeDriverDocker,
 		DefaultImage:        "guest:latest",
 		GuestWorkspacePath:  "/workspace",
@@ -172,7 +172,7 @@ func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "adapter session", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 	config := &appconfig.Config{
 		DataRoot:             root,
 		DbAddr:               filepath.Join(root, "data.db"),
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        driverpkg.RuntimeDriverMicrosandbox,
 		MicrosandboxHome:     filepath.Join(root, "microsandbox"),
 		DefaultImage:         "guest:latest",
@@ -220,7 +220,7 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 	config := &appconfig.Config{
 		DataRoot:             root,
 		DbAddr:               filepath.Join(root, "data.db"),
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        driverpkg.RuntimeDriverMicrosandbox,
 		MicrosandboxHome:     filepath.Join(root, "microsandbox"),
 		DefaultImage:         "guest:latest",
@@ -326,7 +326,7 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}

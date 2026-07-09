@@ -712,7 +712,7 @@ type apiHandlerSessionStore struct {
 	events  []domain.SessionEvent
 }
 
-func (s *apiHandlerSessionStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *apiHandlerSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	if s.session == nil {
 		return nil, errors.New("missing")
 	}
@@ -775,7 +775,7 @@ type apiExecSessionStore struct {
 	vm      domain.VMState
 }
 
-func (s *apiExecSessionStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *apiExecSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	if s.session == nil {
 		return nil, sql.ErrNoRows
 	}
@@ -811,7 +811,7 @@ type apiExecWorkflowSessionStore struct {
 	vm       domain.VMState
 }
 
-func (s *apiExecWorkflowSessionStore) GetSession(_ context.Context, id string) (*domain.Session, error) {
+func (s *apiExecWorkflowSessionStore) GetSandbox(_ context.Context, id string) (*domain.Session, error) {
 	session := s.sessions[id]
 	if session == nil {
 		return nil, sql.ErrNoRows
@@ -894,11 +894,11 @@ type apiSandboxStore struct {
 	removeErr error
 }
 
-func (s *apiSandboxStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *apiSandboxStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	return s.session, nil
 }
 
-func (s *apiSandboxStore) RemoveSession(context.Context, string) error {
+func (s *apiSandboxStore) RemoveSandbox(context.Context, string) error {
 	return s.removeErr
 }
 

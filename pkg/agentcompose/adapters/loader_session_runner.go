@@ -50,7 +50,7 @@ func (r *LoaderSessionRunner) Shutdown(ctx context.Context, sessionID string) er
 		return nil
 	}
 	stopCtx := context.WithoutCancel(ctx)
-	session, err := r.Store.GetSession(stopCtx, sessionID)
+	session, err := r.Store.GetSandbox(stopCtx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (r *LoaderSessionRunner) Shutdown(ctx context.Context, sessionID string) er
 		return err
 	}
 	session.Summary.VMStatus = domain.VMStatusStopped
-	if err := r.Store.UpdateSession(stopCtx, session); err != nil {
+	if err := r.Store.UpdateSandbox(stopCtx, session); err != nil {
 		return err
 	}
 	if r.Streams != nil {
@@ -72,7 +72,7 @@ func (r *LoaderSessionRunner) Shutdown(ctx context.Context, sessionID string) er
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
 	}
-	loaded, err := r.Store.GetSession(stopCtx, session.Summary.ID)
+	loaded, err := r.Store.GetSandbox(stopCtx, session.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if err != nil {
 		return nil, "", err
 	}
-	session, err := r.Store.CreateSessionWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SessionTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSessionOptions{
+	session, err := r.Store.CreateSandboxWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SessionTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSandboxOptions{
 		JupyterEnabled: request.JupyterEnabled,
 		VolumeMounts:   volumeMounts,
 	})
@@ -147,24 +147,24 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	session.ProviderEnvItems = providerEnvItems
 	if request.PullPolicy != "" {
 		session.Summary.PullPolicy = request.PullPolicy
-		if err := r.Store.UpdateSession(ctx, session); err != nil {
+		if err := r.Store.UpdateSandbox(ctx, session); err != nil {
 			return nil, "", fmt.Errorf("persist session pull policy: %w", err)
 		}
 	}
 	r.recordVolumeWarnings(ctx, session.Summary.ID, volumeWarnings)
 	if err := workspaces.PrepareSessionWorkspace(ctx, r.Config, r.ConfigDB, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = r.Store.UpdateSession(ctx, session)
+		_ = r.Store.UpdateSandbox(ctx, session)
 		return nil, "", err
 	}
 	writeCapabilityGuide(ctx, r.Cap, r.Store, r.Streams, session, loader.Summary.CapsetIDs)
 	if err := r.Driver.StartSessionVM(ctx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = r.Store.UpdateSession(ctx, session)
+		_ = r.Store.UpdateSandbox(ctx, session)
 		return nil, "", err
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := r.Store.UpdateSession(ctx, session); err != nil {
+	if err := r.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, "", err
 	}
 	if r.Streams != nil {
@@ -178,7 +178,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if effectivePolicy == domain.LoaderSessionPolicySticky {
 		_ = r.ConfigDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SessionID: session.Summary.ID})
 	}
-	loaded, err := r.Store.GetSession(ctx, session.Summary.ID)
+	loaded, err := r.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -195,11 +195,11 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 }
 
 func (r *LoaderSessionRunner) Load(ctx context.Context, sessionID string) (*domain.Session, error) {
-	return r.Store.GetSession(ctx, sessionID)
+	return r.Store.GetSandbox(ctx, sessionID)
 }
 
 func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string) (*domain.Session, string, error) {
-	session, err := r.Store.GetSession(ctx, sessionID)
+	session, err := r.Store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -214,7 +214,7 @@ func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string
 		return nil, "", err
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := r.Store.UpdateSession(ctx, session); err != nil {
+	if err := r.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, "", err
 	}
 	if r.Streams != nil {
@@ -225,7 +225,7 @@ func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
 	}
-	loaded, err := r.Store.GetSession(ctx, session.Summary.ID)
+	loaded, err := r.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, "", err
 	}

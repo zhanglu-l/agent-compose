@@ -188,60 +188,60 @@ func TestDockerRuntimeBindRuntimeMountSourceRejectsOutsideSandboxRoot(t *testing
 	runtime := &dockerRuntime{config: config}
 
 	if _, err := runtime.bindRuntimeMountSource(context.Background(), nil, "/data/other/session-1/workspace"); err == nil {
-		t.Fatalf("bindRuntimeMountSource returned nil error for path outside session root")
+		t.Fatalf("bindRuntimeMountSource returned nil error for path outside sandbox root")
 	}
 }
 
 func TestRebasePathUnderRoot(t *testing.T) {
-	got, err := rebasePathUnderRoot("/data/sessions/session-1", "/data", "/host/data")
+	got, err := rebasePathUnderRoot("/data/sandboxes/session-1", "/data", "/host/data")
 	if err != nil {
 		t.Fatalf("rebasePathUnderRoot returned error: %v", err)
 	}
-	want := filepath.Join("/host/data", "sessions", "session-1")
+	want := filepath.Join("/host/data", "sandboxes", "session-1")
 	if got != want {
 		t.Fatalf("rebasePathUnderRoot returned %q, want %q", got, want)
 	}
 }
 
 func TestRebasePathUnderRootPreservesWindowsHostRoot(t *testing.T) {
-	got, err := rebasePathUnderRoot("/data/sessions/session-1/workspace", "/data/sessions", `E:\program\agent-compose-main\data\agent-compose\sessions`)
+	got, err := rebasePathUnderRoot("/data/sandboxes/session-1/workspace", "/data/sandboxes", `E:\program\agent-compose-main\data\agent-compose\sandboxes`)
 	if err != nil {
 		t.Fatalf("rebasePathUnderRoot returned error: %v", err)
 	}
-	want := `E:\program\agent-compose-main\data\agent-compose\sessions\session-1\workspace`
+	want := `E:\program\agent-compose-main\data\agent-compose\sandboxes\session-1\workspace`
 	if got != want {
 		t.Fatalf("rebasePathUnderRoot returned %q, want %q", got, want)
 	}
 }
 
 func TestRebasePathUnderRootPreservesWindowsHostRootWithSlashes(t *testing.T) {
-	got, err := rebasePathUnderRoot("/data/sessions/session-1/workspace", "/data/sessions", "E:/program/agent-compose-main/data/agent-compose/sessions")
+	got, err := rebasePathUnderRoot("/data/sandboxes/session-1/workspace", "/data/sandboxes", "E:/program/agent-compose-main/data/agent-compose/sandboxes")
 	if err != nil {
 		t.Fatalf("rebasePathUnderRoot returned error: %v", err)
 	}
-	want := "E:/program/agent-compose-main/data/agent-compose/sessions/session-1/workspace"
+	want := "E:/program/agent-compose-main/data/agent-compose/sandboxes/session-1/workspace"
 	if got != want {
 		t.Fatalf("rebasePathUnderRoot returned %q, want %q", got, want)
 	}
 }
 
 func TestRebasePathUnderRootPreservesWindowsUNCHostRoot(t *testing.T) {
-	got, err := rebasePathUnderRoot("/data/sessions/session-1/workspace", "/data/sessions", `\\server\share\agent-compose\sessions`)
+	got, err := rebasePathUnderRoot("/data/sandboxes/session-1/workspace", "/data/sandboxes", `\\server\share\agent-compose\sandboxes`)
 	if err != nil {
 		t.Fatalf("rebasePathUnderRoot returned error: %v", err)
 	}
-	want := `\\server\share\agent-compose\sessions\session-1\workspace`
+	want := `\\server\share\agent-compose\sandboxes\session-1\workspace`
 	if got != want {
 		t.Fatalf("rebasePathUnderRoot returned %q, want %q", got, want)
 	}
 }
 
 func TestRebasePathUnderRootDoesNotTreatLinuxBackslashAsWindowsRoot(t *testing.T) {
-	got, err := rebasePathUnderRoot("/data/sessions/session-1/workspace", "/data/sessions", `/srv/agent-compose\weird/sessions`)
+	got, err := rebasePathUnderRoot("/data/sandboxes/session-1/workspace", "/data/sandboxes", `/srv/agent-compose\weird/sandboxes`)
 	if err != nil {
 		t.Fatalf("rebasePathUnderRoot returned error: %v", err)
 	}
-	want := filepath.Join(`/srv/agent-compose\weird/sessions`, "session-1", "workspace")
+	want := filepath.Join(`/srv/agent-compose\weird/sandboxes`, "session-1", "workspace")
 	if got != want {
 		t.Fatalf("rebasePathUnderRoot returned %q, want %q", got, want)
 	}
@@ -294,7 +294,7 @@ func TestDockerRuntimeMountsConsumeManifestAndRebaseEachSource(t *testing.T) {
 		}
 	}
 	if _, ok := got["/data"]; ok {
-		t.Fatalf("docker mounts still include whole session root target /data: %+v", got)
+		t.Fatalf("docker mounts still include whole sandbox root target /data: %+v", got)
 	}
 }
 

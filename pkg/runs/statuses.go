@@ -13,7 +13,7 @@ type ProjectSessionRunStore interface {
 }
 
 type SessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Session, error)
 }
 
 func ListProjectSessionStatuses(ctx context.Context, runStore ProjectSessionRunStore, sessionStore SessionStore, filter domain.ProjectSessionRelationFilter) ([]domain.ProjectSessionStatus, error) {
@@ -42,7 +42,7 @@ func ListProjectSessionStatuses(ctx context.Context, runStore ProjectSessionRunS
 		}
 		seenSessions[sessionID] = struct{}{}
 		item := domain.ProjectSessionStatus{Run: run}
-		session, err := sessionStore.GetSession(ctx, sessionID)
+		session, err := sessionStore.GetSandbox(ctx, sessionID)
 		if err != nil {
 			item.SessionMissing = true
 		} else {

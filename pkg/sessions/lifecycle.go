@@ -15,8 +15,8 @@ import (
 )
 
 type LifecycleStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
-	UpdateSession(context.Context, *domain.Session) error
+	GetSandbox(context.Context, string) (*domain.Session, error)
+	UpdateSandbox(context.Context, *domain.Session) error
 	GetVMState(string) (domain.VMState, error)
 	SaveVMState(string, domain.VMState) error
 	GetProxyState(string) (domain.ProxyState, error)
@@ -95,7 +95,7 @@ func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Se
 		return nil, err
 	}
 	session.Summary.VMStatus = domain.VMStatusStopped
-	if err := l.Store.UpdateSession(ctx, session); err != nil {
+	if err := l.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, err
 	}
 	if l.TokenRevoker != nil {
@@ -114,11 +114,11 @@ func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Se
 		l.Notifier.NotifyDashboard("session_updated")
 		l.Notifier.PublishEventAdded(session.Summary.ID, event)
 	}
-	return l.Store.GetSession(ctx, session.Summary.ID)
+	return l.Store.GetSandbox(ctx, session.Summary.ID)
 }
 
 func (l Lifecycle) EnsureProxyReady(ctx context.Context, sessionID string) (*domain.Session, domain.ProxyState, error) {
-	session, err := l.Store.GetSession(ctx, sessionID)
+	session, err := l.Store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		return nil, domain.ProxyState{}, err
 	}
@@ -136,19 +136,19 @@ func (l Lifecycle) EnsureProxyReady(ctx context.Context, sessionID string) (*dom
 	defer cancel()
 	if err := workspaces.PrepareSessionWorkspace(startCtx, l.Config, l.Workspace, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = l.Store.UpdateSession(ctx, session)
+		_ = l.Store.UpdateSandbox(ctx, session)
 		return nil, domain.ProxyState{}, err
 	}
 	if err := l.Driver.StartSessionVM(startCtx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = l.Store.UpdateSession(ctx, session)
+		_ = l.Store.UpdateSandbox(ctx, session)
 		return nil, domain.ProxyState{}, err
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := l.Store.UpdateSession(ctx, session); err != nil {
+	if err := l.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, domain.ProxyState{}, err
 	}
-	loaded, err := l.Store.GetSession(ctx, session.Summary.ID)
+	loaded, err := l.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, domain.ProxyState{}, err
 	}
@@ -170,7 +170,7 @@ func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Session, ca
 		return nil, err
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := l.Store.UpdateSession(ctx, session); err != nil {
+	if err := l.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, err
 	}
 	l.publishSessionUpdated(&session.Summary)
@@ -183,7 +183,7 @@ func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Session, ca
 	}
 	_ = l.Store.AddEvent(ctx, session.Summary.ID, event)
 	l.publishEventAdded(session.Summary.ID, event)
-	loaded, err := l.Store.GetSession(ctx, session.Summary.ID)
+	loaded, err := l.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Session) (*do
 		return nil, false, err
 	}
 	session.Summary.VMStatus = domain.VMStatusStopped
-	if err := l.Store.UpdateSession(ctx, session); err != nil {
+	if err := l.Store.UpdateSandbox(ctx, session); err != nil {
 		return nil, false, err
 	}
 	l.publishSessionUpdated(&session.Summary)
@@ -212,7 +212,7 @@ func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Session) (*do
 	}
 	_ = l.Store.AddEvent(ctx, session.Summary.ID, event)
 	l.publishEventAdded(session.Summary.ID, event)
-	loaded, err := l.Store.GetSession(ctx, session.Summary.ID)
+	loaded, err := l.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, false, err
 	}

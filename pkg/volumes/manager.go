@@ -26,7 +26,7 @@ type Store interface {
 }
 
 type SessionStore interface {
-	ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
 }
 
 type ProjectVolumeStore interface {
@@ -241,7 +241,7 @@ func (m *Manager) findSessionReferences(ctx context.Context, volumeID string) ([
 	const pageSize = 500
 	var refs []domain.VolumeReference
 	for offset := 0; ; {
-		result, err := m.Sessions.ListSessions(ctx, domain.SessionListOptions{Offset: offset, Limit: pageSize})
+		result, err := m.Sessions.ListSandboxes(ctx, domain.SessionListOptions{Offset: offset, Limit: pageSize})
 		if err != nil {
 			return nil, fmt.Errorf("list sessions for volume references: %w", err)
 		}

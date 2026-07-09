@@ -46,8 +46,8 @@ func NewProjectController(di do.Injector) (*projects.Controller, error) {
 }
 
 type projectSessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
-	UpdateSession(context.Context, *domain.Session) error
+	GetSandbox(context.Context, string) (*domain.Session, error)
+	UpdateSandbox(context.Context, *domain.Session) error
 	AddEvent(context.Context, string, domain.SessionEvent) error
 }
 
@@ -67,7 +67,7 @@ func stopProjectSession(ctx context.Context, store projectSessionStore, driver p
 	if store == nil {
 		return fmt.Errorf("session store is required")
 	}
-	loaded, err := store.GetSession(ctx, session.Summary.ID)
+	loaded, err := store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func stopProjectSession(ctx context.Context, store projectSessionStore, driver p
 		return err
 	}
 	loaded.Summary.VMStatus = domain.VMStatusStopped
-	if err := store.UpdateSession(ctx, loaded); err != nil {
+	if err := store.UpdateSandbox(ctx, loaded); err != nil {
 		return err
 	}
 	event := domain.SessionEvent{

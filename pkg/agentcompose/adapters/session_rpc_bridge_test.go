@@ -184,7 +184,7 @@ func TestSessionRPCBridgeCapabilityGuideLifecycle(t *testing.T) {
 		t.Fatalf("capability gateway vars not injected: %+v", env)
 	}
 	sessionID := resp.Msg.GetSession().GetSummary().GetSessionId()
-	session, err := bridge.store.GetSession(ctx, sessionID)
+	session, err := bridge.store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestSessionRPCBridgeCapabilityGuideIsBestEffort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session must not fail when guide rendering fails: %v", err)
 	}
-	session, err := bridge.store.GetSession(ctx, resp.Msg.GetSession().GetSummary().GetSessionId())
+	session, err := bridge.store.GetSandbox(ctx, resp.Msg.GetSession().GetSummary().GetSessionId())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func newTestSessionRPCBridge(t *testing.T) (*SessionRPCBridge, *fakeRPCSessionDr
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:             root,
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		DbAddr:               filepath.Join(root, "data.db"),
 		RuntimeDriver:        driverpkg.RuntimeDriverBoxlite,
 		DefaultImage:         "agent-compose-test:latest",
@@ -311,7 +311,7 @@ func newTestSessionRPCBridge(t *testing.T) (*SessionRPCBridge, *fakeRPCSessionDr
 		JupyterProxyBasePath: "/agent-compose/session",
 	}
 	if err := os.MkdirAll(config.SandboxRoot, 0o755); err != nil {
-		t.Fatalf("create session root: %v", err)
+		t.Fatalf("create sandbox root: %v", err)
 	}
 	db, err := sql.Open("sqlite", config.DbAddr)
 	if err != nil {
@@ -363,7 +363,7 @@ func TestSessionRPCBridgeCapabilityGuideFromHTTPProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := bridge.store.GetSession(ctx, resp.Msg.GetSession().GetSummary().GetSessionId())
+	session, err := bridge.store.GetSandbox(ctx, resp.Msg.GetSession().GetSummary().GetSessionId())
 	if err != nil {
 		t.Fatal(err)
 	}

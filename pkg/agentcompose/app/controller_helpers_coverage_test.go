@@ -223,7 +223,7 @@ type projectSessionStoreFake struct {
 	events  []domain.SessionEvent
 }
 
-func (s *projectSessionStoreFake) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *projectSessionStoreFake) GetSandbox(context.Context, string) (*domain.Session, error) {
 	if s.session == nil {
 		return nil, sql.ErrNoRows
 	}
@@ -231,7 +231,7 @@ func (s *projectSessionStoreFake) GetSession(context.Context, string) (*domain.S
 	return &copy, nil
 }
 
-func (s *projectSessionStoreFake) UpdateSession(_ context.Context, session *domain.Session) error {
+func (s *projectSessionStoreFake) UpdateSandbox(_ context.Context, session *domain.Session) error {
 	s.updated = true
 	copy := *session
 	s.session = &copy

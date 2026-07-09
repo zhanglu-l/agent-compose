@@ -22,7 +22,7 @@ import (
 )
 
 type ExecSessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Session, error)
 	GetVMState(string) (domain.VMState, error)
 }
 
@@ -117,7 +117,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	hostExecDir := filepath.Join(execution.HostSessionDir(session), "state", "exec", execID)
+	hostExecDir := filepath.Join(execution.HostSandboxDir(session), "state", "exec", execID)
 	if err := os.MkdirAll(hostExecDir, 0o755); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create exec artifact dir: %w", err))
 	}
@@ -193,7 +193,7 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 		return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("exec request is required"))
 	}
 	if sessionID := strings.TrimSpace(req.GetSessionId()); sessionID != "" {
-		session, err := h.store.GetSession(ctx, sessionID)
+		session, err := h.store.GetSandbox(ctx, sessionID)
 		if err != nil {
 			return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("session %s not found: %w", sessionID, err))
 		}
@@ -278,7 +278,7 @@ func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.Proje
 	if sessionID == "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run %s has no sandbox", run.RunID))
 	}
-	session, err := h.store.GetSession(ctx, sessionID)
+	session, err := h.store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("sandbox %s for run %s not found: %w", sessionID, run.RunID, err))
 	}

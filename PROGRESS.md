@@ -159,7 +159,7 @@
 
 参考文档：[docs/plan/sandbox-naming-implementation-plan.md](docs/plan/sandbox-naming-implementation-plan.md#阶段-3文件存储和旧数据目录拒绝)
 
-- [ ] 3.1 将文件存储 owner 和目录布局收敛为 sandbox store
+- [x] 3.1 将文件存储 owner 和目录布局收敛为 sandbox store
   - 依赖：2.1。
   - 工作内容：
     - 将 `pkg/storage/sessionstore` 迁移为 sandbox store；可先保留过渡包名，但导出类型和内部语义必须使用 sandbox。
@@ -168,9 +168,9 @@
     - 更新 path safety、metadata load/save、workspace/home/runtime/state/logs/proxy/vm helper。
     - 更新所有 Go 调用点和测试 fixture 中的临时目录命名。
   - 可并行子任务：
-    - [ ] 可并行：迁移 store 类型、路径 helper 和 metadata tests。
-    - [ ] 可并行：迁移 adapter/app/API 调用点。
-    - [ ] 可并行：迁移测试 fixture、临时目录和 path safety tests。
+    - [x] 可并行：迁移 store 类型、路径 helper 和 metadata tests。
+    - [x] 可并行：迁移 adapter/app/API 调用点。
+    - [x] 可并行：迁移测试 fixture、临时目录和 path safety tests。
   - 测试方案：
     - `go test ./pkg/storage/... ./pkg/sessions ./pkg/agentcompose/adapters`
     - 集成测试覆盖创建 sandbox 后文件树位于 `sandboxes/<sandbox_id>`。
@@ -179,10 +179,21 @@
     - sandbox 文件树与 spec 一致。
     - RemoveSandbox 等删除路径仍不能越过 sandbox root。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/storage/sessionstore` 保留过渡包名，但导出类型和 store 方法已切换为 `Sandbox*`、`CreateSandbox*`、`GetSandbox`、`ListSandboxes`、`UpdateSandbox`、`RemoveSandbox`、`SandboxDir`。
+      - 新建 sandbox 继续使用 `identity.ResourceSandbox`，目录位于 `Config.SandboxRoot/<sandbox_id>`，并创建 `metadata.json`、`workspace`、`context`、`home`、`runtime`、`state`、`logs`、`vm`、`proxy` 及 state/vm/proxy 初始文件。
+      - adapter、app、API、sessions、runs、dashboard、volumes、projects、runtime LLM proxy 等内部依赖已迁移到 sandbox-native store 方法。
+      - 测试 fixture 的 `SandboxRoot` 临时目录改为 `sandboxes`，Docker host rebase/path safety fixtures同步改为 sandbox root。
+      - 新增/强化 store layout 断言，覆盖 `sandboxes/<sandbox_id>` 下的目标文件树和 `RemoveSandbox` path safety。
+    - 验证：
+      - `go test ./pkg/storage/... ./pkg/sessions ./pkg/agentcompose/adapters`
+      - `go test ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs ./pkg/execution ./pkg/driver ./pkg/dashboard ./pkg/volumes ./pkg/projects ./pkg/agentcompose/proxy`
+    - 审计与例外：
+      - `rg` store API audit 未发现 `sessionstore.Session*`、`CreateSessionWithOptions`、`UpdateSession`、`RemoveSession`、`SessionDir`、`LoadSession`、`SaveSession` 或 `CreateSessionOptions` 的内部调用残留。
+      - v1 compatibility handler/RPC bridge 仍保留 `CreateSession`、`GetSession`、`ListSessions` 方法名和 v1 proto `GetSession()` accessors。
+      - provider-native `.codex/sessions` 路径仍保留；driver domain `hostSessionDir` 和 driver runtime mount manifest 命名留给阶段 4.2。
+      - 旧 `<DATA_ROOT>/sessions` 拒绝路径尚未实现，按计划留给 3.2。
     - 下一目标：3.2。
 
 - [ ] 3.2 实现旧 `sessions` 目录拒绝路径

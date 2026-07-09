@@ -380,7 +380,7 @@ func (s *controllerCoverageStore) SetLoaderEnabled(context.Context, string, bool
 
 type controllerCoverageSessionStore struct{}
 
-func (controllerCoverageSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (controllerCoverageSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{}, nil
 }
 
@@ -442,7 +442,7 @@ type downCoverageSessions struct {
 	err      error
 }
 
-func (s downCoverageSessions) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s downCoverageSessions) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{Sessions: s.sessions}, s.err
 }
 

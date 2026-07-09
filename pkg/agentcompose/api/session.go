@@ -25,8 +25,8 @@ type SessionDelegate interface {
 }
 
 type WatchSessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
-	ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	GetSandbox(context.Context, string) (*domain.Session, error)
+	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
 }
 
 type SessionRuntimeReconciler interface {
@@ -109,7 +109,7 @@ func (h *SessionHandler) StopSession(ctx context.Context, req *connect.Request[a
 }
 
 func (h *SessionHandler) GetSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	session, err := h.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := h.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		if isSessionNotFoundError(err) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
@@ -129,7 +129,7 @@ func (h *SessionHandler) ListSessions(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	result, err := h.store.ListSessions(ctx, options)
+	result, err := h.store.ListSandboxes(ctx, options)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -151,7 +151,7 @@ func (h *SessionHandler) GetSessionProxy(ctx context.Context, req *connect.Reque
 
 func (h *SessionHandler) WatchSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest], stream *connect.ServerStream[agentcomposev1.WatchSessionResponse]) error {
 	PrepareStreamingHeaders(stream.ResponseHeader())
-	session, err := h.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := h.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return connect.NewError(connect.CodeNotFound, err)
 	}

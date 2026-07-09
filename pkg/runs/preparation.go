@@ -37,7 +37,7 @@ type Preparation struct {
 	Volumes          []domain.VolumeMountSpec
 	ProjectRoot      string
 	ProjectVolumes   map[string]domain.VolumeRecord
-	Jupyter          sessionstore.CreateSessionOptions
+	Jupyter          sessionstore.CreateSandboxOptions
 }
 
 func PrepareProjectRun(ctx context.Context, store PreparationStore, resolver WorkspaceResolver, run domain.ProjectRunRecord, requestEnv []*agentcomposev2.EnvVarSpec) (Preparation, error) {
@@ -115,12 +115,12 @@ func ProjectRoot(project domain.ProjectRecord) string {
 	return filepath.Dir(sourcePath)
 }
 
-func jupyterOptionsFromAgentSpec(agent *agentcomposev2.AgentSpec) sessionstore.CreateSessionOptions {
+func jupyterOptionsFromAgentSpec(agent *agentcomposev2.AgentSpec) sessionstore.CreateSandboxOptions {
 	if agent == nil || agent.GetJupyter() == nil {
-		return sessionstore.CreateSessionOptions{}
+		return sessionstore.CreateSandboxOptions{}
 	}
 	jupyter := agent.GetJupyter()
-	return sessionstore.CreateSessionOptions{
+	return sessionstore.CreateSandboxOptions{
 		JupyterEnabled:   jupyter.GetEnabled(),
 		JupyterGuestPort: int(jupyter.GetGuestPort()),
 	}

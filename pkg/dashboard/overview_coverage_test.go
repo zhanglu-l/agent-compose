@@ -92,7 +92,7 @@ type dashboardSessionStore struct {
 	err      error
 }
 
-func (s dashboardSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s dashboardSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{Sessions: s.sessions}, s.err
 }
 

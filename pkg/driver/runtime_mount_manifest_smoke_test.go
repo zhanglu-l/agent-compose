@@ -55,7 +55,7 @@ func newRuntimeSmokeConfig(t *testing.T, driver string) *appconfig.Config {
 	repoRoot := runtimeSmokeRepoRoot(t)
 	config := &appconfig.Config{
 		DataRoot:                 root,
-		SandboxRoot:              filepath.Join(root, "sessions"),
+		SandboxRoot:              filepath.Join(root, "sandboxes"),
 		RuntimeDriver:            driver,
 		BoxliteHome:              filepath.Join(root, "boxlite"),
 		DockerHome:               filepath.Join(root, "docker"),
@@ -81,7 +81,7 @@ func newRuntimeSmokeConfig(t *testing.T, driver string) *appconfig.Config {
 		SandboxStopTimeout:       30 * time.Second,
 	}
 	if err := os.MkdirAll(config.SandboxRoot, 0o755); err != nil {
-		t.Fatalf("create session root: %v", err)
+		t.Fatalf("create sandbox root: %v", err)
 	}
 	return config
 }

@@ -114,7 +114,7 @@ type characterizationSandboxStore struct {
 	removeErr error
 }
 
-func (s *characterizationSandboxStore) GetSession(_ context.Context, id string) (*domain.Session, error) {
+func (s *characterizationSandboxStore) GetSandbox(_ context.Context, id string) (*domain.Session, error) {
 	s.getID = id
 	if s.getErr != nil {
 		return nil, s.getErr
@@ -122,7 +122,7 @@ func (s *characterizationSandboxStore) GetSession(_ context.Context, id string) 
 	return s.session, nil
 }
 
-func (s *characterizationSandboxStore) RemoveSession(_ context.Context, id string) error {
+func (s *characterizationSandboxStore) RemoveSandbox(_ context.Context, id string) error {
 	s.removeID = id
 	return s.removeErr
 }

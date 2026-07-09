@@ -15,7 +15,7 @@ import (
 )
 
 type AgentSessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Session, error)
 	ListEvents(context.Context, string) ([]domain.SessionEvent, error)
 }
 
@@ -39,7 +39,7 @@ func NewAgentHandler(store AgentSessionStore, configDB AgentDefinitionStore, exe
 }
 
 func (h *AgentHandler) SendAgentMessage(ctx context.Context, req *connect.Request[agentcomposev1.SendAgentMessageRequest]) (*connect.Response[agentcomposev1.SendAgentMessageResponse], error) {
-	session, err := h.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := h.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -67,7 +67,7 @@ func (h *AgentHandler) SendAgentMessage(ctx context.Context, req *connect.Reques
 
 func (h *AgentHandler) SendAgentMessageStream(ctx context.Context, req *connect.Request[agentcomposev1.SendAgentMessageRequest], stream *connect.ServerStream[agentcomposev1.SendAgentMessageStreamResponse]) error {
 	PrepareStreamingHeaders(stream.ResponseHeader())
-	session, err := h.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := h.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return connect.NewError(connect.CodeNotFound, err)
 	}
@@ -115,7 +115,7 @@ func (h *AgentHandler) SendAgentMessageStream(ctx context.Context, req *connect.
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}
-	loaded, err := h.store.GetSession(ctx, session.Summary.ID)
+	loaded, err := h.store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}

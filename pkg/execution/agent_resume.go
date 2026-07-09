@@ -51,7 +51,7 @@ func CollectAgentResumeInfo(session *domain.Session, agent, agentSessionID, mani
 		SessionManifestPath: manifestPath,
 		UpdatedAt:           time.Now().UTC(),
 	}
-	statePath := filepath.Join(HostSessionDir(session), "state", "agents", "providers", provider+".json")
+	statePath := filepath.Join(HostSandboxDir(session), "state", "agents", "providers", provider+".json")
 	if stat, err := os.Stat(statePath); err == nil && !stat.IsDir() {
 		info.SessionStatePath = statePath
 		if info.SessionID == "" {
@@ -142,10 +142,14 @@ func ShouldIncludeAgentJSONL(path, provider, sessionID string) bool {
 	return true
 }
 
-func HostSessionDir(session *domain.Session) string {
+func HostSandboxDir(session *domain.Session) string {
 	return filepath.Dir(session.Summary.WorkspacePath)
 }
 
+func HostSessionDir(session *domain.Session) string {
+	return HostSandboxDir(session)
+}
+
 func HostSessionHome(session *domain.Session) string {
-	return filepath.Join(HostSessionDir(session), "home")
+	return filepath.Join(HostSandboxDir(session), "home")
 }

@@ -21,7 +21,7 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sessio
 		req.SessionID = session.Summary.ID
 	}
 	if session != nil && cell.ID != "" {
-		artifactsDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cell.ID)
+		artifactsDir := filepath.Join(execution.HostSandboxDir(session), "state", "cells", cell.ID)
 		req.ArtifactsDir = artifactsDir
 		req.LogsPath = filepath.Join(artifactsDir, "output.txt")
 	}

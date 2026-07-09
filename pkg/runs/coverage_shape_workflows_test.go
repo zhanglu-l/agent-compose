@@ -238,7 +238,7 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sessions"),
+		SandboxRoot:   filepath.Join(root, "sandboxes"),
 		RuntimeDriver: "boxlite",
 		DefaultImage:  "guest:latest",
 	}
@@ -333,7 +333,7 @@ func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:             root,
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        "boxlite",
 		DefaultImage:         "guest:latest",
 		JupyterGuestPort:     8888,
@@ -425,7 +425,7 @@ func TestRunsControllerRunProjectAgentResolvesVolumeMounts(t *testing.T) {
 	if len(resolver.specs) != 1 || resolver.specs[0].Source != "cache" || resolver.options.ProjectVolumes["cache"].ID != "vol-cache" {
 		t.Fatalf("resolver specs=%#v options=%#v", resolver.specs, resolver.options)
 	}
-	session, err := fixture.store.GetSession(fixture.ctx, run.SessionID)
+	session, err := fixture.store.GetSandbox(fixture.ctx, run.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession returned error: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestRunsControllerRunProjectAgentResolvesVolumeMounts(t *testing.T) {
 
 func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSession(t *testing.T) {
 	fixture := newControllerRunFixture(t)
-	session, err := fixture.store.CreateSession(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sessions"),
+		SandboxRoot:   filepath.Join(root, "sandboxes"),
 		RuntimeDriver: "boxlite",
 		DefaultImage:  "guest:latest",
 	}
@@ -580,7 +580,7 @@ func TestRunsControllerRunProjectAgentCommandNonZeroExitPreservesOutput(t *testi
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sessions"),
+		SandboxRoot:   filepath.Join(root, "sandboxes"),
 		RuntimeDriver: "boxlite",
 		DefaultImage:  "guest:latest",
 	}
@@ -654,7 +654,7 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:       root,
-		SandboxRoot:    filepath.Join(root, "sessions"),
+		SandboxRoot:    filepath.Join(root, "sandboxes"),
 		RuntimeDriver:  "boxlite",
 		DefaultImage:   "guest:latest",
 		GuestStateRoot: "/guest/state",
@@ -663,7 +663,7 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "command session", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "command session", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -778,7 +778,7 @@ func newControllerRunFixture(t *testing.T) *controllerRunFixture {
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sessions"),
+		SandboxRoot:   filepath.Join(root, "sandboxes"),
 		RuntimeDriver: "boxlite",
 		DefaultImage:  "guest:latest",
 	}
@@ -853,8 +853,8 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		if run.Status != domain.ProjectRunStatusSucceeded || run.SessionID == "" || run.CleanupError != "" {
 			t.Fatalf("run = %#v", run)
 		}
-		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created sandbox dir still exists or stat error mismatch: %v", statErr)
 		}
 		if !fixture.driver.stopped || !containsString(fixture.dashboard.reasons, "session_removed") {
 			t.Fatalf("driver=%#v dashboard=%#v", fixture.driver, fixture.dashboard.reasons)
@@ -872,8 +872,8 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		if run.Status != domain.ProjectRunStatusFailed || run.CleanupError != "" {
 			t.Fatalf("run = %#v", run)
 		}
-		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created sandbox dir still exists or stat error mismatch: %v", statErr)
 		}
 	})
 
@@ -888,14 +888,14 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		if run.Status != domain.ProjectRunStatusCanceled || run.CleanupError != "" {
 			t.Fatalf("run = %#v", run)
 		}
-		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created sandbox dir still exists or stat error mismatch: %v", statErr)
 		}
 	})
 
 	t.Run("existing session is stopped but not removed", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
-		session, err := fixture.store.CreateSession(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+		session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("CreateSession returned error: %v", err)
 		}
@@ -905,7 +905,7 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		if err != nil || execErr != nil {
 			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
 		}
-		loaded, err := fixture.store.GetSession(fixture.ctx, session.Summary.ID)
+		loaded, err := fixture.store.GetSandbox(fixture.ctx, session.Summary.ID)
 		if err != nil {
 			t.Fatalf("existing session was removed: %v", err)
 		}
@@ -937,8 +937,8 @@ func TestRunsControllerRunProjectAgentCleanupErrorRecording(t *testing.T) {
 		if run.Status != domain.ProjectRunStatusSucceeded || !strings.Contains(run.CleanupError, "stop failed") {
 			t.Fatalf("run = %#v", run)
 		}
-		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); statErr != nil {
-			t.Fatalf("session dir should remain when cleanup fails: %v", statErr)
+		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); statErr != nil {
+			t.Fatalf("sandbox dir should remain when cleanup fails: %v", statErr)
 		}
 	})
 
@@ -966,8 +966,8 @@ func TestRunsControllerRunProjectAgentCleanupErrorRecording(t *testing.T) {
 		if run.Status != domain.ProjectRunStatusFailed || run.SessionID == "" || run.CleanupError != "" {
 			t.Fatalf("run = %#v", run)
 		}
-		if _, statErr := os.Stat(fixture.store.SessionDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("created session dir still exists or stat error mismatch: %v", statErr)
+		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("created sandbox dir still exists or stat error mismatch: %v", statErr)
 		}
 	})
 }
@@ -1017,7 +1017,7 @@ func TestRunsControllerRunProjectAgentManualTriggerResolution(t *testing.T) {
 	if run.Status != domain.ProjectRunStatusSucceeded || run.Prompt != "resolved prompt" || run.TriggerID != "trigger-1" || run.SchedulerID != "scheduler-1" {
 		t.Fatalf("run = %#v", run)
 	}
-	session, err := fixture.store.GetSession(fixture.ctx, run.SessionID)
+	session, err := fixture.store.GetSandbox(fixture.ctx, run.SessionID)
 	if err != nil {
 		t.Fatalf("GetSession returned error: %v", err)
 	}
@@ -1109,7 +1109,7 @@ func TestManualTriggerCaptureHostUnavailableMethodsAndEnvSpecs(t *testing.T) {
 func TestRunsControllerApplyJupyterOptionsToSession(t *testing.T) {
 	fixture := newControllerRunFixture(t)
 	fixture.config.JupyterGuestPort = 8888
-	session, err := fixture.store.CreateSession(fixture.ctx, "jupyter session", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := fixture.store.CreateSandbox(fixture.ctx, "jupyter session", "", "boxlite", "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -1117,7 +1117,7 @@ func TestRunsControllerApplyJupyterOptionsToSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProxyState before returned error: %v", err)
 	}
-	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSessionOptions{}); err != nil {
+	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSandboxOptions{}); err != nil {
 		t.Fatalf("apply empty options returned error: %v", err)
 	}
 	unchanged, err := fixture.store.GetProxyState(session.Summary.ID)
@@ -1127,7 +1127,7 @@ func TestRunsControllerApplyJupyterOptionsToSession(t *testing.T) {
 	if unchanged != before {
 		t.Fatalf("empty options changed proxy state before=%#v after=%#v", before, unchanged)
 	}
-	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSessionOptions{JupyterExpose: true, JupyterGuestPort: 9999}); err != nil {
+	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSandboxOptions{JupyterExpose: true, JupyterGuestPort: 9999}); err != nil {
 		t.Fatalf("apply jupyter options returned error: %v", err)
 	}
 	enabled, err := fixture.store.GetProxyState(session.Summary.ID)
@@ -1167,7 +1167,7 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 		t.Fatalf("stream headers = %#v", headers)
 	}
 
-	baseJupyter := sessionstore.CreateSessionOptions{JupyterGuestPort: 8888}
+	baseJupyter := sessionstore.CreateSandboxOptions{JupyterGuestPort: 8888}
 	if options, err := resolveRunJupyterOptions(baseJupyter, nil); err != nil ||
 		options.JupyterEnabled != baseJupyter.JupyterEnabled ||
 		options.JupyterExpose != baseJupyter.JupyterExpose ||
@@ -1182,7 +1182,7 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 	if err != nil || !options.JupyterEnabled || options.JupyterExpose || options.JupyterGuestPort != 9000 {
 		t.Fatalf("enabled jupyter options=%#v err=%v", options, err)
 	}
-	options, err = resolveRunJupyterOptions(sessionstore.CreateSessionOptions{}, &agentcomposev2.RunJupyterSpec{Expose: true})
+	options, err = resolveRunJupyterOptions(sessionstore.CreateSandboxOptions{}, &agentcomposev2.RunJupyterSpec{Expose: true})
 	if err != nil || !options.JupyterEnabled || !options.JupyterExpose {
 		t.Fatalf("exposed jupyter options=%#v err=%v", options, err)
 	}
@@ -1397,7 +1397,7 @@ type fakeSessionStatusStore struct {
 	sessions map[string]*domain.Session
 }
 
-func (s fakeSessionStatusStore) GetSession(_ context.Context, id string) (*domain.Session, error) {
+func (s fakeSessionStatusStore) GetSandbox(_ context.Context, id string) (*domain.Session, error) {
 	session, ok := s.sessions[id]
 	if !ok {
 		return nil, os.ErrNotExist
@@ -1672,23 +1672,23 @@ type fakeGuideSessionStore struct {
 	events []domain.SessionEvent
 }
 
-func (s *fakeGuideSessionStore) CreateSessionWithOptions(context.Context, string, string, string, string, string, string, *sessionstore.SessionWorkspace, []sessionstore.SessionEnvVar, []sessionstore.SessionTag, sessionstore.CreateSessionOptions) (*sessionstore.Session, error) {
+func (s *fakeGuideSessionStore) CreateSandboxWithOptions(context.Context, string, string, string, string, string, string, *sessionstore.SandboxWorkspace, []sessionstore.SandboxEnvVar, []sessionstore.SandboxTag, sessionstore.CreateSandboxOptions) (*sessionstore.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) GetSession(context.Context, string) (*sessionstore.Session, error) {
+func (s *fakeGuideSessionStore) GetSandbox(context.Context, string) (*sessionstore.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) UpdateSession(context.Context, *sessionstore.Session) error {
+func (s *fakeGuideSessionStore) UpdateSandbox(context.Context, *sessionstore.Sandbox) error {
 	return errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) RemoveSession(context.Context, string) error {
+func (s *fakeGuideSessionStore) RemoveSandbox(context.Context, string) error {
 	return errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) AddEvent(_ context.Context, _ string, event sessionstore.SessionEvent) error {
+func (s *fakeGuideSessionStore) AddEvent(_ context.Context, _ string, event sessionstore.SandboxEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }

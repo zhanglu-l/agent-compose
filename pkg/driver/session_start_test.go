@@ -88,7 +88,7 @@ func TestPrepareSessionStartDockerUsesResolvedImage(t *testing.T) {
 func testPrepareSessionStartConfig(root string) *appconfig.Config {
 	config := testRuntimeMountConfig()
 	config.DataRoot = root
-	config.SandboxRoot = filepath.Join(root, "sessions")
+	config.SandboxRoot = filepath.Join(root, "sandboxes")
 	config.DefaultImage = "boxlite-guest:latest"
 	config.DockerDefaultImage = "docker-guest:latest"
 	config.ImageRegistry = "registry.example"

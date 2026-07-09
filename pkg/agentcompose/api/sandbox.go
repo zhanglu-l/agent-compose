@@ -17,8 +17,8 @@ import (
 )
 
 type SandboxStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
-	RemoveSession(context.Context, string) error
+	GetSandbox(context.Context, string) (*domain.Session, error)
+	RemoveSandbox(context.Context, string) error
 }
 
 type SandboxStatsStore interface {
@@ -60,7 +60,7 @@ func (h *SandboxHandler) RemoveSandbox(ctx context.Context, req *connect.Request
 	if err := validateSandboxID(sandboxID); err != nil {
 		return nil, err
 	}
-	session, err := h.store.GetSession(ctx, sandboxID)
+	session, err := h.store.GetSandbox(ctx, sandboxID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -82,7 +82,7 @@ func (h *SandboxHandler) RemoveSandbox(ctx context.Context, req *connect.Request
 		}
 		stopped = true
 	}
-	if err := h.store.RemoveSession(ctx, sandboxID); err != nil {
+	if err := h.store.RemoveSandbox(ctx, sandboxID); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if h.dashboard != nil {
@@ -100,7 +100,7 @@ func (h *SandboxHandler) GetSandboxStats(ctx context.Context, req *connect.Reque
 	if err := validateSandboxID(sandboxID); err != nil {
 		return nil, err
 	}
-	session, err := h.store.GetSession(ctx, sandboxID)
+	session, err := h.store.GetSandbox(ctx, sandboxID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}

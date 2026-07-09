@@ -49,7 +49,7 @@ func (e *LoaderCommandExecutor) ExecuteLoaderCommand(ctx context.Context, sessio
 	defer execCancel()
 
 	cellID := uuid.NewString()
-	hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
+	hostCellDir := filepath.Join(execution.HostSandboxDir(session), "state", "cells", cellID)
 	if err := os.MkdirAll(hostCellDir, 0o755); err != nil {
 		return domain.LoaderCommandResult{}, fmt.Errorf("create loader command cell state dir: %w", err)
 	}

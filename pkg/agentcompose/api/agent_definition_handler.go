@@ -33,10 +33,10 @@ type AgentDefinitionConfigStore interface {
 }
 
 type AgentDefinitionSessionStore interface {
-	ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
 	GetVMState(string) (domain.VMState, error)
 	SaveVMState(string, domain.VMState) error
-	UpdateSession(context.Context, *domain.Session) error
+	UpdateSandbox(context.Context, *domain.Session) error
 	AddEvent(context.Context, string, domain.SessionEvent) error
 }
 
@@ -362,7 +362,7 @@ func (h *AgentDefinitionHandler) agentWorkspace(ctx context.Context, workspaceID
 }
 
 func (h *AgentDefinitionHandler) listAllSessions(ctx context.Context) ([]*domain.Session, error) {
-	result, err := h.store.ListSessions(ctx, domain.SessionListOptions{Limit: AgentSessionScanLimit})
+	result, err := h.store.ListSandboxes(ctx, domain.SessionListOptions{Limit: AgentSessionScanLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +407,7 @@ func (h *AgentDefinitionHandler) markAgentSessionStopped(ctx context.Context, se
 		}
 	}
 	session.Summary.VMStatus = domain.VMStatusStopped
-	if err := h.store.UpdateSession(ctx, session); err != nil {
+	if err := h.store.UpdateSandbox(ctx, session); err != nil {
 		return err
 	}
 	if h.streams != nil {

@@ -79,11 +79,11 @@ type TriggerResolverStore interface {
 // fake. It is distinct from SessionStore in statuses.go, which exposes only
 // domain-typed lookups for status listing.
 type SessionRuntimeStore interface {
-	CreateSessionWithOptions(ctx context.Context, title, baseWorkspace, driver, guestImage, workspaceID, triggerSource string, workspace *sessionstore.SessionWorkspace, envItems []sessionstore.SessionEnvVar, tags []sessionstore.SessionTag, options sessionstore.CreateSessionOptions) (*sessionstore.Session, error)
-	GetSession(ctx context.Context, id string) (*sessionstore.Session, error)
-	UpdateSession(ctx context.Context, session *sessionstore.Session) error
-	RemoveSession(ctx context.Context, id string) error
-	AddEvent(ctx context.Context, sessionID string, event sessionstore.SessionEvent) error
+	CreateSandboxWithOptions(ctx context.Context, title, baseWorkspace, driver, guestImage, workspaceID, triggerSource string, workspace *sessionstore.SandboxWorkspace, envItems []sessionstore.SandboxEnvVar, tags []sessionstore.SandboxTag, options sessionstore.CreateSandboxOptions) (*sessionstore.Sandbox, error)
+	GetSandbox(ctx context.Context, id string) (*sessionstore.Sandbox, error)
+	UpdateSandbox(ctx context.Context, session *sessionstore.Sandbox) error
+	RemoveSandbox(ctx context.Context, id string) error
+	AddEvent(ctx context.Context, sessionID string, event sessionstore.SandboxEvent) error
 	GetVMState(id string) (sessionstore.VMState, error)
 	GetProxyState(id string) (sessionstore.ProxyState, error)
 	SaveProxyState(id string, state sessionstore.ProxyState) error
@@ -566,7 +566,7 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Se
 }
 
 func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Session) string {
-	return filepath.Join(execution.HostSessionDir(session), "state", "runs", run.RunID)
+	return filepath.Join(execution.HostSandboxDir(session), "state", "runs", run.RunID)
 }
 
 func projectRunAgentCellOutputPath(session *domain.Session, cellID string) string {
@@ -574,7 +574,7 @@ func projectRunAgentCellOutputPath(session *domain.Session, cellID string) strin
 	if session == nil || cellID == "" {
 		return ""
 	}
-	return filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID, "output.txt")
+	return filepath.Join(execution.HostSandboxDir(session), "state", "cells", cellID, "output.txt")
 }
 
 func appendProjectRunLogChunk(path string, chunk domain.ExecChunk) error {
@@ -618,13 +618,13 @@ func (c *Controller) prepareProjectRun(ctx context.Context, run domain.ProjectRu
 	return PrepareProjectRun(ctx, c.configDB, projectRunWorkspaceResolver{controller: c}, run, requestEnv)
 }
 
-func resolveRunJupyterOptions(base sessionstore.CreateSessionOptions, override *agentcomposev2.RunJupyterSpec) (sessionstore.CreateSessionOptions, error) {
+func resolveRunJupyterOptions(base sessionstore.CreateSandboxOptions, override *agentcomposev2.RunJupyterSpec) (sessionstore.CreateSandboxOptions, error) {
 	result := base
 	if override == nil {
 		return result, nil
 	}
 	if override.GetGuestPort() > 65535 {
-		return sessionstore.CreateSessionOptions{}, fmt.Errorf("%w: jupyter guest_port must be 0 or a valid TCP port between 1 and 65535", ErrInvalidRequest)
+		return sessionstore.CreateSandboxOptions{}, fmt.Errorf("%w: jupyter guest_port must be 0 or a valid TCP port between 1 and 65535", ErrInvalidRequest)
 	}
 	if override.GetEnabled() || override.GetExpose() {
 		result.JupyterEnabled = true
@@ -653,7 +653,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		if len(req.Volumes) > 0 {
 			return SessionResult{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
 		}
-		session, err := c.store.GetSession(ctx, sessionID)
+		session, err := c.store.GetSandbox(ctx, sessionID)
 		if err != nil {
 			return SessionResult{}, fmt.Errorf("load session %s: %w", sessionID, err)
 		}
@@ -705,7 +705,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		return SessionResult{}, err
 	}
 	jupyterOptions.VolumeMounts = volumeMounts
-	session, err := c.store.CreateSessionWithOptions(ctx,
+	session, err := c.store.CreateSandboxWithOptions(ctx,
 		SessionTitle(run),
 		"",
 		driver,
@@ -744,7 +744,7 @@ func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared
 	})
 }
 
-func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sessionstore.CreateSessionOptions) error {
+func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sessionstore.CreateSandboxOptions) error {
 	proxyState, err := c.store.GetProxyState(sessionID)
 	if err != nil {
 		return err
@@ -784,23 +784,23 @@ func (c *Controller) startProjectRunSession(ctx context.Context, session *domain
 	}
 	if err := workspaces.PrepareSessionWorkspace(ctx, c.config, c.configDB, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = c.store.UpdateSession(ctx, session)
+		_ = c.store.UpdateSandbox(ctx, session)
 		return err
 	}
 	writeCapabilityGuide(ctx, c.cap, c.store, c.streams, session, capabilities.SessionCapsets(session))
 	if session.Summary.VMStatus != domain.VMStatusRunning {
 		if err := c.driver.StartSessionVM(ctx, session); err != nil {
 			session.Summary.VMStatus = domain.VMStatusFailed
-			_ = c.store.UpdateSession(ctx, session)
+			_ = c.store.UpdateSandbox(ctx, session)
 			return err
 		}
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := c.store.UpdateSession(ctx, session); err != nil {
+	if err := c.store.UpdateSandbox(ctx, session); err != nil {
 		return err
 	}
 	c.publishProjectRunSessionStarted(ctx, session, eventType, eventMessage)
-	loaded, err := c.store.GetSession(ctx, session.Summary.ID)
+	loaded, err := c.store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -870,7 +870,7 @@ func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessi
 		if c.store == nil {
 			return fmt.Errorf("session store is required")
 		}
-		if err := c.store.RemoveSession(ctx, session.Summary.ID); err != nil {
+		if err := c.store.RemoveSandbox(ctx, session.Summary.ID); err != nil {
 			return err
 		}
 		if c.dashboard != nil {
@@ -885,7 +885,7 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 	if c.store == nil {
 		return fmt.Errorf("session store is required")
 	}
-	loaded, err := c.store.GetSession(ctx, session.Summary.ID)
+	loaded, err := c.store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -899,7 +899,7 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 		return err
 	}
 	loaded.Summary.VMStatus = domain.VMStatusStopped
-	if err := c.store.UpdateSession(ctx, loaded); err != nil {
+	if err := c.store.UpdateSandbox(ctx, loaded); err != nil {
 		return err
 	}
 	event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}

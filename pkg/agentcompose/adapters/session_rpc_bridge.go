@@ -200,24 +200,24 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	guestImage := driverpkg.ResolveSessionGuestImage(req.Msg.GetGuestImage(), driverpkg.DefaultGuestImageForDriver(b.config, driver))
-	session, err := b.store.CreateSession(ctx, req.Msg.GetTitle(), req.Msg.GetBaseWorkspace(), driver, guestImage, workspaceID, source, workspaceSnapshot, envItems, tags)
+	session, err := b.store.CreateSandbox(ctx, req.Msg.GetTitle(), req.Msg.GetBaseWorkspace(), driver, guestImage, workspaceID, source, workspaceSnapshot, envItems, tags)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	session.ProviderEnvItems = providerEnvItems
 	if err := workspaces.PrepareSessionWorkspace(ctx, b.config, b.configDB, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = b.store.UpdateSession(ctx, session)
+		_ = b.store.UpdateSandbox(ctx, session)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	writeCapabilityGuide(ctx, b.cap, b.store, b.streams, session, req.Msg.GetCapsetIds())
 	if err := b.driver.StartSessionVM(ctx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = b.store.UpdateSession(ctx, session)
+		_ = b.store.UpdateSandbox(ctx, session)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := b.store.UpdateSession(ctx, session); err != nil {
+	if err := b.store.UpdateSandbox(ctx, session); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	b.streams.PublishSessionUpdated(&session.Summary)
@@ -233,7 +233,7 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	}
 	_ = b.store.AddEvent(ctx, session.Summary.ID, event)
 	b.streams.PublishEventAdded(session.Summary.ID, event)
-	loaded, err := b.store.GetSession(ctx, session.Summary.ID)
+	loaded, err := b.store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -247,7 +247,7 @@ func (b *SessionRPCBridge) ResumeSession(ctx context.Context, req *connect.Reque
 }
 
 func (b *SessionRPCBridge) resumeSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest], source string) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	session, err := b.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := b.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -268,7 +268,7 @@ func (b *SessionRPCBridge) StopSession(ctx context.Context, req *connect.Request
 }
 
 func (b *SessionRPCBridge) stopSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest], source string) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	session, err := b.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := b.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -291,7 +291,7 @@ func (b *SessionRPCBridge) stopSession(ctx context.Context, req *connect.Request
 }
 
 func (b *SessionRPCBridge) GetSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	session, err := b.store.GetSession(ctx, req.Msg.GetSessionId())
+	session, err := b.store.GetSandbox(ctx, req.Msg.GetSessionId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -308,7 +308,7 @@ func (b *SessionRPCBridge) ListSessions(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	result, err := b.store.ListSessions(ctx, options)
+	result, err := b.store.ListSandboxes(ctx, options)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

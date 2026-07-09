@@ -17,7 +17,7 @@ func HostAgentSystemPromptPath(session *domain.Session) string {
 	if session == nil || strings.TrimSpace(session.Summary.WorkspacePath) == "" {
 		return ""
 	}
-	return filepath.Join(HostSessionDir(session), "state", "agents", "system-prompts", AgentSystemPromptFileName)
+	return filepath.Join(HostSandboxDir(session), "state", "agents", "system-prompts", AgentSystemPromptFileName)
 }
 
 func WriteAgentPromptFile(config *appconfig.Config, session *domain.Session, agent, message string) (string, error) {

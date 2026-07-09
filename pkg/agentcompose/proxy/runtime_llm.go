@@ -21,7 +21,7 @@ type RuntimeLLMTokenStore interface {
 }
 
 type RuntimeLLMSessionStore interface {
-	GetSession(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Session, error)
 }
 
 type RuntimeLLMTargetResolver func(ctx context.Context, requestedModel, providerID string) (llms.ResolvedTarget, error)
@@ -80,7 +80,7 @@ func (h runtimeLLMHandler) handle(c echo.Context, inboundProtocol protocolbridge
 	if token.WireAPI != "" && llms.NormalizeWireAPI(token.WireAPI) != llms.NormalizeWireAPI(facadeWireAPI) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "llm facade token wire api mismatch"})
 	}
-	session, err := h.opts.Sessions.GetSession(c.Request().Context(), sessionID)
+	session, err := h.opts.Sessions.GetSandbox(c.Request().Context(), sessionID)
 	if err != nil {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "session is not available"})
 	}

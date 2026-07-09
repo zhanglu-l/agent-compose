@@ -27,7 +27,7 @@ type DownStore interface {
 }
 
 type DownSessionStore interface {
-	ListSessions(ctx context.Context, options domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(ctx context.Context, options domain.SessionListOptions) (domain.SessionListResult, error)
 }
 
 type DownOptions struct {
@@ -104,7 +104,7 @@ func StopProjectRunningSessions(ctx context.Context, project domain.ProjectRecor
 	if options.Sessions == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
-	result, err := options.Sessions.ListSessions(ctx, domain.SessionListOptions{VMStatus: domain.VMStatusRunning, Limit: 1 << 30})
+	result, err := options.Sessions.ListSandboxes(ctx, domain.SessionListOptions{VMStatus: domain.VMStatusRunning, Limit: 1 << 30})
 	if err != nil {
 		return nil, fmt.Errorf("list running sessions for project down %s: %w", project.Name, err)
 	}

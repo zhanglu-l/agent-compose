@@ -151,11 +151,11 @@ type fakeLifecycleStore struct {
 	events     int
 }
 
-func (s *fakeLifecycleStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *fakeLifecycleStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	return s.session, nil
 }
 
-func (s *fakeLifecycleStore) UpdateSession(_ context.Context, session *domain.Session) error {
+func (s *fakeLifecycleStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
 	s.updated++
 	s.session = session
 	return nil

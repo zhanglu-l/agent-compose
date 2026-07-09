@@ -569,7 +569,7 @@ type fakeRuntimeLLMSessions struct {
 	err     error
 }
 
-func (s fakeRuntimeLLMSessions) GetSession(context.Context, string) (*domain.Session, error) {
+func (s fakeRuntimeLLMSessions) GetSandbox(context.Context, string) (*domain.Session, error) {
 	return s.session, s.err
 }
 

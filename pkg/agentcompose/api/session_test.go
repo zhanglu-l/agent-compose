@@ -32,7 +32,7 @@ func TestSessionHandlerGetAndListSessionsUseStoreAndReconciler(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	store, err := sessionstore.NewWithConfig(&appconfig.Config{
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        driverpkg.RuntimeDriverBoxlite,
 		DefaultImage:         "debian:bookworm-slim",
 		GuestWorkspacePath:   "/workspace",
@@ -41,7 +41,7 @@ func TestSessionHandlerGetAndListSessionsUseStoreAndReconciler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "api session", "", driverpkg.RuntimeDriverBoxlite, "debian:bookworm-slim", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "api session", "", driverpkg.RuntimeDriverBoxlite, "debian:bookworm-slim", "", domain.SessionTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -139,10 +139,10 @@ type errorSessionStore struct {
 	err error
 }
 
-func (s errorSessionStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s errorSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	return nil, s.err
 }
 
-func (s errorSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s errorSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{}, s.err
 }

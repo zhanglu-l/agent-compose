@@ -795,7 +795,7 @@ type fakeAgentDefinitionSessionStore struct {
 	events   int
 }
 
-func (s *fakeAgentDefinitionSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s *fakeAgentDefinitionSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{Sessions: s.sessions, TotalCount: len(s.sessions)}, nil
 }
 
@@ -807,7 +807,7 @@ func (s *fakeAgentDefinitionSessionStore) SaveVMState(string, domain.VMState) er
 	return nil
 }
 
-func (s *fakeAgentDefinitionSessionStore) UpdateSession(_ context.Context, session *domain.Session) error {
+func (s *fakeAgentDefinitionSessionStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
 	s.updated++
 	for i, current := range s.sessions {
 		if current.Summary.ID == session.Summary.ID {
@@ -863,7 +863,7 @@ func (fakeRunDelegate) RunAgentStream(context.Context, *connect.Request[agentcom
 
 type fakeDashboardSessionStore struct{}
 
-func (fakeDashboardSessionStore) ListSessions(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
+func (fakeDashboardSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
 	return domain.SessionListResult{Sessions: []*domain.Session{
 		{Summary: domain.SessionSummary{ID: "session-running", VMStatus: domain.VMStatusRunning}},
 		{Summary: domain.SessionSummary{ID: "session-failed", VMStatus: domain.VMStatusFailed}},

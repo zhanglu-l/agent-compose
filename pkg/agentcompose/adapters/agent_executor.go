@@ -54,7 +54,7 @@ func (e *AgentExecutor) ExecuteAgentRequest(ctx context.Context, session *domain
 	defer execCancel()
 
 	cellID := uuid.NewString()
-	hostCellDir := filepath.Join(execution.HostSessionDir(session), "state", "cells", cellID)
+	hostCellDir := filepath.Join(execution.HostSandboxDir(session), "state", "cells", cellID)
 	if err := os.MkdirAll(hostCellDir, 0o755); err != nil {
 		return domain.NotebookCell{}, domain.SessionEvent{}, domain.SessionEvent{}, fmt.Errorf("create agent cell state dir: %w", err)
 	}

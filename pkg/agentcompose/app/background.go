@@ -41,7 +41,7 @@ func startBackgroundManagers(ctx context.Context, sessions *sessionstore.Store, 
 }
 
 func reconcilePersistedSessions(ctx context.Context, store *sessionstore.Store, configDB *configstore.ConfigStore, bridge runtimeReconciler, startedAt time.Time) error {
-	result, err := store.ListSessions(ctx, domain.SessionListOptions{Limit: 1 << 30})
+	result, err := store.ListSandboxes(ctx, domain.SessionListOptions{Limit: 1 << 30})
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func reconcilePendingSessionState(ctx context.Context, store *sessionstore.Store
 		return nil, err
 	}
 	session.Summary.VMStatus = domain.VMStatusFailed
-	if err := store.UpdateSession(ctx, session); err != nil {
+	if err := store.UpdateSandbox(ctx, session); err != nil {
 		return nil, err
 	}
 	_ = store.AddEvent(ctx, session.Summary.ID, domain.SessionEvent{
@@ -95,7 +95,7 @@ func reconcilePendingSessionState(ctx context.Context, store *sessionstore.Store
 		Message:   "session marked failed after a previous startup was interrupted before the VM became ready",
 		CreatedAt: now,
 	})
-	return store.GetSession(ctx, session.Summary.ID)
+	return store.GetSandbox(ctx, session.Summary.ID)
 }
 
 func reconcilePersistedProjectRuns(ctx context.Context, configDB *configstore.ConfigStore, startedAt time.Time) error {

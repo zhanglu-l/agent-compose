@@ -26,7 +26,7 @@ import (
 func TestSetupRegistersServiceGraph(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("DATA_ROOT", root)
-	t.Setenv("SANDBOX_ROOT", filepath.Join(root, "sessions"))
+	t.Setenv("SANDBOX_ROOT", filepath.Join(root, "sandboxes"))
 	t.Setenv("RUNTIME_DRIVER", driverpkg.RuntimeDriverDocker)
 	t.Setenv("DOCKER_IMAGE", "guest:latest")
 	t.Setenv("SANDBOX_START_TIMEOUT", "1s")
@@ -81,7 +81,7 @@ func TestSetupRegistersServiceGraph(t *testing.T) {
 func TestCacheServiceRouteUsesRuntimeCacheController(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("DATA_ROOT", root)
-	t.Setenv("SANDBOX_ROOT", filepath.Join(root, "sessions"))
+	t.Setenv("SANDBOX_ROOT", filepath.Join(root, "sandboxes"))
 	t.Setenv("IMAGE_CACHE_ROOT", filepath.Join(root, "images"))
 	t.Setenv("RUNTIME_DRIVER", driverpkg.RuntimeDriverDocker)
 	t.Setenv("DOCKER_IMAGE", "guest:latest")
@@ -250,12 +250,12 @@ type projectStopSessionStore struct {
 	events  []domain.SessionEvent
 }
 
-func (s *projectStopSessionStore) GetSession(context.Context, string) (*domain.Session, error) {
+func (s *projectStopSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
 	copy := *s.session
 	return &copy, nil
 }
 
-func (s *projectStopSessionStore) UpdateSession(_ context.Context, session *domain.Session) error {
+func (s *projectStopSessionStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
 	copy := *session
 	s.updated = &copy
 	return nil

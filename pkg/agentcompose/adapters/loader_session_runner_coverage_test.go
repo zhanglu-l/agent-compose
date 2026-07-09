@@ -17,12 +17,12 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	publisher := &loaderSessionPublisherFake{}
 	runner := NewLoaderSessionRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, nil, bridge.streams, publisher)
 
-	running, err := bridge.store.CreateSession(ctx, "running", "", driverpkg.RuntimeDriverBoxlite, "", "", "loader", nil, nil, nil)
+	running, err := bridge.store.CreateSandbox(ctx, "running", "", driverpkg.RuntimeDriverBoxlite, "", "", "loader", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession running returned error: %v", err)
 	}
 	running.Summary.VMStatus = domain.VMStatusRunning
-	if err := bridge.store.UpdateSession(ctx, running); err != nil {
+	if err := bridge.store.UpdateSandbox(ctx, running); err != nil {
 		t.Fatalf("UpdateSession running returned error: %v", err)
 	}
 	loaded, err := runner.Load(ctx, running.Summary.ID)
@@ -34,13 +34,13 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 		t.Fatalf("LoadOrResume running resumed=%#v event=%q err=%v starts=%#v", resumed, eventType, err, driver.startCalls)
 	}
 
-	stopped, err := bridge.store.CreateSession(ctx, "stopped", "", driverpkg.RuntimeDriverBoxlite, "", "", "loader", nil, nil, nil)
+	stopped, err := bridge.store.CreateSandbox(ctx, "stopped", "", driverpkg.RuntimeDriverBoxlite, "", "", "loader", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession stopped returned error: %v", err)
 	}
 	stopped.Summary.VMStatus = domain.VMStatusStopped
 	stopped.Summary.Tags = []domain.SessionTag{{Name: "capset", Value: "dev"}}
-	if err := bridge.store.UpdateSession(ctx, stopped); err != nil {
+	if err := bridge.store.UpdateSandbox(ctx, stopped); err != nil {
 		t.Fatalf("UpdateSession stopped returned error: %v", err)
 	}
 	resumed, eventType, err = runner.LoadOrResume(ctx, stopped.Summary.ID)
@@ -57,7 +57,7 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	if err := runner.Shutdown(ctx, resumed.Summary.ID); err != nil {
 		t.Fatalf("Shutdown running returned error: %v", err)
 	}
-	shutdownLoaded, err := bridge.store.GetSession(ctx, resumed.Summary.ID)
+	shutdownLoaded, err := bridge.store.GetSandbox(ctx, resumed.Summary.ID)
 	if err != nil {
 		t.Fatalf("GetSession shutdown returned error: %v", err)
 	}

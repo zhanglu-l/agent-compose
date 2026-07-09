@@ -985,7 +985,7 @@ func testConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := sessionStore.CreateSession(ctx, "Legacy Session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, []domain.SessionTag{{Name: "legacy", Value: "true"}})
+	session, err := sessionStore.CreateSandbox(ctx, "Legacy Session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, []domain.SessionTag{{Name: "legacy", Value: "true"}})
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -1016,7 +1016,7 @@ func testConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
 	if run.Status != domain.LoaderRunStatusRunning || run.TriggerSource != "legacy" {
 		t.Fatalf("loader run after migration = %#v", run)
 	}
-	loadedSession, err := sessionStore.GetSession(ctx, session.Summary.ID)
+	loadedSession, err := sessionStore.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
 		t.Fatalf("GetSession after config migration returned error: %v", err)
 	}

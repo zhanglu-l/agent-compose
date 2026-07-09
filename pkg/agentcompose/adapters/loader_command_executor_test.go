@@ -59,7 +59,7 @@ func TestLoaderCommandExecutorFiltersCommandPayloadFromStreamingCellOutput(t *te
 	root := t.TempDir()
 	config := &appconfig.Config{
 		DataRoot:             root,
-		SandboxRoot:          filepath.Join(root, "sessions"),
+		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		RuntimeDriver:        driverpkg.RuntimeDriverBoxlite,
 		DefaultImage:         "guest:latest",
 		GuestWorkspacePath:   "/workspace",
@@ -72,12 +72,12 @@ func TestLoaderCommandExecutorFiltersCommandPayloadFromStreamingCellOutput(t *te
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSession(ctx, "loader command session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeScript, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "loader command session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeScript, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := store.UpdateSession(ctx, session); err != nil {
+	if err := store.UpdateSandbox(ctx, session); err != nil {
 		t.Fatalf("UpdateSession returned error: %v", err)
 	}
 	streams := sessions.NewStreamBrokerForTest()

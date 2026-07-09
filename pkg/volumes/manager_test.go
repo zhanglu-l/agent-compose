@@ -521,7 +521,7 @@ type fakeSessionStore struct {
 	err      error
 }
 
-func (s *fakeSessionStore) ListSessions(_ context.Context, options domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s *fakeSessionStore) ListSandboxes(_ context.Context, options domain.SessionListOptions) (domain.SessionListResult, error) {
 	s.options = append(s.options, options)
 	if s.err != nil {
 		return domain.SessionListResult{}, s.err
