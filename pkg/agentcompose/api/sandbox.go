@@ -86,7 +86,7 @@ func (h *SandboxHandler) RemoveSandbox(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if h.dashboard != nil {
-		h.dashboard.Notify("session_removed")
+		h.dashboard.Notify("sandbox_removed")
 	}
 	return connect.NewResponse(&agentcomposev2.RemoveSandboxResponse{
 		SandboxId: sandboxID,

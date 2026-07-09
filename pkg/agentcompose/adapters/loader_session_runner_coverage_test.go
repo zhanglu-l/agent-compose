@@ -11,11 +11,11 @@ import (
 	"agent-compose/pkg/volumes"
 )
 
-func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
+func TestLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	ctx := context.Background()
-	bridge, driver := newTestSessionRPCBridge(t)
+	bridge, driver := newTestSandboxRPCBridge(t)
 	publisher := &loaderSessionPublisherFake{}
-	runner := NewLoaderSessionRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, nil, bridge.streams, publisher)
+	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, nil, bridge.streams, publisher)
 
 	running, err := bridge.store.CreateSandbox(ctx, "running", "", driverpkg.RuntimeDriverBoxlite, "", "", "loader", nil, nil, nil)
 	if err != nil {
@@ -71,8 +71,8 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 		t.Fatalf("Shutdown stopped should not call driver again: %#v", driver.stopCalls)
 	}
 
-	if snapshot := toSessionWorkspaceSnapshot(domain.WorkspaceConfig{ID: "workspace-1", Name: "Workspace", Type: "file", ConfigJSON: "{}"}); snapshot.ID != "workspace-1" || snapshot.Name != "Workspace" {
-		t.Fatalf("toSessionWorkspaceSnapshot = %#v", snapshot)
+	if snapshot := toSandboxWorkspaceSnapshot(domain.WorkspaceConfig{ID: "workspace-1", Name: "Workspace", Type: "file", ConfigJSON: "{}"}); snapshot.ID != "workspace-1" || snapshot.Name != "Workspace" {
+		t.Fatalf("toSandboxWorkspaceSnapshot = %#v", snapshot)
 	}
 	if workspace, err := runner.workspaceSnapshot(ctx, ""); err != nil || workspace != nil {
 		t.Fatalf("workspaceSnapshot empty workspace=%#v err=%v", workspace, err)
@@ -85,9 +85,9 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	}
 }
 
-func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
+func TestLoaderSandboxRunnerResolvesVolumeMounts(t *testing.T) {
 	ctx := context.Background()
-	bridge, driver := newTestSessionRPCBridge(t)
+	bridge, driver := newTestSandboxRPCBridge(t)
 	hostPath := t.TempDir()
 	resolver := &loaderVolumeResolverFake{
 		mounts: []domain.SandboxVolumeMount{{
@@ -101,7 +101,7 @@ func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
 		}},
 		warnings: []string{"volume target /cache overlaps test path"},
 	}
-	runner := NewLoaderSessionRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, resolver, bridge.streams, nil)
+	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, driver, nil, resolver, bridge.streams, nil)
 	projectRoot := t.TempDir()
 	projectPath := filepath.Join(projectRoot, "agent-compose.yml")
 	if _, err := bridge.configDB.UpsertProject(ctx, domain.ProjectRecord{ID: "project-1", Name: "Project", SourcePath: projectPath}); err != nil {
@@ -155,21 +155,21 @@ func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
 	}
 	var foundWarning bool
 	for _, event := range events {
-		if event.Type == "session.volume.warning" {
+		if event.Type == "sandbox.volume.warning" {
 			foundWarning = true
 		}
 	}
 	if !foundWarning {
-		t.Fatalf("expected session.volume.warning event, got %#v", events)
+		t.Fatalf("expected sandbox.volume.warning event, got %#v", events)
 	}
 }
 
-func TestIntegrationLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
-	TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t)
+func TestIntegrationLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
+	TestLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t)
 }
 
-func TestE2ELoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
-	TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t)
+func TestE2ELoaderSandboxRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
+	TestLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t)
 }
 
 type loaderSessionPublisherFake struct {

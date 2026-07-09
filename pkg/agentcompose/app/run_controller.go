@@ -36,7 +36,7 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 		Config:   do.MustInvoke[*appconfig.Config](di),
 		Store:    do.MustInvoke[*sessionstore.Store](di),
 		ConfigDB: do.MustInvoke[*configstore.ConfigStore](di),
-		Driver:   do.MustInvoke[*adapters.SessionDriver](di),
+		Driver:   do.MustInvoke[*adapters.SandboxDriver](di),
 		Executor: do.MustInvoke[*adapters.AgentExecutor](di),
 		Runtime: func(session *domain.Sandbox) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)

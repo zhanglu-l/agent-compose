@@ -101,7 +101,7 @@ func (p fakeRuntimeProvider) ForSession(*domain.Sandbox) (SandboxRuntime, error)
 	return p.runtime, nil
 }
 
-func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
+func TestSandboxDriverStartSandboxVMSavesRuntimeState(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
@@ -131,14 +131,14 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 		JupyterURL: "http://127.0.0.1:39000/lab?token=secret",
 		Token:      "secret",
 	}
-	driver := NewSessionDriver(config, store, nil, fakeRuntimeProvider{runtime: fakeSessionRuntime{info: domain.SandboxVMInfo{
+	driver := NewSandboxDriver(config, store, nil, fakeRuntimeProvider{runtime: fakeSessionRuntime{info: domain.SandboxVMInfo{
 		BoxID:      "container-1",
 		JupyterURL: updatedProxyState.JupyterURL,
 		ProxyState: &updatedProxyState,
 	}}})
 
-	if err := driver.StartSessionVM(ctx, session); err != nil {
-		t.Fatalf("StartSessionVM returned error: %v", err)
+	if err := driver.StartSandboxVM(ctx, session); err != nil {
+		t.Fatalf("StartSandboxVM returned error: %v", err)
 	}
 	savedProxyState, err := store.GetProxyState(session.Summary.ID)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 	}
 }
 
-func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
+func TestSandboxDriverStopSandboxVMAddsDockerStopContextMargin(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
@@ -177,13 +177,13 @@ func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
 	runtime := &fakeStopDeadlineRuntime{}
-	driver := NewSessionDriver(config, store, nil, fakeRuntimeProvider{runtime: runtime})
+	driver := NewSandboxDriver(config, store, nil, fakeRuntimeProvider{runtime: runtime})
 
-	if err := driver.StopSessionVM(ctx, session); err != nil {
-		t.Fatalf("StopSessionVM returned error: %v", err)
+	if err := driver.StopSandboxVM(ctx, session); err != nil {
+		t.Fatalf("StopSandboxVM returned error: %v", err)
 	}
 	if runtime.remaining <= config.SandboxStopTimeout+4*time.Second {
-		t.Fatalf("StopSessionVM context remaining = %s, want docker stop timeout plus API margin", runtime.remaining)
+		t.Fatalf("StopSandboxVM context remaining = %s, want docker stop timeout plus API margin", runtime.remaining)
 	}
 	vmState, err := store.GetVMState(session.Summary.ID)
 	if err != nil {
@@ -194,7 +194,7 @@ func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
 	}
 }
 
-func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testing.T) {
+func TestSandboxDriverStartSandboxVMInjectsOpenAIAndAnthropicFacadeEnv(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
@@ -239,7 +239,7 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 		Token:      "secret",
 	}
 	var runtimeEnv map[string]string
-	driver := NewSessionDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
+	driver := NewSandboxDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
 		info: domain.SandboxVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
 		ensureHook: func(session *domain.Sandbox) {
 			runtimeEnv = map[string]string{}
@@ -249,8 +249,8 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 		},
 	}})
 
-	if err := driver.StartSessionVM(ctx, session); err != nil {
-		t.Fatalf("StartSessionVM returned error: %v", err)
+	if err := driver.StartSandboxVM(ctx, session); err != nil {
+		t.Fatalf("StartSandboxVM returned error: %v", err)
 	}
 	if runtimeEnv["OPENAI_BASE_URL"] != "http://agent-compose.test:7410/api/runtime/sessions/"+session.Summary.ID+"/llm/openai/v1" {
 		t.Fatalf("OPENAI_BASE_URL = %q", runtimeEnv["OPENAI_BASE_URL"])
@@ -281,11 +281,11 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 	}
 }
 
-func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.T) {
+func TestSandboxDriverStartSandboxVMIgnoresOptionalClaudeConfigError(t *testing.T) {
 	ctx := context.Background()
-	originalEnsure := ensureSessionLLMFacadeConfig
-	defer func() { ensureSessionLLMFacadeConfig = originalEnsure }()
-	ensureSessionLLMFacadeConfig = func(ctx context.Context, config *appconfig.Config, store runtimefacade.FacadeStore, session *domain.Sandbox, agent, model, source, runID string) (map[string]string, error) {
+	originalEnsure := ensureSandboxLLMFacadeConfig
+	defer func() { ensureSandboxLLMFacadeConfig = originalEnsure }()
+	ensureSandboxLLMFacadeConfig = func(ctx context.Context, config *appconfig.Config, store runtimefacade.FacadeStore, session *domain.Sandbox, agent, model, source, runID string) (map[string]string, error) {
 		switch agent {
 		case "codex":
 			return map[string]string{
@@ -339,7 +339,7 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 		Token:      "secret",
 	}
 	var runtimeEnv map[string]string
-	driver := NewSessionDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
+	driver := NewSandboxDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
 		info: domain.SandboxVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
 		ensureHook: func(session *domain.Sandbox) {
 			runtimeEnv = map[string]string{}
@@ -349,8 +349,8 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 		},
 	}})
 
-	if err := driver.StartSessionVM(ctx, session); err != nil {
-		t.Fatalf("StartSessionVM returned error: %v", err)
+	if err := driver.StartSandboxVM(ctx, session); err != nil {
+		t.Fatalf("StartSandboxVM returned error: %v", err)
 	}
 	if runtimeEnv["OPENAI_BASE_URL"] == "" || runtimeEnv["OPENAI_API_KEY"] == "" {
 		t.Fatalf("missing openai facade env: %#v", runtimeEnv)

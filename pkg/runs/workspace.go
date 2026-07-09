@@ -22,7 +22,7 @@ func (r projectRunWorkspaceResolver) ResolveProjectRunWorkspace(ctx context.Cont
 	if err != nil || workspace == nil {
 		return workspace, nil, err
 	}
-	return workspace, toSessionWorkspaceSnapshot(*workspace), nil
+	return workspace, toSandboxWorkspaceSnapshot(*workspace), nil
 }
 
 func (c *Controller) prepareProjectRunWorkspace(ctx context.Context, run domain.ProjectRunRecord, project domain.ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*domain.WorkspaceConfig, error) {
@@ -136,7 +136,7 @@ func resetFileWorkspaceSnapshotContent(config *appconfig.Config, workspaceID str
 	return nil
 }
 
-func toSessionWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SandboxWorkspace {
+func toSandboxWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SandboxWorkspace {
 	return &domain.SandboxWorkspace{
 		ID:         item.ID,
 		Name:       item.Name,

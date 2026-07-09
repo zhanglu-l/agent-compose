@@ -244,7 +244,7 @@ func (h *RuntimeHost) Agent(ctx context.Context, prompt string, request domain.L
 	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstHostNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SandboxID, result.CellID, result.AgentThreadID)
 	h.publishAgentCompleted(result, nil)
 	if shutdownErr := h.deps.Sessions.Shutdown(ctx, session.Summary.ID); shutdownErr != nil {
-		slog.Warn("failed to stop loader session after agent run", "loader_id", h.loader.Summary.ID, "session_id", session.Summary.ID, "error", shutdownErr)
+		slog.Warn("failed to stop loader sandbox after agent run", "loader_id", h.loader.Summary.ID, "sandbox_id", session.Summary.ID, "error", shutdownErr)
 		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", shutdownErr.Error(), map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
 	} else {
 		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader session stopped after agent run", map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
@@ -343,7 +343,7 @@ func (h *RuntimeHost) CleanupCommandSessions(ctx context.Context) {
 	h.commandSessionIDOrder = nil
 	for _, sessionID := range sessionIDs {
 		if err := h.deps.Sessions.Shutdown(ctx, sessionID); err != nil {
-			slog.Warn("failed to stop loader command session after run", "loader_id", h.loader.Summary.ID, "session_id", sessionID, "error", err)
+			slog.Warn("failed to stop loader command sandbox after run", "loader_id", h.loader.Summary.ID, "sandbox_id", sessionID, "error", err)
 			_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", err.Error(), map[string]any{"sandboxId": sessionID}, sessionID, "", "")
 			continue
 		}
@@ -429,7 +429,7 @@ func (h *RuntimeHost) addEventSessionLink(ctx context.Context, event domain.Load
 		LoaderEventID: event.ID,
 		CreatedAt:     event.CreatedAt,
 	}); err != nil {
-		slog.Warn("failed to add event session link", "event_id", h.triggerEvent.EventID, "session_id", sessionID, "run_id", h.run.ID, "error", err)
+		slog.Warn("failed to add event sandbox link", "event_id", h.triggerEvent.EventID, "sandbox_id", sessionID, "run_id", h.run.ID, "error", err)
 	}
 }
 

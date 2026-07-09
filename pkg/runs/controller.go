@@ -43,9 +43,9 @@ type Runtime interface {
 
 type RuntimeProvider func(*domain.Sandbox) (Runtime, error)
 
-type SessionDriver interface {
-	StartSessionVM(context.Context, *domain.Sandbox) error
-	StopSessionVM(context.Context, *domain.Sandbox) error
+type SandboxDriver interface {
+	StartSandboxVM(context.Context, *domain.Sandbox) error
+	StopSandboxVM(context.Context, *domain.Sandbox) error
 }
 
 type TopicPublisher interface {
@@ -94,7 +94,7 @@ type Controller struct {
 	config       *appconfig.Config
 	store        SessionRuntimeStore
 	configDB     ControllerStore
-	driver       SessionDriver
+	driver       SandboxDriver
 	executor     AgentExecutor
 	runtime      RuntimeProvider
 	images       images.Backend
@@ -110,7 +110,7 @@ type ControllerDependencies struct {
 	Config       *appconfig.Config
 	Store        SessionRuntimeStore
 	ConfigDB     ControllerStore
-	Driver       SessionDriver
+	Driver       SandboxDriver
 	Executor     AgentExecutor
 	Runtime      RuntimeProvider
 	Images       images.Backend
@@ -677,7 +677,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		}
 		session.EnvItems = domain.MergeEnvItems(session.EnvItems, capabilityVars)
 		session.Summary.Tags = MergeSessionTags(session.Summary.Tags, tags)
-		if err := c.startProjectRunSession(ctx, session, "session.resumed", "session resumed for project run"); err != nil {
+		if err := c.startProjectRunSession(ctx, session, "sandbox.resumed", "sandbox resumed for project run"); err != nil {
 			return SessionResult{Session: session}, err
 		}
 		return SessionResult{Session: session}, nil
@@ -721,7 +721,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		return SessionResult{}, err
 	}
 	session.ProviderEnvItems = prepared.ProviderEnvItems
-	if err := c.startProjectRunSession(ctx, session, "session.created", "session started for project run"); err != nil {
+	if err := c.startProjectRunSession(ctx, session, "sandbox.created", "sandbox started for project run"); err != nil {
 		return SessionResult{Session: session, Created: true, Warnings: volumeWarnings}, err
 	}
 	return SessionResult{Session: session, Created: true, Warnings: volumeWarnings}, nil
@@ -789,7 +789,7 @@ func (c *Controller) startProjectRunSession(ctx context.Context, session *domain
 	}
 	writeCapabilityGuide(ctx, c.cap, c.store, c.streams, session, capabilities.SessionCapsets(session))
 	if session.Summary.VMStatus != domain.VMStatusRunning {
-		if err := c.driver.StartSessionVM(ctx, session); err != nil {
+		if err := c.driver.StartSandboxVM(ctx, session); err != nil {
 			session.Summary.VMStatus = domain.VMStatusFailed
 			_ = c.store.UpdateSandbox(ctx, session)
 			return err
@@ -811,10 +811,10 @@ func (c *Controller) startProjectRunSession(ctx context.Context, session *domain
 
 func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, session *domain.Sandbox, eventType, message string) {
 	if c.streams != nil {
-		c.streams.PublishSessionUpdated(&session.Summary)
+		c.streams.PublishSandboxUpdated(&session.Summary)
 	}
 	if c.dashboard != nil {
-		c.dashboard.Notify("session_updated")
+		c.dashboard.Notify("sandbox_updated")
 	}
 	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
@@ -829,7 +829,7 @@ func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, sessio
 	}
 	if c.bus != nil {
 		topic := "agent-compose.session.created"
-		if eventType == "session.resumed" {
+		if eventType == "sandbox.resumed" {
 			topic = "agent-compose.session.resumed"
 		}
 		c.bus.Publish(domain.LoaderTopicEvent{
@@ -874,7 +874,7 @@ func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessi
 			return err
 		}
 		if c.dashboard != nil {
-			c.dashboard.Notify("session_removed")
+			c.dashboard.Notify("sandbox_removed")
 		}
 		return nil
 	}
@@ -893,19 +893,19 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 		return nil
 	}
 	if c.driver == nil {
-		return fmt.Errorf("session driver is required")
+		return fmt.Errorf("sandbox driver is required")
 	}
-	if err := c.driver.StopSessionVM(ctx, loaded); err != nil {
+	if err := c.driver.StopSandboxVM(ctx, loaded); err != nil {
 		return err
 	}
 	loaded.Summary.VMStatus = domain.VMStatusStopped
 	if err := c.store.UpdateSandbox(ctx, loaded); err != nil {
 		return err
 	}
-	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}
+	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "sandbox.stopped", Level: "info", Message: "sandbox stopped", CreatedAt: time.Now().UTC()}
 	_ = c.store.AddEvent(ctx, loaded.Summary.ID, event)
 	if c.streams != nil {
-		c.streams.PublishSessionUpdated(&loaded.Summary)
+		c.streams.PublishSandboxUpdated(&loaded.Summary)
 		c.streams.PublishEventAdded(loaded.Summary.ID, event)
 	}
 	return nil
@@ -925,7 +925,7 @@ func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, s
 	for _, id := range ids {
 		guide, err := provider.CapabilityGuide(ctx, id)
 		if err != nil {
-			slog.Warn("capability guide render skipped", "capset", id, "session_id", session.Summary.ID, "error", err)
+			slog.Warn("capability guide render skipped", "capset", id, "sandbox_id", session.Summary.ID, "error", err)
 			recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, fmt.Sprintf("capability guide render skipped for capset %s", id))
 			continue
 		}
@@ -943,12 +943,12 @@ func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, s
 		content = preamble + content
 	}
 	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o755); err != nil {
-		slog.Warn("capability guide dir create failed", "session_id", session.Summary.ID, "error", err)
+		slog.Warn("capability guide dir create failed", "sandbox_id", session.Summary.ID, "error", err)
 		recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, "capability guide directory create failed")
 		return
 	}
 	if err := os.WriteFile(catalogPath, []byte(content), 0o644); err != nil {
-		slog.Warn("capability guide write failed", "session_id", session.Summary.ID, "error", err)
+		slog.Warn("capability guide write failed", "sandbox_id", session.Summary.ID, "error", err)
 		recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, "capability guide write failed")
 	}
 }
@@ -965,7 +965,7 @@ func recordCapabilityGuideWarning(ctx context.Context, store SessionRuntimeStore
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := store.AddEvent(ctx, sessionID, event); err != nil {
-		slog.Warn("capability guide warning event failed", "session_id", sessionID, "error", err)
+		slog.Warn("capability guide warning event failed", "sandbox_id", sessionID, "error", err)
 		return
 	}
 	if streams != nil {

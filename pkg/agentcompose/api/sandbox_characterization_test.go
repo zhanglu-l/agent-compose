@@ -38,7 +38,7 @@ func TestV2SandboxRemoveUsesSandboxIDAndSessionCompatibilityDelegate(t *testing.
 	if len(delegate.stopSessionIDs) != 1 || delegate.stopSessionIDs[0] != sandboxID {
 		t.Fatalf("compatibility StopSession calls = %#v, want [%q]", delegate.stopSessionIDs, sandboxID)
 	}
-	if len(dashboard.events) != 1 || dashboard.events[0] != "session_removed" {
+	if len(dashboard.events) != 1 || dashboard.events[0] != "sandbox_removed" {
 		t.Fatalf("dashboard events = %#v", dashboard.events)
 	}
 }

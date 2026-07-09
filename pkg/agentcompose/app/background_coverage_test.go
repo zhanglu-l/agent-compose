@@ -36,9 +36,9 @@ func TestReconcilePendingSessionStateMarksStaleStartupFailed(t *testing.T) {
 	if err := store.SaveVMState(session.Summary.ID, domain.VMState{Driver: driverpkg.RuntimeDriverBoxlite}); err != nil {
 		t.Fatalf("SaveVMState returned error: %v", err)
 	}
-	reconciled, err := reconcilePendingSessionState(ctx, store, session, time.Now())
+	reconciled, err := reconcilePendingSandboxState(ctx, store, session, time.Now())
 	if err != nil {
-		t.Fatalf("reconcilePendingSessionState returned error: %v", err)
+		t.Fatalf("reconcilePendingSandboxState returned error: %v", err)
 	}
 	if reconciled.Summary.VMStatus != domain.VMStatusFailed {
 		t.Fatalf("status = %q", reconciled.Summary.VMStatus)
@@ -47,20 +47,20 @@ func TestReconcilePendingSessionStateMarksStaleStartupFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVMState returned error: %v", err)
 	}
-	if vmState.LastError != stalePendingSessionLastError || vmState.StoppedAt.IsZero() {
+	if vmState.LastError != stalePendingSandboxLastError || vmState.StoppedAt.IsZero() {
 		t.Fatalf("vmState = %#v", vmState)
 	}
 	events, err := store.ListEvents(ctx, session.Summary.ID)
-	if err != nil || len(events) != 1 || events[0].Type != "session.startup_interrupted" {
+	if err != nil || len(events) != 1 || events[0].Type != "sandbox.startup_interrupted" {
 		t.Fatalf("events=%#v err=%v", events, err)
 	}
 
 	running := &domain.Sandbox{Summary: domain.SandboxSummary{VMStatus: domain.VMStatusRunning}}
-	if got, err := reconcilePendingSessionState(ctx, store, running, time.Now()); err != nil || got != running {
+	if got, err := reconcilePendingSandboxState(ctx, store, running, time.Now()); err != nil || got != running {
 		t.Fatalf("running session got=%#v err=%v", got, err)
 	}
 	fresh := &domain.Sandbox{Summary: domain.SandboxSummary{VMStatus: domain.VMStatusPending, CreatedAt: time.Now().Add(time.Hour)}}
-	if got, err := reconcilePendingSessionState(ctx, store, fresh, time.Now()); err != nil || got != fresh {
+	if got, err := reconcilePendingSandboxState(ctx, store, fresh, time.Now()); err != nil || got != fresh {
 		t.Fatalf("fresh session got=%#v err=%v", got, err)
 	}
 	if err := startCapabilityProxy(context.Background(), nil); err != nil {

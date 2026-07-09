@@ -273,20 +273,20 @@ func TestStopProjectSessionUsesInternalStopSemantics(t *testing.T) {
 			VMStatus: domain.VMStatusRunning,
 		}},
 	}
-	driver := &projectStopSessionDriver{}
+	driver := &projectStopSandboxDriver{}
 	streams := &projectStopSessionStreams{}
 
-	if err := stopProjectSession(context.Background(), store, driver, streams, store.session); err != nil {
-		t.Fatalf("stopProjectSession returned error: %v", err)
+	if err := stopProjectSandbox(context.Background(), store, driver, streams, store.session); err != nil {
+		t.Fatalf("stopProjectSandbox returned error: %v", err)
 	}
 	if driver.stopCount != 1 {
-		t.Fatalf("StopSessionVM calls = %d, want 1", driver.stopCount)
+		t.Fatalf("StopSandboxVM calls = %d, want 1", driver.stopCount)
 	}
 	if store.updated == nil || store.updated.Summary.VMStatus != domain.VMStatusStopped {
 		t.Fatalf("updated session = %#v, want stopped", store.updated)
 	}
-	if len(store.events) != 1 || store.events[0].Type != "session.stopped" || store.events[0].Message != "session stopped" {
-		t.Fatalf("events = %#v, want one session.stopped event", store.events)
+	if len(store.events) != 1 || store.events[0].Type != "sandbox.stopped" || store.events[0].Message != "sandbox stopped" {
+		t.Fatalf("events = %#v, want one sandbox.stopped event", store.events)
 	}
 	if streams.updatedCount != 1 || streams.eventCount != 1 {
 		t.Fatalf("stream notifications updated=%d events=%d, want 1/1", streams.updatedCount, streams.eventCount)
@@ -315,11 +315,11 @@ func (s *projectStopSessionStore) AddEvent(_ context.Context, _ string, event do
 	return nil
 }
 
-type projectStopSessionDriver struct {
+type projectStopSandboxDriver struct {
 	stopCount int
 }
 
-func (d *projectStopSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
+func (d *projectStopSandboxDriver) StopSandboxVM(context.Context, *domain.Sandbox) error {
 	d.stopCount++
 	return nil
 }
@@ -329,7 +329,7 @@ type projectStopSessionStreams struct {
 	eventCount   int
 }
 
-func (s *projectStopSessionStreams) PublishSessionUpdated(*domain.SandboxSummary) {
+func (s *projectStopSessionStreams) PublishSandboxUpdated(*domain.SandboxSummary) {
 	s.updatedCount++
 }
 

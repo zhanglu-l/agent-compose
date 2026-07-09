@@ -184,7 +184,7 @@ func (h *SessionHandler) reconcileRuntimeState(ctx context.Context, session *dom
 	}
 	reconciled, err := h.reconciler.ReconcileRuntimeState(ctx, session)
 	if err != nil {
-		slog.Warn("failed to reconcile session runtime state during "+operation, "session_id", session.Summary.ID, "error", err)
+		slog.Warn("failed to reconcile sandbox runtime state during "+operation, "sandbox_id", session.Summary.ID, "error", err)
 		return session
 	}
 	return reconciled

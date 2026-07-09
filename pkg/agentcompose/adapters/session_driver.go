@@ -16,20 +16,20 @@ import (
 	"agent-compose/pkg/storage/sessionstore"
 )
 
-type SessionDriver struct {
+type SandboxDriver struct {
 	Config   *appconfig.Config
 	Store    *sessionstore.Store
 	ConfigDB *configstore.ConfigStore
 	Runtimes RuntimeProvider
 }
 
-var ensureSessionLLMFacadeConfig = runtimefacade.EnsureSessionLLMFacadeConfig
+var ensureSandboxLLMFacadeConfig = runtimefacade.EnsureSessionLLMFacadeConfig
 
-func NewSessionDriver(config *appconfig.Config, store *sessionstore.Store, configDB *configstore.ConfigStore, runtimes RuntimeProvider) *SessionDriver {
-	return &SessionDriver{Config: config, Store: store, ConfigDB: configDB, Runtimes: runtimes}
+func NewSandboxDriver(config *appconfig.Config, store *sessionstore.Store, configDB *configstore.ConfigStore, runtimes RuntimeProvider) *SandboxDriver {
+	return &SandboxDriver{Config: config, Store: store, ConfigDB: configDB, Runtimes: runtimes}
 }
 
-func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Sandbox) error {
+func (d *SandboxDriver) StartSandboxVM(ctx context.Context, session *domain.Sandbox) error {
 	ctx, cancel := context.WithTimeout(ctx, d.Config.SandboxStartTimeout)
 	defer cancel()
 
@@ -54,7 +54,7 @@ func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Sand
 	vmState.Mode = driver
 	vmState.BoxName = firstNonEmpty(vmState.BoxName, session.Summary.RuntimeRef)
 	vmState.RuntimeHome = firstNonEmpty(vmState.RuntimeHome, driverpkg.RuntimeHomeForDriver(d.Config, driver))
-	if err := d.prepareSessionStart(ctx, driver, session, &vmState); err != nil {
+	if err := d.prepareSandboxStart(ctx, driver, session, &vmState); err != nil {
 		vmState.LastError = err.Error()
 		_ = d.Store.SaveVMState(session.Summary.ID, vmState)
 		return err
@@ -68,10 +68,10 @@ func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Sand
 		return err
 	}
 
-	return d.saveSessionStartInfo(session, vmState, proxyState, info)
+	return d.saveSandboxStartInfo(session, vmState, proxyState, info)
 }
 
-func (d *SessionDriver) saveSessionStartInfo(session *domain.Sandbox, vmState domain.VMState, proxyState domain.ProxyState, info domain.SandboxVMInfo) error {
+func (d *SandboxDriver) saveSandboxStartInfo(session *domain.Sandbox, vmState domain.VMState, proxyState domain.ProxyState, info domain.SandboxVMInfo) error {
 	vmState, proxyState = sessions.ApplySessionStartInfo(vmState, proxyState, info, time.Now())
 	if err := d.Store.SaveVMState(session.Summary.ID, vmState); err != nil {
 		return err
@@ -79,7 +79,7 @@ func (d *SessionDriver) saveSessionStartInfo(session *domain.Sandbox, vmState do
 	return d.Store.SaveProxyState(session.Summary.ID, proxyState)
 }
 
-func (d *SessionDriver) StopSessionVM(ctx context.Context, session *domain.Sandbox) error {
+func (d *SandboxDriver) StopSandboxVM(ctx context.Context, session *domain.Sandbox) error {
 	driver, err := driverpkg.ResolveSandboxRuntimeDriver(session.Summary.Driver, d.Config.RuntimeDriver)
 	if err != nil {
 		return err
@@ -116,14 +116,14 @@ func (d *SessionDriver) StopSessionVM(ctx context.Context, session *domain.Sandb
 	return d.Store.SaveVMState(session.Summary.ID, vmState)
 }
 
-func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, session *domain.Sandbox, vmState *domain.VMState) error {
+func (d *SandboxDriver) prepareSandboxStart(ctx context.Context, driver string, session *domain.Sandbox, vmState *domain.VMState) error {
 	prepared, err := driverpkg.PrepareSandboxStart(ctx, d.Config, driver, execution.ToDriverSandbox(session), execution.ToDriverVMState(*vmState))
 	if err != nil {
 		return err
 	}
 	managedEnv := map[string]string{}
 	for _, agent := range []string{"codex", "claude"} {
-		agentEnv, err := ensureSessionLLMFacadeConfig(ctx, d.Config, facadeStoreFor(d.ConfigDB), session, agent, "", "session", "")
+		agentEnv, err := ensureSandboxLLMFacadeConfig(ctx, d.Config, facadeStoreFor(d.ConfigDB), session, agent, "", "session", "")
 		if err != nil {
 			if agent == "claude" && runtimefacade.IsOptionalConfigError(err) {
 				continue

@@ -316,7 +316,7 @@
       - runtimecache/microsandbox cache 的 `DomainSessionEphemeralState`、`SessionID`、`ActiveSessions` 等命名，以及 SQLite columns/tables，按阶段 5.2/5.1 处理；本任务未执行旧 schema 自动迁移。
     - 下一目标：4.3。
 
-- [ ] 4.3 迁移 app/adapters/service graph 的 sandbox-native 依赖
+- [x] 4.3 迁移 app/adapters/service graph 的 sandbox-native 依赖
   - 依赖：4.1、4.2。
   - 工作内容：
     - 更新 `pkg/agentcompose/adapters` 中 session driver、runtime provider、cell executor、agent executor、loader session runner、capability binding。
@@ -324,9 +324,9 @@
     - v1 registration 继续注册 `SessionService`、`KernelService`、`AgentService` 等旧 Connect handler。
     - 内部事件类型改为 `sandbox.created/resumed/stopped`，日志键改为 `sandbox_id`、`agent_thread_id`。
   - 可并行子任务：
-    - [ ] 可并行：迁移 adapters 和相关 fake/test doubles。
-    - [ ] 可并行：迁移 app setup/background/reconcile tests。
-    - [ ] 可并行：审计事件类型和日志键。
+    - [x] 可并行：迁移 adapters 和相关 fake/test doubles。
+    - [x] 可并行：迁移 app setup/background/reconcile tests。
+    - [x] 可并行：审计事件类型和日志键。
   - 测试方案：
     - `go test ./pkg/agentcompose/adapters ./pkg/agentcompose/app`
     - 集成测试覆盖创建、恢复、停止、删除 sandbox 后状态和事件。
@@ -335,10 +335,26 @@
     - v1 handler 仍可用 `session_id` 操作同一个 sandbox。
     - 非允许边界不新增 `session_id` 日志键。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - app DI graph 已从 `SessionDriver`、`LoaderSessionRunner`、`SessionRPCBridge` 切换为 `SandboxDriver`、`LoaderSandboxRunner`、`SandboxRPCBridge`。
+      - `sessions.Lifecycle` 依赖接口已迁移为 `SandboxDriver`、`StartSandboxVM`、`StopSandboxVM`、`IsSandboxAlive`、`PublishSandboxUpdated`，并保留 v1 handler 的 `CreateSession`、`ResumeSession`、`StopSession`、`GetSession` 等 wire compatibility 方法。
+      - adapter/app 内部事件记录已改为 `sandbox.created`、`sandbox.resumed`、`sandbox.stopped`、`sandbox.runtime_lost`、`sandbox.startup_interrupted`、`sandbox.volume.warning`。
+      - service graph、background reconcile、project/run stop helper、capability guide warning、dashboard invalidation和 stream broker 内部字段已迁移到 sandbox 命名，日志键改为 `sandbox_id`。
+      - 更新 adapter/app/sessions/runs/api tests 和 fake/test double，覆盖 sandbox-native service graph、v1 compatibility RPC、watch stream 和 lifecycle event 行为。
+    - 验证：
+      - `go test ./pkg/agentcompose/adapters ./pkg/agentcompose/app ./pkg/sessions ./pkg/runs ./pkg/loaders ./pkg/agentcompose/api`
+      - `go test ./pkg/...`
+      - `go test ./cmd/agent-compose`
+      - `go test ./pkg/model ./pkg/driver ./pkg/agentcompose/adapters ./pkg/agentcompose/app`
+      - `git diff --check`
+      - `git diff -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect`
+    - 审计与例外：
+      - v1 proto、v1 generated Go、v1 Connect generated code diff 为空；v1 `SessionService` registration 和 v1 RPC/JSON method names 继续保留。
+      - schema audit 未发现 premature configstore schema rename：`loader_store.go`、`topic_event_store.go`、`llm_facade_store.go` 中未出现 `linked_agent_thread`、`agent_thread`、`linked_sandbox_id` 或新 `sandbox_id` schema 字段。
+      - service graph audit 未发现 `SessionDriver`、`StartSessionVM`、`LoaderSessionRunner`、`SessionRPCBridge`、`sessionRuntimeLiveness`、`PublishSessionUpdated`、`WatchEventTypeSessionUpdated`、`IsSessionAlive`、`session_id` log key 或 `session.*` stored event type 残留。
+      - 保留 `agent-compose.session.*` topic、`loader.session.*` loader event type、runtime LLM `/api/runtime/sessions/:session_id` path 和 SQLite `session_id`/`linked_session_id` query strings，分别留给后续 topic/runtime/SQLite 阶段处理。
+      - 本任务未修改 v2 proto、runtime JS/SDK、runtimecache 命名或 SQLite schema，且未执行旧 schema 自动迁移。
     - 下一目标：5.1。
 
 ## 5. 阶段 5：SQLite config store、loader/event/LLM facade schema 收敛

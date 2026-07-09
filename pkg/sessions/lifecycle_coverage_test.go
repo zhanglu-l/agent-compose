@@ -40,7 +40,7 @@ func TestLifecycleReconcileRuntimeStateMicrosandboxLost(t *testing.T) {
 	if store.updated != 1 || store.events != 1 || revoker.revoked != "session-lost" {
 		t.Fatalf("updated/events/revoked = %d/%d/%q", store.updated, store.events, revoker.revoked)
 	}
-	if notifier.updated != 1 || notifier.dashboard != "session_updated" || notifier.events != 1 {
+	if notifier.updated != 1 || notifier.dashboard != "sandbox_updated" || notifier.events != 1 {
 		t.Fatalf("notifier = %#v", notifier)
 	}
 }
@@ -79,7 +79,7 @@ func TestLifecycleEnsureProxyReadyBranches(t *testing.T) {
 		lifecycle := Lifecycle{
 			Config: &appconfig.Config{SandboxStartTimeout: time.Second},
 			Store:  store,
-			Driver: fakeSessionDriver{startErr: errors.New("start failed")},
+			Driver: fakeSandboxDriver{startErr: errors.New("start failed")},
 		}
 		_, _, err := lifecycle.EnsureProxyReady(context.Background(), session.Summary.ID)
 		if err == nil || !stringsContains(err.Error(), "start failed") || store.session.Summary.VMStatus != domain.VMStatusFailed {
@@ -91,7 +91,7 @@ func TestLifecycleEnsureProxyReadyBranches(t *testing.T) {
 		session := lifecycleTestSession("session-start", driverpkg.RuntimeDriverDocker, domain.VMStatusStopped)
 		proxyState := domain.ProxyState{Enabled: true, HostPort: unusedTCPPort(t), GuestPort: 8888, ProxyPath: "/lab"}
 		store := &fakeLifecycleStore{session: session, proxyState: proxyState}
-		driver := &recordingSessionDriver{}
+		driver := &recordingSandboxDriver{}
 		lifecycle := Lifecycle{
 			Config: &appconfig.Config{SandboxStartTimeout: time.Second},
 			Store:  store,
@@ -185,7 +185,7 @@ type fakeRuntimeLiveness struct {
 	err   error
 }
 
-func (l fakeRuntimeLiveness) IsSessionAlive(context.Context, string, *domain.Sandbox, domain.VMState) (bool, bool, error) {
+func (l fakeRuntimeLiveness) IsSandboxAlive(context.Context, string, *domain.Sandbox, domain.VMState) (bool, bool, error) {
 	return l.alive, l.ok, l.err
 }
 
@@ -204,7 +204,7 @@ type fakeLifecycleNotifier struct {
 	dashboard string
 }
 
-func (n *fakeLifecycleNotifier) PublishSessionUpdated(*domain.SandboxSummary) {
+func (n *fakeLifecycleNotifier) PublishSandboxUpdated(*domain.SandboxSummary) {
 	n.updated++
 }
 
@@ -216,29 +216,29 @@ func (n *fakeLifecycleNotifier) NotifyDashboard(event string) {
 	n.dashboard = event
 }
 
-type fakeSessionDriver struct {
+type fakeSandboxDriver struct {
 	startErr error
 	stopErr  error
 }
 
-func (d fakeSessionDriver) StartSessionVM(context.Context, *domain.Sandbox) error {
+func (d fakeSandboxDriver) StartSandboxVM(context.Context, *domain.Sandbox) error {
 	return d.startErr
 }
 
-func (d fakeSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
+func (d fakeSandboxDriver) StopSandboxVM(context.Context, *domain.Sandbox) error {
 	return d.stopErr
 }
 
-type recordingSessionDriver struct {
+type recordingSandboxDriver struct {
 	started bool
 }
 
-func (d *recordingSessionDriver) StartSessionVM(context.Context, *domain.Sandbox) error {
+func (d *recordingSandboxDriver) StartSandboxVM(context.Context, *domain.Sandbox) error {
 	d.started = true
 	return nil
 }
 
-func (d *recordingSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
+func (d *recordingSandboxDriver) StopSandboxVM(context.Context, *domain.Sandbox) error {
 	return nil
 }
 

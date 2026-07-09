@@ -137,10 +137,10 @@ func WatchSessionResponseToProto(event sessions.WatchEvent) *agentcomposev1.Watc
 		CellId:   event.CellID,
 	}
 	switch event.EventType {
-	case sessions.WatchEventTypeSessionUpdated:
+	case sessions.WatchEventTypeSandboxUpdated:
 		resp.EventType = agentcomposev1.WatchSessionEventType_WATCH_SESSION_EVENT_TYPE_SESSION_UPDATED
-		if event.Session != nil {
-			resp.Session = SessionSummaryToProto(event.Session)
+		if event.Sandbox != nil {
+			resp.Session = SessionSummaryToProto(event.Sandbox)
 		}
 	case sessions.WatchEventTypeCellStarted:
 		resp.EventType = agentcomposev1.WatchSessionEventType_WATCH_SESSION_EVENT_TYPE_CELL_STARTED

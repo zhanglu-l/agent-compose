@@ -113,7 +113,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		_ = CellTypeToProto(typ)
 	}
 	for _, event := range []sessions.WatchEvent{
-		{EventType: sessions.WatchEventTypeSessionUpdated, Session: &session.Summary},
+		{EventType: sessions.WatchEventTypeSandboxUpdated, Sandbox: &session.Summary},
 		{EventType: sessions.WatchEventTypeCellStarted, Cell: &cell},
 		{EventType: sessions.WatchEventTypeCellOutput, CellID: "cell-1", Chunk: "hi"},
 		{EventType: sessions.WatchEventTypeCellCompleted, Cell: &cell},

@@ -208,7 +208,7 @@ func TestRunsPreparationWorkspaceAndStatusWorkflows(t *testing.T) {
 	if _, err := controller.materializeLocalProjectRunWorkspace(run, store.project, &compose.WorkspaceSpec{Provider: "local", Path: "missing"}); err == nil {
 		t.Fatalf("materialize missing local path returned nil error")
 	}
-	if snapshot := toSessionWorkspaceSnapshot(domain.WorkspaceConfig{ID: "workspace", Name: "Workspace", Type: "file", ConfigJSON: "{}"}); snapshot.ID != "workspace" {
+	if snapshot := toSandboxWorkspaceSnapshot(domain.WorkspaceConfig{ID: "workspace", Name: "Workspace", Type: "file", ConfigJSON: "{}"}); snapshot.ID != "workspace" {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 
@@ -856,7 +856,7 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		if _, statErr := os.Stat(fixture.store.SandboxDir(run.SessionID)); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("created sandbox dir still exists or stat error mismatch: %v", statErr)
 		}
-		if !fixture.driver.stopped || !containsString(fixture.dashboard.reasons, "session_removed") {
+		if !fixture.driver.stopped || !containsString(fixture.dashboard.reasons, "sandbox_removed") {
 			t.Fatalf("driver=%#v dashboard=%#v", fixture.driver, fixture.dashboard.reasons)
 		}
 	})
@@ -1503,7 +1503,7 @@ type fakeControllerDriver struct {
 	store    *sessionstore.Store
 }
 
-func (d *fakeControllerDriver) StartSessionVM(_ context.Context, session *domain.Sandbox) error {
+func (d *fakeControllerDriver) StartSandboxVM(_ context.Context, session *domain.Sandbox) error {
 	d.started = true
 	if d.startErr != nil {
 		return d.startErr
@@ -1514,7 +1514,7 @@ func (d *fakeControllerDriver) StartSessionVM(_ context.Context, session *domain
 	return nil
 }
 
-func (d *fakeControllerDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
+func (d *fakeControllerDriver) StopSandboxVM(context.Context, *domain.Sandbox) error {
 	d.stopped = true
 	if d.stopErr != nil {
 		return d.stopErr

@@ -411,11 +411,11 @@ func (h *AgentDefinitionHandler) markAgentSessionStopped(ctx context.Context, se
 		return err
 	}
 	if h.streams != nil {
-		h.streams.PublishSessionUpdated(&session.Summary)
+		h.streams.PublishSandboxUpdated(&session.Summary)
 	}
 	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
-		Type:      "session.stopped",
+		Type:      "sandbox.stopped",
 		Level:     "info",
 		Message:   "session stopped because agent definition was deleted",
 		CreatedAt: now,

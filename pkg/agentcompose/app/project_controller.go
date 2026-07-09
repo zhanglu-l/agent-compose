@@ -30,7 +30,7 @@ import (
 func NewProjectController(di do.Injector) (*projects.Controller, error) {
 	imageBackends := do.MustInvoke[*adapters.ImageBackends](di)
 	sessionStore := do.MustInvoke[*sessionstore.Store](di)
-	sessionDriver := do.MustInvoke[*adapters.SessionDriver](di)
+	sandboxDriver := do.MustInvoke[*adapters.SandboxDriver](di)
 	streams := do.MustInvoke[*sessionstream.StreamBroker](di)
 	return projects.NewController(projects.ControllerDependencies{
 		Config:   do.MustInvoke[*appconfig.Config](di),
@@ -40,32 +40,32 @@ func NewProjectController(di do.Injector) (*projects.Controller, error) {
 		Loaders:  do.MustInvoke[*loaders.Controller](di),
 		Volumes:  do.MustInvoke[*volumes.Manager](di),
 		StopSession: func(ctx context.Context, session *domain.Sandbox) error {
-			return stopProjectSession(ctx, sessionStore, sessionDriver, streams, session)
+			return stopProjectSandbox(ctx, sessionStore, sandboxDriver, streams, session)
 		},
 	}), nil
 }
 
-type projectSessionStore interface {
+type projectSandboxStore interface {
 	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 	UpdateSandbox(context.Context, *domain.Sandbox) error
 	AddEvent(context.Context, string, domain.SandboxEvent) error
 }
 
-type projectSessionDriver interface {
-	StopSessionVM(context.Context, *domain.Sandbox) error
+type projectSandboxDriver interface {
+	StopSandboxVM(context.Context, *domain.Sandbox) error
 }
 
-type projectSessionStreams interface {
-	PublishSessionUpdated(*domain.SandboxSummary)
+type projectSandboxStreams interface {
+	PublishSandboxUpdated(*domain.SandboxSummary)
 	PublishEventAdded(string, domain.SandboxEvent)
 }
 
-func stopProjectSession(ctx context.Context, store projectSessionStore, driver projectSessionDriver, streams projectSessionStreams, session *domain.Sandbox) error {
+func stopProjectSandbox(ctx context.Context, store projectSandboxStore, driver projectSandboxDriver, streams projectSandboxStreams, session *domain.Sandbox) error {
 	if session == nil {
 		return nil
 	}
 	if store == nil {
-		return fmt.Errorf("session store is required")
+		return fmt.Errorf("sandbox store is required")
 	}
 	loaded, err := store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {
@@ -75,9 +75,9 @@ func stopProjectSession(ctx context.Context, store projectSessionStore, driver p
 		return nil
 	}
 	if driver == nil {
-		return fmt.Errorf("session driver is required")
+		return fmt.Errorf("sandbox driver is required")
 	}
-	if err := driver.StopSessionVM(ctx, loaded); err != nil {
+	if err := driver.StopSandboxVM(ctx, loaded); err != nil {
 		return err
 	}
 	loaded.Summary.VMStatus = domain.VMStatusStopped
@@ -86,14 +86,14 @@ func stopProjectSession(ctx context.Context, store projectSessionStore, driver p
 	}
 	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
-		Type:      "session.stopped",
+		Type:      "sandbox.stopped",
 		Level:     "info",
-		Message:   "session stopped",
+		Message:   "sandbox stopped",
 		CreatedAt: time.Now().UTC(),
 	}
 	_ = store.AddEvent(ctx, loaded.Summary.ID, event)
 	if streams != nil {
-		streams.PublishSessionUpdated(&loaded.Summary)
+		streams.PublishSandboxUpdated(&loaded.Summary)
 		streams.PublishEventAdded(loaded.Summary.ID, event)
 	}
 	return nil
