@@ -1022,7 +1022,7 @@
       - 可选 `task test:runtime-smoke` 已尝试但环境阻塞：BoxLite 失败于 `/dev/kvm: permission denied`，当前用户 `inno` 不在 `kvm` 组；单独 Microsandbox smoke 失败于 sandbox process `SIGABRT` before relay available。必跑门禁不依赖该可选 smoke，阻塞记录保存在 `/tmp/agent-compose-11.1-runtime-smoke*.log`。
     - 下一目标：11.2。
 
-- [ ] 11.2 最终发布审计和停止条件确认
+- [x] 11.2 最终发布审计和停止条件确认
   - 依赖：11.1。
   - 工作内容：
     - 确认 v1 wire contract 未变化。
@@ -1031,9 +1031,9 @@
     - 抽查 Docker/Compose：远端部署仍只需 `docker-compose.yml` 加用户 `.env`，本地 build 行为仍在 override。
     - 确认所有停止条件均未触发；如触发，停止合入并回到 spec/plan。
   - 可并行子任务：
-    - [ ] 可并行：审计 proto/generated diff。
-    - [ ] 可并行：审计 deployment diff。
-    - [ ] 可并行：审计残留清单和测试覆盖证据。
+    - [x] 可并行：审计 proto/generated diff。
+    - [x] 可并行：审计 deployment diff。
+    - [x] 可并行：审计残留清单和测试覆盖证据。
   - 测试方案：
     - `git diff -- proto/agentcompose/v1 proto/agentcompose/v2 proto-client`
     - 残留审计命令。
@@ -1043,10 +1043,28 @@
     - 所有 `session` 残留均有允许类别。
     - 停止条件清单全部通过。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - 本任务为最终发布审计，无代码行为变更。
+      - 复核 11.1 完整门禁、coverage baseline、生成检查、部署约束和 runtime smoke 环境阻塞记录。
+      - 复核最终停止条件清单，未发现需要回到 spec/plan 的阻塞项。
+    - 验证：
+      - `git diff --exit-code -- proto/agentcompose/v1 proto/agentcompose/v2 proto-client`：通过，当前 worktree 无 proto/proto-client diff。
+      - `git diff --name-only $(git merge-base origin/main HEAD)..HEAD -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect`：无输出，确认本分支未修改 v1 proto/generated。
+      - `rg -n "\bsession\b|session_id|sessionId|Session" cmd pkg proto runtime docs README.md .env.example Dockerfile docker-compose.yml docker-compose.override.yml > /tmp/agent-compose-11.2-session-audit.txt`：命中 `3825` 行，分布为 `pkg=2335`、`proto=725`、`docs=314`、`cmd=299`、`runtime=150`、`README.md=2`。
+      - `rg -n 'RunSessionCleanupPolicy|ExecSessionSelector|ProjectSession|LoaderSession|SessionRoot|DockerHostSessionRoot|SessionStart|SessionStop|FailedSessionStops|failed_session_stops|ResourceType: "session"|StopProjectRunningSessions|SessionHasTag|SessionEnvItemsFromCompose|SameSessionEnvItems|CommandRequestOverridesSession|/srv/agent-compose/session|SESSION_ROOT' ... -g '!proto/agentcompose/v1/**'`：剩余命中均为 spec/plan 历史说明、旧 env 迁移/错误测试、v1/proxy compatibility 或 provider-native 文档说明。
+      - `rg -n 'RunSandboxCleanupPolicy|reserved .*session_id|reserved .*stop_running_sessions|ExecSandboxSelector|CACHE_DOMAIN_SANDBOX_EPHEMERAL_STATE|sandbox_id|thread_id|agent_thread_id' proto/agentcompose/v2/agentcompose.proto proto/agentcompose/v2/agentcompose.pb.go proto-client/src/agentcompose/v2 -S`：确认 v2 reserve 和 sandbox/thread 字段存在。
+      - `rg -n 'Test.*Legacy|legacy sessions data detected|legacy SQLite schema detected|SESSION_ROOT|DOCKER_HOST_SESSION_ROOT|SESSION_START_TIMEOUT|SESSION_STOP_TIMEOUT|event_session_link|linked_session_id|llm_facade_token\.session_id|automatic migration' pkg/config pkg/storage/sessionstore pkg/storage/configstore cmd/agent-compose -S`：确认旧 env、旧目录、旧 SQLite schema 拒绝路径和 negative tests 存在。
+      - `docker compose -f docker-compose.yml --env-file .env.example config --services`：通过，仅渲染 `agent-compose` 服务；deployment knob audit 确认 base compose 使用 published images，local `build:` 只在 override。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - v1 wire contract：无 branch diff under `proto/agentcompose/v1/**`；v1 `SessionService`、`StopSession`、`session_id`、`agent_session_id` 和 `/agent-compose/session/*` 残留归类为 v1 compatibility。
+      - v2/public surface：`RunSandboxCleanupPolicy`、`ExecSandboxSelector`、`sandbox_id`、`agent_thread_id/thread_id` 和 reserved legacy names 已同步到 Go/TS generated code；v2 `session_id` 字符串残留来自 reserve metadata。
+      - runtime/provider：`runtime/javascript/src/runners/*` 中 `sessionId/session_id/sessionID/--session` 残留限定为 Claude/Gemini/OpenCode provider-native protocol；runtime contract 和 package export 使用 `SANDBOX_ROOT`/`threadId`。
+      - migration/error copy：旧 env、旧 `<DATA_ROOT>/sessions`、旧 SQLite columns/table、旧 `/api/runtime/sessions` negative path 均有错误或 negative tests；未实现自动迁移。
+      - deprecated aliases：`inspect session`、`scheduler.session.*`、`sessionPolicy/sessionEnv` 仍保留并有 characterization/coverage tests，内部持久化和结果字段使用 sandbox/thread。
+      - auth/browser session：`AUTH_SESSION_TTL`、cookie/OAuth/browser session 文档残留不属于 runtime sandbox 命名。
+      - deployment：`docker-compose.yml` 不依赖 override、本地 build tag 或未记录默认值；`.env.example` 仅以 breaking-change 注释提及旧 env。
     - 下一目标：无。
 
 ## 停止条件
