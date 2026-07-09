@@ -72,18 +72,18 @@ type TriggerResolverStore interface {
 	GetLoader(context.Context, string) (domain.Loader, error)
 }
 
-// SessionRuntimeStore is the subset of session runtime persistence the run
-// controller needs: session lifecycle plus VM, proxy, and Jupyter-port state.
+// SandboxRuntimeStore is the subset of sandbox runtime persistence the run
+// controller needs: sandbox lifecycle plus VM, proxy, and Jupyter-port state.
 // Keeping it narrow decouples the controller from the concrete
 // sessionstore.Store (and its full method set) and lets tests substitute a
-// fake. It is distinct from SessionStore in statuses.go, which exposes only
+// fake. It is distinct from SandboxStore in statuses.go, which exposes only
 // domain-typed lookups for status listing.
-type SessionRuntimeStore interface {
+type SandboxRuntimeStore interface {
 	CreateSandboxWithOptions(ctx context.Context, title, baseWorkspace, driver, guestImage, workspaceID, triggerSource string, workspace *sessionstore.SandboxWorkspace, envItems []sessionstore.SandboxEnvVar, tags []sessionstore.SandboxTag, options sessionstore.CreateSandboxOptions) (*sessionstore.Sandbox, error)
 	GetSandbox(ctx context.Context, id string) (*sessionstore.Sandbox, error)
-	UpdateSandbox(ctx context.Context, session *sessionstore.Sandbox) error
+	UpdateSandbox(ctx context.Context, sandbox *sessionstore.Sandbox) error
 	RemoveSandbox(ctx context.Context, id string) error
-	AddEvent(ctx context.Context, sessionID string, event sessionstore.SandboxEvent) error
+	AddEvent(ctx context.Context, sandboxID string, event sessionstore.SandboxEvent) error
 	GetVMState(id string) (sessionstore.VMState, error)
 	GetProxyState(id string) (sessionstore.ProxyState, error)
 	SaveProxyState(id string, state sessionstore.ProxyState) error
@@ -92,7 +92,7 @@ type SessionRuntimeStore interface {
 
 type Controller struct {
 	config       *appconfig.Config
-	store        SessionRuntimeStore
+	store        SandboxRuntimeStore
 	configDB     ControllerStore
 	driver       SandboxDriver
 	executor     AgentExecutor
@@ -108,7 +108,7 @@ type Controller struct {
 
 type ControllerDependencies struct {
 	Config       *appconfig.Config
-	Store        SessionRuntimeStore
+	Store        SandboxRuntimeStore
 	ConfigDB     ControllerStore
 	Driver       SandboxDriver
 	Executor     AgentExecutor
@@ -246,55 +246,55 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
-	sessionResult, err := c.ensureProjectRunSession(ctx, run, prepared, req)
+	sandboxResult, err := c.ensureProjectRunSandbox(ctx, run, prepared, req)
 	if err != nil {
 		transition := TransitionRequest{
 			RunID: run.RunID,
-			Error: fmt.Sprintf("session start failed: %v", err),
+			Error: fmt.Sprintf("sandbox start failed: %v", err),
 		}
-		if sessionResult.Session != nil {
-			transition.SandboxID = sessionResult.Session.Summary.ID
+		if sandboxResult.Sandbox != nil {
+			transition.SandboxID = sandboxResult.Sandbox.Summary.ID
 		}
 		run, markErr := markProjectRunTerminalError(transitionCtx, coordinator, transition, err)
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
-	warnings = append(warnings, sessionResult.Warnings...)
+	warnings = append(warnings, sandboxResult.Warnings...)
 	if err := ctx.Err(); err != nil {
 		run, markErr := coordinator.MarkCanceled(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SandboxID: sessionResult.Session.Summary.ID,
+			SandboxID: sandboxResult.Sandbox.Summary.ID,
 			Error:     err.Error(),
 		})
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
 	if current, loadErr := c.configDB.GetProjectRun(transitionCtx, run.RunID); loadErr == nil && StatusIsTerminal(current.Status) {
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, current, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, current, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, context.Canceled, nil
 	}
-	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sessionResult.Session.Summary.ID)
+	run, err = coordinator.MarkRunning(transitionCtx, run.RunID, sandboxResult.Sandbox.Summary.ID)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
 	}
 	run = withRunWarnings(run, warnings)
 	if commandText != "" {
-		transition, execErr := c.executeProjectRunCommand(ctx, run, sessionResult.Session, req, commandText, stream)
+		transition, execErr := c.executeProjectRunCommand(ctx, run, sandboxResult.Sandbox, req, commandText, stream)
 		if execErr != nil || transition.ExitCode != 0 {
 			run, err = markProjectRunTerminalError(transitionCtx, coordinator, transition, execErr)
 			if err != nil {
 				return domain.ProjectRunRecord{}, nil, err
 			}
-			run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+			run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 			run = withRunWarnings(run, warnings)
 			return run, execErr, nil
 		}
@@ -302,7 +302,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 		if err != nil {
 			return domain.ProjectRunRecord{}, nil, err
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, nil, nil
 	}
@@ -310,14 +310,14 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 	if err != nil {
 		run, markErr := coordinator.MarkFailed(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SandboxID: sessionResult.Session.Summary.ID,
+			SandboxID: sandboxResult.Sandbox.Summary.ID,
 			ExitCode:  1,
 			Error:     fmt.Sprintf("agent execution failed: %v", err),
 		})
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
@@ -325,33 +325,33 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 		err = fmt.Errorf("executor is required")
 		run, markErr := coordinator.MarkFailed(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SandboxID: sessionResult.Session.Summary.ID,
+			SandboxID: sandboxResult.Sandbox.Summary.ID,
 			ExitCode:  1,
 			Error:     fmt.Sprintf("agent execution failed: %v", err),
 		})
 		if markErr != nil {
 			return domain.ProjectRunRecord{}, nil, markErr
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, err, nil
 	}
-	cell, _, _, execErr := c.executor.ExecuteAgentRequest(ctx, sessionResult.Session, execution.ExecuteAgentRequest{
+	cell, _, _, execErr := c.executor.ExecuteAgentRequest(ctx, sandboxResult.Sandbox, execution.ExecuteAgentRequest{
 		Agent:             agentConfig.Provider,
 		AgentDefinitionID: run.ManagedAgentID,
 		Model:             agentConfig.Model,
 		RunID:             run.RunID,
 		Message:           req.Prompt,
 		OutputSchemaJSON:  req.OutputSchemaJSON,
-		Stream:            projectRunAgentExecutionStream(transitionCtx, coordinator, run, sessionResult.Session, stream),
+		Stream:            projectRunAgentExecutionStream(transitionCtx, coordinator, run, sandboxResult.Sandbox, stream),
 	})
-	transition := TransitionFromAgentCell(run, sessionResult.Session, cell, execErr)
+	transition := TransitionFromAgentCell(run, sandboxResult.Sandbox, cell, execErr)
 	if execErr != nil || !cell.Success {
 		run, err = markProjectRunTerminalError(transitionCtx, coordinator, transition, execErr)
 		if err != nil {
 			return domain.ProjectRunRecord{}, nil, err
 		}
-		run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+		run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 		run = withRunWarnings(run, warnings)
 		return run, execErr, nil
 	}
@@ -359,7 +359,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
 	}
-	run = c.cleanupProjectRunSession(transitionCtx, coordinator, run, sessionResult, req.CleanupPolicy)
+	run = c.cleanupProjectRunSandbox(transitionCtx, coordinator, run, sandboxResult, req.CleanupPolicy)
 	run = withRunWarnings(run, warnings)
 	return run, nil, nil
 }
@@ -376,12 +376,12 @@ func markProjectRunTerminalError(ctx context.Context, coordinator *Coordinator, 
 	return coordinator.MarkFailed(ctx, transition)
 }
 
-func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Sandbox, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
-	artifactsDir := projectRunCommandArtifactsDir(run, session)
+func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, sandbox *domain.Sandbox, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
+	artifactsDir := projectRunCommandArtifactsDir(run, sandbox)
 	logsPath := filepath.Join(artifactsDir, "transcript.txt")
 	transition := TransitionRequest{
 		RunID:     run.RunID,
-		SandboxID: session.Summary.ID,
+		SandboxID: sandbox.Summary.ID,
 		LogsPath:  logsPath,
 	}
 	if c.store == nil || c.runtime == nil {
@@ -398,13 +398,13 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 		}
 	}
 	appconfig.ApplyDefaultGuestPaths(c.config)
-	vmState, err := c.store.GetVMState(session.Summary.ID)
+	vmState, err := c.store.GetVMState(sandbox.Summary.ID)
 	if err != nil {
 		transition.ExitCode = 1
 		transition.Error = fmt.Sprintf("command execution failed: %v", err)
 		return transition, err
 	}
-	runtime, err := c.runtime(session)
+	runtime, err := c.runtime(sandbox)
 	if err != nil {
 		transition.ExitCode = 1
 		transition.Error = fmt.Sprintf("command execution failed: %v", err)
@@ -452,7 +452,7 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 	}
 	execCtx, cancel := execution.ExecContext(ctx, 0)
 	defer cancel()
-	result, execErr := runtime.ExecStream(execCtx, session, vmState, execution.BuildRuntimeCommandExecSpec(c.config, session, filepath.Join(guestArtifactsDir, "command-request.json"), c.config.GuestHomePath), writer)
+	result, execErr := runtime.ExecStream(execCtx, sandbox, vmState, execution.BuildRuntimeCommandExecSpec(c.config, sandbox, filepath.Join(guestArtifactsDir, "command-request.json"), c.config.GuestHomePath), writer)
 	if sendErr != nil {
 		transition.ExitCode = 1
 		transition.Error = fmt.Sprintf("command execution failed: %v", sendErr)
@@ -464,7 +464,7 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
 		}
-		transition = transitionFromCommandResult(run, session, commandText, result, execErr)
+		transition = transitionFromCommandResult(run, sandbox, commandText, result, execErr)
 		transition.LogsPath = logsPath
 		return transition, execErr
 	}
@@ -479,7 +479,7 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 		transition.Error = fmt.Sprintf("command execution failed: %v", err)
 		return transition, err
 	}
-	transition = transitionFromCommandResult(run, session, commandText, execution.RuntimeCommandResultToExecResult(commandResult), nil)
+	transition = transitionFromCommandResult(run, sandbox, commandText, execution.RuntimeCommandResultToExecResult(commandResult), nil)
 	transition.LogsPath = logsPath
 	return transition, nil
 }
@@ -496,11 +496,11 @@ func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.Proje
 	return config, nil
 }
 
-func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, session *domain.Sandbox, sink *StreamSink) execution.AgentExecutionStream {
+func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, sandbox *domain.Sandbox, sink *StreamSink) execution.AgentExecutionStream {
 	return execution.AgentExecutionStream{
 		OnStart: func(cell domain.NotebookCell) error {
 			if coordinator != nil {
-				logsPath := projectRunAgentCellOutputPath(session, cell.ID)
+				logsPath := projectRunAgentCellOutputPath(sandbox, cell.ID)
 				if strings.TrimSpace(logsPath) != "" {
 					if _, err := coordinator.TransitionRun(ctx, TransitionRequest{
 						RunID:    run.RunID,
@@ -517,7 +517,7 @@ func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinato
 			return sink.SendStarted(run, time.Now().UTC())
 		},
 		OnChunk: func(cellID string, chunk domain.ExecChunk) error {
-			if err := appendProjectRunLogChunk(projectRunAgentCellOutputPath(session, cellID), chunk); err != nil {
+			if err := appendProjectRunLogChunk(projectRunAgentCellOutputPath(sandbox, cellID), chunk); err != nil {
 				return err
 			}
 			if sink == nil || sink.SendChunk == nil {
@@ -528,11 +528,11 @@ func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinato
 	}
 }
 
-func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Sandbox, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
-	artifactsDir := projectRunCommandArtifactsDir(run, session)
+func transitionFromCommandResult(run domain.ProjectRunRecord, sandbox *domain.Sandbox, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
+	artifactsDir := projectRunCommandArtifactsDir(run, sandbox)
 	req := TransitionRequest{
 		RunID:        run.RunID,
-		SandboxID:    session.Summary.ID,
+		SandboxID:    sandbox.Summary.ID,
 		ExitCode:     result.ExitCode,
 		Output:       result.Output,
 		ArtifactsDir: artifactsDir,
@@ -562,16 +562,16 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Sa
 	return req
 }
 
-func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Sandbox) string {
-	return filepath.Join(execution.HostSandboxDir(session), "state", "runs", run.RunID)
+func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, sandbox *domain.Sandbox) string {
+	return filepath.Join(execution.HostSandboxDir(sandbox), "state", "runs", run.RunID)
 }
 
-func projectRunAgentCellOutputPath(session *domain.Sandbox, cellID string) string {
+func projectRunAgentCellOutputPath(sandbox *domain.Sandbox, cellID string) string {
 	cellID = strings.TrimSpace(cellID)
-	if session == nil || cellID == "" {
+	if sandbox == nil || cellID == "" {
 		return ""
 	}
-	return filepath.Join(execution.HostSandboxDir(session), "state", "cells", cellID, "output.txt")
+	return filepath.Join(execution.HostSandboxDir(sandbox), "state", "cells", cellID, "output.txt")
 }
 
 func appendProjectRunLogChunk(path string, chunk domain.ExecChunk) error {
@@ -635,49 +635,49 @@ func resolveRunJupyterOptions(base sessionstore.CreateSandboxOptions, override *
 	return result, nil
 }
 
-func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.ProjectRunRecord, prepared Preparation, req RunAgentRequest) (SessionResult, error) {
+func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.ProjectRunRecord, prepared Preparation, req RunAgentRequest) (SandboxResult, error) {
 	if c == nil || c.config == nil || c.store == nil || c.driver == nil {
-		return SessionResult{}, fmt.Errorf("session runtime dependencies are required")
+		return SandboxResult{}, fmt.Errorf("sandbox runtime dependencies are required")
 	}
 	jupyterOptions, err := resolveRunJupyterOptions(prepared.Jupyter, req.Jupyter)
 	if err != nil {
-		return SessionResult{}, err
+		return SandboxResult{}, err
 	}
-	tags := SessionTags(run)
+	tags := SandboxTags(run)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(c.cap), prepared.CapsetIDs)
 	tags = append(tags, capabilityTags...)
 	if sandboxID := strings.TrimSpace(req.SandboxID); sandboxID != "" {
 		if len(req.Volumes) > 0 {
-			return SessionResult{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
+			return SandboxResult{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
 		}
-		session, err := c.store.GetSandbox(ctx, sandboxID)
+		sandbox, err := c.store.GetSandbox(ctx, sandboxID)
 		if err != nil {
-			return SessionResult{}, fmt.Errorf("load sandbox %s: %w", sandboxID, err)
+			return SandboxResult{}, fmt.Errorf("load sandbox %s: %w", sandboxID, err)
 		}
-		if session.Summary.VMStatus != domain.VMStatusRunning {
-			if err := c.applyJupyterOptionsToSession(session.Summary.ID, jupyterOptions); err != nil {
-				return SessionResult{Session: session}, err
+		if sandbox.Summary.VMStatus != domain.VMStatusRunning {
+			if err := c.applyJupyterOptionsToSandbox(sandbox.Summary.ID, jupyterOptions); err != nil {
+				return SandboxResult{Sandbox: sandbox}, err
 			}
-			driver, err := driverpkg.ResolveSandboxRuntimeDriver(session.Summary.Driver, c.config.RuntimeDriver)
+			driver, err := driverpkg.ResolveSandboxRuntimeDriver(sandbox.Summary.Driver, c.config.RuntimeDriver)
 			if err != nil {
-				return SessionResult{}, err
+				return SandboxResult{}, err
 			}
-			guestImage := driverpkg.ResolveSandboxGuestImage(session.Summary.GuestImage, driverpkg.DefaultGuestImageForDriver(c.config, driver))
+			guestImage := driverpkg.ResolveSandboxGuestImage(sandbox.Summary.GuestImage, driverpkg.DefaultGuestImageForDriver(c.config, driver))
 			if err := images.EnsureDriverImage(ctx, c.config, c.images, images.EnsureRequest{
 				Driver:      driver,
 				ImageRef:    guestImage,
 				ProjectName: run.ProjectName,
 				AgentName:   run.AgentName,
 			}); err != nil {
-				return SessionResult{Session: session}, err
+				return SandboxResult{Sandbox: sandbox}, err
 			}
 		}
-		session.EnvItems = domain.MergeEnvItems(session.EnvItems, capabilityVars)
-		session.Summary.Tags = MergeSessionTags(session.Summary.Tags, tags)
-		if err := c.startProjectRunSession(ctx, session, "sandbox.resumed", "sandbox resumed for project run"); err != nil {
-			return SessionResult{Session: session}, err
+		sandbox.EnvItems = domain.MergeEnvItems(sandbox.EnvItems, capabilityVars)
+		sandbox.Summary.Tags = MergeSandboxTags(sandbox.Summary.Tags, tags)
+		if err := c.startProjectRunSandbox(ctx, sandbox, "sandbox.resumed", "sandbox resumed for project run"); err != nil {
+			return SandboxResult{Sandbox: sandbox}, err
 		}
-		return SessionResult{Session: session}, nil
+		return SandboxResult{Sandbox: sandbox}, nil
 	}
 
 	workspaceID := ""
@@ -686,7 +686,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 	}
 	driver, err := driverpkg.ResolveSandboxRuntimeDriver(run.Driver, c.config.RuntimeDriver)
 	if err != nil {
-		return SessionResult{}, err
+		return SandboxResult{}, err
 	}
 	guestImage := driverpkg.ResolveSandboxGuestImage(run.ImageRef, driverpkg.DefaultGuestImageForDriver(c.config, driver))
 	if err := images.EnsureDriverImage(ctx, c.config, c.images, images.EnsureRequest{
@@ -695,15 +695,15 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		ProjectName: run.ProjectName,
 		AgentName:   run.AgentName,
 	}); err != nil {
-		return SessionResult{}, err
+		return SandboxResult{}, err
 	}
 	volumeMounts, volumeWarnings, err := c.resolveProjectRunVolumeMounts(ctx, prepared, req)
 	if err != nil {
-		return SessionResult{}, err
+		return SandboxResult{}, err
 	}
 	jupyterOptions.VolumeMounts = volumeMounts
-	session, err := c.store.CreateSandboxWithOptions(ctx,
-		SessionTitle(run),
+	sandbox, err := c.store.CreateSandboxWithOptions(ctx,
+		SandboxTitle(run),
 		"",
 		driver,
 		guestImage,
@@ -715,13 +715,13 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		jupyterOptions,
 	)
 	if err != nil {
-		return SessionResult{}, err
+		return SandboxResult{}, err
 	}
-	session.ProviderEnvItems = prepared.ProviderEnvItems
-	if err := c.startProjectRunSession(ctx, session, "sandbox.created", "sandbox started for project run"); err != nil {
-		return SessionResult{Session: session, Created: true, Warnings: volumeWarnings}, err
+	sandbox.ProviderEnvItems = prepared.ProviderEnvItems
+	if err := c.startProjectRunSandbox(ctx, sandbox, "sandbox.created", "sandbox started for project run"); err != nil {
+		return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, err
 	}
-	return SessionResult{Session: session, Created: true, Warnings: volumeWarnings}, nil
+	return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, nil
 }
 
 func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared Preparation, req RunAgentRequest) ([]domain.SandboxVolumeMount, []string, error) {
@@ -741,8 +741,8 @@ func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared
 	})
 }
 
-func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sessionstore.CreateSandboxOptions) error {
-	proxyState, err := c.store.GetProxyState(sessionID)
+func (c *Controller) applyJupyterOptionsToSandbox(sandboxID string, options sessionstore.CreateSandboxOptions) error {
+	proxyState, err := c.store.GetProxyState(sandboxID)
 	if err != nil {
 		return err
 	}
@@ -772,43 +772,43 @@ func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sess
 			proxyState.JupyterURL = proxyState.ProxyPath
 		}
 	}
-	return c.store.SaveProxyState(sessionID, proxyState)
+	return c.store.SaveProxyState(sandboxID, proxyState)
 }
 
-func (c *Controller) startProjectRunSession(ctx context.Context, session *domain.Sandbox, eventType, eventMessage string) error {
-	if session == nil {
-		return fmt.Errorf("session is required")
+func (c *Controller) startProjectRunSandbox(ctx context.Context, sandbox *domain.Sandbox, eventType, eventMessage string) error {
+	if sandbox == nil {
+		return fmt.Errorf("sandbox is required")
 	}
-	if err := workspaces.PrepareSessionWorkspace(ctx, c.config, c.configDB, session); err != nil {
-		session.Summary.VMStatus = domain.VMStatusFailed
-		_ = c.store.UpdateSandbox(ctx, session)
+	if err := workspaces.PrepareSessionWorkspace(ctx, c.config, c.configDB, sandbox); err != nil {
+		sandbox.Summary.VMStatus = domain.VMStatusFailed
+		_ = c.store.UpdateSandbox(ctx, sandbox)
 		return err
 	}
-	writeCapabilityGuide(ctx, c.cap, c.store, c.streams, session, capabilities.SessionCapsets(session))
-	if session.Summary.VMStatus != domain.VMStatusRunning {
-		if err := c.driver.StartSandboxVM(ctx, session); err != nil {
-			session.Summary.VMStatus = domain.VMStatusFailed
-			_ = c.store.UpdateSandbox(ctx, session)
+	writeCapabilityGuide(ctx, c.cap, c.store, c.streams, sandbox, capabilities.SessionCapsets(sandbox))
+	if sandbox.Summary.VMStatus != domain.VMStatusRunning {
+		if err := c.driver.StartSandboxVM(ctx, sandbox); err != nil {
+			sandbox.Summary.VMStatus = domain.VMStatusFailed
+			_ = c.store.UpdateSandbox(ctx, sandbox)
 			return err
 		}
 	}
-	session.Summary.VMStatus = domain.VMStatusRunning
-	if err := c.store.UpdateSandbox(ctx, session); err != nil {
+	sandbox.Summary.VMStatus = domain.VMStatusRunning
+	if err := c.store.UpdateSandbox(ctx, sandbox); err != nil {
 		return err
 	}
-	c.publishProjectRunSessionStarted(ctx, session, eventType, eventMessage)
-	loaded, err := c.store.GetSandbox(ctx, session.Summary.ID)
+	c.publishProjectRunSandboxStarted(ctx, sandbox, eventType, eventMessage)
+	loaded, err := c.store.GetSandbox(ctx, sandbox.Summary.ID)
 	if err != nil {
 		return err
 	}
-	domain.RestoreSandboxTransientFields(loaded, session)
-	*session = *loaded
+	domain.RestoreSandboxTransientFields(loaded, sandbox)
+	*sandbox = *loaded
 	return nil
 }
 
-func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, session *domain.Sandbox, eventType, message string) {
+func (c *Controller) publishProjectRunSandboxStarted(ctx context.Context, sandbox *domain.Sandbox, eventType, message string) {
 	if c.streams != nil {
-		c.streams.PublishSandboxUpdated(&session.Summary)
+		c.streams.PublishSandboxUpdated(&sandbox.Summary)
 	}
 	if c.dashboard != nil {
 		c.dashboard.Notify("sandbox_updated")
@@ -820,9 +820,9 @@ func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, sessio
 		Message:   message,
 		CreatedAt: time.Now().UTC(),
 	}
-	_ = c.store.AddEvent(ctx, session.Summary.ID, event)
+	_ = c.store.AddEvent(ctx, sandbox.Summary.ID, event)
 	if c.streams != nil {
-		c.streams.PublishEventAdded(session.Summary.ID, event)
+		c.streams.PublishEventAdded(sandbox.Summary.ID, event)
 	}
 	if c.bus != nil {
 		topic := "agent-compose.session.created"
@@ -831,18 +831,18 @@ func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, sessio
 		}
 		c.bus.Publish(domain.LoaderTopicEvent{
 			Topic:     topic,
-			Payload:   loaders.SessionTopicPayload(session, "project-run"),
+			Payload:   loaders.SessionTopicPayload(sandbox, "project-run"),
 			CreatedAt: time.Now().UTC(),
 		})
 	}
 }
 
-func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, sessionResult SessionResult, policy agentcomposev2.RunSandboxCleanupPolicy) domain.ProjectRunRecord {
-	session := sessionResult.Session
-	if !CleanupPolicyStopsSession(policy) || session == nil {
+func (c *Controller) cleanupProjectRunSandbox(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, sandboxResult SandboxResult, policy agentcomposev2.RunSandboxCleanupPolicy) domain.ProjectRunRecord {
+	sandbox := sandboxResult.Sandbox
+	if !CleanupPolicyStopsSandbox(policy) || sandbox == nil {
 		return run
 	}
-	cleanupErr := c.cleanupProjectRunSessionByPolicy(ctx, sessionResult, policy)
+	cleanupErr := c.cleanupProjectRunSandboxByPolicy(ctx, sandboxResult, policy)
 	if cleanupErr == nil {
 		return run
 	}
@@ -858,16 +858,16 @@ func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *
 	return updated
 }
 
-func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessionResult SessionResult, policy agentcomposev2.RunSandboxCleanupPolicy) error {
-	session := sessionResult.Session
-	if CleanupPolicyRemovesSession(policy) && sessionResult.Created {
-		if err := c.stopProjectRunSession(ctx, session); err != nil {
+func (c *Controller) cleanupProjectRunSandboxByPolicy(ctx context.Context, sandboxResult SandboxResult, policy agentcomposev2.RunSandboxCleanupPolicy) error {
+	sandbox := sandboxResult.Sandbox
+	if CleanupPolicyRemovesSandbox(policy) && sandboxResult.Created {
+		if err := c.stopProjectRunSandbox(ctx, sandbox); err != nil {
 			return err
 		}
 		if c.store == nil {
-			return fmt.Errorf("session store is required")
+			return fmt.Errorf("sandbox store is required")
 		}
-		if err := c.store.RemoveSandbox(ctx, session.Summary.ID); err != nil {
+		if err := c.store.RemoveSandbox(ctx, sandbox.Summary.ID); err != nil {
 			return err
 		}
 		if c.dashboard != nil {
@@ -875,14 +875,14 @@ func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessi
 		}
 		return nil
 	}
-	return c.stopProjectRunSession(ctx, session)
+	return c.stopProjectRunSandbox(ctx, sandbox)
 }
 
-func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.Sandbox) error {
+func (c *Controller) stopProjectRunSandbox(ctx context.Context, sandbox *domain.Sandbox) error {
 	if c.store == nil {
-		return fmt.Errorf("session store is required")
+		return fmt.Errorf("sandbox store is required")
 	}
-	loaded, err := c.store.GetSandbox(ctx, session.Summary.ID)
+	loaded, err := c.store.GetSandbox(ctx, sandbox.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -908,12 +908,12 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 	return nil
 }
 
-func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store SessionRuntimeStore, streams *sessions.StreamBroker, session *domain.Sandbox, capsetIDs []string) {
+func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store SandboxRuntimeStore, streams *sessions.StreamBroker, sandbox *domain.Sandbox, capsetIDs []string) {
 	ids := capabilities.NormalizeCapsetIDs(capsetIDs)
-	if len(ids) == 0 || provider == nil || session == nil {
+	if len(ids) == 0 || provider == nil || sandbox == nil {
 		return
 	}
-	catalogPath := capabilities.SessionGuidePath(session)
+	catalogPath := capabilities.SessionGuidePath(sandbox)
 	if catalogPath == "" {
 		return
 	}
@@ -922,8 +922,8 @@ func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, s
 	for _, id := range ids {
 		guide, err := provider.CapabilityGuide(ctx, id)
 		if err != nil {
-			slog.Warn("capability guide render skipped", "capset", id, "sandbox_id", session.Summary.ID, "error", err)
-			recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, fmt.Sprintf("capability guide render skipped for capset %s", id))
+			slog.Warn("capability guide render skipped", "capset", id, "sandbox_id", sandbox.Summary.ID, "error", err)
+			recordCapabilityGuideWarning(ctx, store, streams, sandbox.Summary.ID, fmt.Sprintf("capability guide render skipped for capset %s", id))
 			continue
 		}
 		if rendered {
@@ -940,18 +940,18 @@ func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, s
 		content = preamble + content
 	}
 	if err := os.MkdirAll(filepath.Dir(catalogPath), 0o755); err != nil {
-		slog.Warn("capability guide dir create failed", "sandbox_id", session.Summary.ID, "error", err)
-		recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, "capability guide directory create failed")
+		slog.Warn("capability guide dir create failed", "sandbox_id", sandbox.Summary.ID, "error", err)
+		recordCapabilityGuideWarning(ctx, store, streams, sandbox.Summary.ID, "capability guide directory create failed")
 		return
 	}
 	if err := os.WriteFile(catalogPath, []byte(content), 0o644); err != nil {
-		slog.Warn("capability guide write failed", "sandbox_id", session.Summary.ID, "error", err)
-		recordCapabilityGuideWarning(ctx, store, streams, session.Summary.ID, "capability guide write failed")
+		slog.Warn("capability guide write failed", "sandbox_id", sandbox.Summary.ID, "error", err)
+		recordCapabilityGuideWarning(ctx, store, streams, sandbox.Summary.ID, "capability guide write failed")
 	}
 }
 
-func recordCapabilityGuideWarning(ctx context.Context, store SessionRuntimeStore, streams *sessions.StreamBroker, sessionID, message string) {
-	if store == nil || strings.TrimSpace(sessionID) == "" {
+func recordCapabilityGuideWarning(ctx context.Context, store SandboxRuntimeStore, streams *sessions.StreamBroker, sandboxID, message string) {
+	if store == nil || strings.TrimSpace(sandboxID) == "" {
 		return
 	}
 	event := domain.SandboxEvent{
@@ -961,11 +961,11 @@ func recordCapabilityGuideWarning(ctx context.Context, store SessionRuntimeStore
 		Message:   message,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := store.AddEvent(ctx, sessionID, event); err != nil {
-		slog.Warn("capability guide warning event failed", "sandbox_id", sessionID, "error", err)
+	if err := store.AddEvent(ctx, sandboxID, event); err != nil {
+		slog.Warn("capability guide warning event failed", "sandbox_id", sandboxID, "error", err)
 		return
 	}
 	if streams != nil {
-		streams.PublishEventAdded(sessionID, event)
+		streams.PublishEventAdded(sandboxID, event)
 	}
 }

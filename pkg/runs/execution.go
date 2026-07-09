@@ -11,17 +11,17 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sandbox, cell domain.NotebookCell, execErr error) TransitionRequest {
+func TransitionFromAgentCell(run domain.ProjectRunRecord, sandbox *domain.Sandbox, cell domain.NotebookCell, execErr error) TransitionRequest {
 	req := TransitionRequest{
 		RunID:    run.RunID,
 		ExitCode: cell.ExitCode,
 		Output:   cell.Output,
 	}
-	if session != nil {
-		req.SandboxID = session.Summary.ID
+	if sandbox != nil {
+		req.SandboxID = sandbox.Summary.ID
 	}
-	if session != nil && cell.ID != "" {
-		artifactsDir := filepath.Join(execution.HostSandboxDir(session), "state", "cells", cell.ID)
+	if sandbox != nil && cell.ID != "" {
+		artifactsDir := filepath.Join(execution.HostSandboxDir(sandbox), "state", "cells", cell.ID)
 		req.ArtifactsDir = artifactsDir
 		req.LogsPath = filepath.Join(artifactsDir, "output.txt")
 	}
@@ -52,10 +52,10 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sandbo
 	return req
 }
 
-func CleanupPolicyStopsSession(policy agentcomposev2.RunSandboxCleanupPolicy) bool {
+func CleanupPolicyStopsSandbox(policy agentcomposev2.RunSandboxCleanupPolicy) bool {
 	return policy != agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING
 }
 
-func CleanupPolicyRemovesSession(policy agentcomposev2.RunSandboxCleanupPolicy) bool {
+func CleanupPolicyRemovesSandbox(policy agentcomposev2.RunSandboxCleanupPolicy) bool {
 	return policy == agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION
 }

@@ -654,15 +654,15 @@
 
 参考文档：[docs/plan/sandbox-naming-implementation-plan.md](docs/plan/sandbox-naming-implementation-plan.md#阶段-8runexecloadercapability-和-topic-workflow-收敛)
 
-- [ ] 8.1 迁移 RunService 和 ExecService 工作流
+- [x] 8.1 迁移 RunService 和 ExecService 工作流
   - 依赖：6.2、7.3。
   - 工作内容：
     - `RunService.RunAgent` 使用 v2 `sandbox_id` 复用 sandbox；缺少 `sandbox_id` 时创建新 sandbox。
     - cleanup policy 使用 `RunSandboxCleanupPolicy`。
     - `ExecService` 使用 `sandbox_id`、`run_id`、`ExecSandboxSelector` 定位 running sandbox；不创建 sandbox。
   - 可并行子任务：
-    - [ ] 可并行：迁移 Run handler/controller/supervisor tests。
-    - [ ] 可并行：迁移 Exec handler/selectors/runtime tests。
+    - [x] 可并行：迁移 Run handler/controller/supervisor tests。
+    - [x] 可并行：迁移 Exec handler/selectors/runtime tests。
   - 测试方案：
     - `go test ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs ./pkg/projects`
     - 集成测试覆盖 Run 创建/复用 sandbox、ListRuns(sandbox_id)、RunSummary.sandbox_id、Exec 三类 target。
@@ -670,10 +670,22 @@
     - Run/Exec 新路径只使用 sandbox 字段。
     - Exec 不创建 sandbox。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/runs` 的 Run workflow 内部命名已切换为 sandbox：`SandboxResult`、`SandboxTitle`、`SandboxTags`、`MergeSandboxTags`、`SandboxRuntimeStore`、`ensureProjectRunSandbox`、`startProjectRunSandbox`、`cleanupProjectRunSandbox*`、`stopProjectRunSandbox`。
+      - cleanup helper 已使用 `CleanupPolicyStopsSandbox` / `CleanupPolicyRemovesSandbox`，错误文案从 session runtime/store/start 改为 sandbox runtime/store/start。
+      - Run 创建/复用路径继续使用 v2 `RunAgentRequest.SandboxID`：传入 `sandbox_id` 时加载并复用既有 sandbox；缺少时调用 `CreateSandboxWithOptions` 创建新 sandbox；`REMOVE_ON_COMPLETION` 只删除本次创建的 sandbox，复用 sandbox 只 stop。
+      - Exec handler 已确认使用 `sandbox_id`、`run_id` 和 `ExecSandboxSelector` 解析 running sandbox，响应写回 `sandbox_id`，接口中无创建 sandbox 路径。
+      - 更新 runs/API focused fixtures，将 sandbox-native `SandboxID`、cleanup、Jupyter options、status listing 和 command/agent transition 测试数据从 `session-1` 规范为 `sandbox-1`。
+    - 验证：
+      - `go test ./pkg/runs`
+      - `go test ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/runs ./pkg/projects`
+      - `git diff --check`
+      - `rg -n "RunSession|ExecSession|SessionResult|ensureProjectRunSession|cleanupProjectRunSession|startProjectRunSession|stopProjectRunSession|publishProjectRunSessionStarted|CleanupPolicyStopsSession|CleanupPolicyRemovesSession|SessionTitle|SessionTags|MergeSessionTags|session runtime dependencies|session start failed|session store is required|applyJupyterOptionsToSession|SessionRuntimeStore|type SessionStore" pkg/runs pkg/agentcompose/api -g'*.go'`
+    - 审计与例外：
+      - targeted audit 仅命中 `pkg/agentcompose/api/agent.go` 的 v1 `SessionTagsFromProto` 和对应 coverage 测试，属于 v1 compatibility mapping，未改动。
+      - `pkg/runs` 仍调用 `workspaces.PrepareSessionWorkspace`、`capabilities.SessionCapsets`、`loaders.SessionTopicPayload`、`manualTriggerCaptureHost.CallSessionRPC` 和 `envVarSpecsFromSessionEnv`；这些属于 workspace/capability/loader deprecated alias 或后续 8.2/8.3 收敛范围，本任务未扩大修改。
+      - 本任务未修改 `proto/agentcompose/v1/*`、v2 proto 或 generated code；v2 `RunSandboxCleanupPolicy`、`RunAgentRequest.sandbox_id`、`ExecRequest.sandbox_id/run_id/ExecSandboxSelector` 已在 6.2 完成并由本任务测试覆盖。
     - 下一目标：8.2。
 
 - [ ] 8.2 迁移 loader scheduler sandbox API 和 deprecated aliases

@@ -12,16 +12,16 @@ type ProjectSandboxRunStore interface {
 	ListProjectSandboxRuns(context.Context, domain.ProjectSandboxRelationFilter) ([]domain.ProjectRunRecord, error)
 }
 
-type SessionStore interface {
+type SandboxStore interface {
 	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 }
 
-func ListProjectSandboxStatuses(ctx context.Context, runStore ProjectSandboxRunStore, sessionStore SessionStore, filter domain.ProjectSandboxRelationFilter) ([]domain.ProjectSandboxStatus, error) {
+func ListProjectSandboxStatuses(ctx context.Context, runStore ProjectSandboxRunStore, sandboxStore SandboxStore, filter domain.ProjectSandboxRelationFilter) ([]domain.ProjectSandboxStatus, error) {
 	if runStore == nil {
 		return nil, fmt.Errorf("config store is required")
 	}
-	if sessionStore == nil {
-		return nil, fmt.Errorf("session store is required")
+	if sandboxStore == nil {
+		return nil, fmt.Errorf("sandbox store is required")
 	}
 	runs, err := runStore.ListProjectSandboxRuns(ctx, filter)
 	if err != nil {
@@ -39,11 +39,11 @@ func ListProjectSandboxStatuses(ctx context.Context, runStore ProjectSandboxRunS
 		}
 		seenSandboxes[sandboxID] = struct{}{}
 		item := domain.ProjectSandboxStatus{Run: run}
-		session, err := sessionStore.GetSandbox(ctx, sandboxID)
+		sandbox, err := sandboxStore.GetSandbox(ctx, sandboxID)
 		if err != nil {
 			item.SandboxMissing = true
 		} else {
-			item.Sandbox = session
+			item.Sandbox = sandbox
 		}
 		items = append(items, item)
 	}

@@ -160,7 +160,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		t.Fatalf("maybe time mapping failed")
 	}
 
-	projectRun := domain.ProjectRunRecord{RunID: "run-1", ProjectID: "project-1", ProjectName: "project", ProjectRevision: 2, ManagedAgentID: "agent-1", AgentName: "Agent", Source: domain.ProjectRunSourceAPI, Status: domain.ProjectRunStatusSucceeded, SandboxID: "session-1", ExitCode: 0, CreatedAt: now, UpdatedAt: now, StartedAt: now, CompletedAt: now}
+	projectRun := domain.ProjectRunRecord{RunID: "run-1", ProjectID: "project-1", ProjectName: "project", ProjectRevision: 2, ManagedAgentID: "agent-1", AgentName: "Agent", Source: domain.ProjectRunSourceAPI, Status: domain.ProjectRunStatusSucceeded, SandboxID: "sandbox-1", ExitCode: 0, CreatedAt: now, UpdatedAt: now, StartedAt: now, CompletedAt: now}
 	if ProjectRunDetailToProto(projectRun).GetSummary().GetRunId() != "run-1" {
 		t.Fatalf("project run detail mapping failed")
 	}

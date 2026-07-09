@@ -68,7 +68,7 @@ func TestRunsCoordinatorAndHelperWorkflows(t *testing.T) {
 	if len(store.runs) != beforeInvalid {
 		t.Fatalf("invalid driver created run: before=%d after=%d", beforeInvalid, len(store.runs))
 	}
-	if running, err := coord.MarkRunning(ctx, run.RunID, "session-1"); err != nil || running.Status != domain.ProjectRunStatusRunning || running.SandboxID != "session-1" {
+	if running, err := coord.MarkRunning(ctx, run.RunID, "sandbox-1"); err != nil || running.Status != domain.ProjectRunStatusRunning || running.SandboxID != "sandbox-1" {
 		t.Fatalf("MarkRunning run=%#v err=%v", running, err)
 	}
 	if succeeded, err := coord.MarkSucceeded(ctx, TransitionRequest{RunID: run.RunID, ExitCode: 0, Output: "ok", ResultJSON: `{"ok":true}`, LogsPath: "/logs", ArtifactsDir: "/artifacts"}); err != nil || succeeded.Status != domain.ProjectRunStatusSucceeded || succeeded.DurationMs < 0 {
@@ -96,13 +96,13 @@ func TestRunsCoordinatorAndHelperWorkflows(t *testing.T) {
 		_ = NormalizeSource(source)
 	}
 
-	title := SessionTitle(run)
-	tags := MergeSessionTags([]domain.SandboxTag{{Name: "project", Value: "project-1"}}, SessionTags(run))
+	title := SandboxTitle(run)
+	tags := MergeSandboxTags([]domain.SandboxTag{{Name: "project", Value: "project-1"}}, SandboxTags(run))
 	if title == "" || len(tags) < 4 || WorkspaceID(run, "git") == "" || WorkspaceName(run, "git") == "" {
 		t.Fatalf("session helpers title=%q tags=%#v", title, tags)
 	}
-	cell := domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Agent: "codex", AgentThreadID: "agent-session", Output: "output", Success: false, ExitCode: 0, Stderr: "stderr"}
-	transition := TransitionFromAgentCell(run, &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", WorkspacePath: t.TempDir()}}, cell, nil)
+	cell := domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Agent: "codex", AgentThreadID: "agent-thread", Output: "output", Success: false, ExitCode: 0, Stderr: "stderr"}
+	transition := TransitionFromAgentCell(run, &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-1", WorkspacePath: t.TempDir()}}, cell, nil)
 	if transition.ExitCode == 0 || !strings.Contains(transition.Error, "stderr") || transition.ArtifactsDir == "" {
 		t.Fatalf("transition from failed cell = %#v", transition)
 	}
@@ -110,11 +110,11 @@ func TestRunsCoordinatorAndHelperWorkflows(t *testing.T) {
 	if transition.ExitCode == 0 || !strings.Contains(transition.Error, "boom") {
 		t.Fatalf("transition from exec error = %#v", transition)
 	}
-	if !CleanupPolicyStopsSession(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION) ||
-		!CleanupPolicyStopsSession(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
-		CleanupPolicyStopsSession(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING) ||
-		!CleanupPolicyRemovesSession(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
-		CleanupPolicyRemovesSession(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION) {
+	if !CleanupPolicyStopsSandbox(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION) ||
+		!CleanupPolicyStopsSandbox(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
+		CleanupPolicyStopsSandbox(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING) ||
+		!CleanupPolicyRemovesSandbox(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION) ||
+		CleanupPolicyRemovesSandbox(agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION) {
 		t.Fatalf("cleanup policy mapping failed")
 	}
 }
@@ -212,12 +212,12 @@ func TestRunsPreparationWorkspaceAndStatusWorkflows(t *testing.T) {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 
-	statusStore := fakeProjectSandboxRunStore{runs: []domain.ProjectRunRecord{{RunID: "run-1", SandboxID: "session-1"}, {RunID: "run-2", SandboxID: "session-1"}, {RunID: "run-3", SandboxID: "missing"}}}
-	statuses, err := ListProjectSandboxStatuses(ctx, statusStore, fakeSessionStatusStore{sessions: map[string]*domain.Sandbox{"session-1": {Summary: domain.SandboxSummary{ID: "session-1"}}}}, domain.ProjectSandboxRelationFilter{})
+	statusStore := fakeProjectSandboxRunStore{runs: []domain.ProjectRunRecord{{RunID: "run-1", SandboxID: "sandbox-1"}, {RunID: "run-2", SandboxID: "sandbox-1"}, {RunID: "run-3", SandboxID: "missing"}}}
+	statuses, err := ListProjectSandboxStatuses(ctx, statusStore, fakeSandboxStatusStore{sessions: map[string]*domain.Sandbox{"sandbox-1": {Summary: domain.SandboxSummary{ID: "sandbox-1"}}}}, domain.ProjectSandboxRelationFilter{})
 	if err != nil || len(statuses) != 2 || statuses[1].SandboxMissing != true {
 		t.Fatalf("ListProjectSandboxStatuses statuses=%#v err=%v", statuses, err)
 	}
-	if _, err := ListProjectSandboxStatuses(ctx, nil, fakeSessionStatusStore{}, domain.ProjectSandboxRelationFilter{}); err == nil {
+	if _, err := ListProjectSandboxStatuses(ctx, nil, fakeSandboxStatusStore{}, domain.ProjectSandboxRelationFilter{}); err == nil {
 		t.Fatalf("expected nil run store error")
 	}
 	if _, err := ListProjectSandboxStatuses(ctx, statusStore, nil, domain.ProjectSandboxRelationFilter{}); err == nil {
@@ -427,21 +427,21 @@ func TestRunsControllerRunProjectAgentResolvesVolumeMounts(t *testing.T) {
 	}
 	session, err := fixture.store.GetSandbox(fixture.ctx, run.SandboxID)
 	if err != nil {
-		t.Fatalf("GetSession returned error: %v", err)
+		t.Fatalf("GetSandbox returned error: %v", err)
 	}
 	if len(session.VolumeMounts) != 1 || session.VolumeMounts[0].HostPath != hostPath || session.VolumeMounts[0].Target != "/cache" {
-		t.Fatalf("session volume mounts = %#v", session.VolumeMounts)
+		t.Fatalf("sandbox volume mounts = %#v", session.VolumeMounts)
 	}
 	if len(run.Warnings) != 1 || !strings.Contains(run.Warnings[0], "volume target /cache") {
 		t.Fatalf("run warnings = %#v", run.Warnings)
 	}
 }
 
-func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSession(t *testing.T) {
+func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSandbox(t *testing.T) {
 	fixture := newControllerRunFixture(t)
 	session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateSession returned error: %v", err)
+		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
 	run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
 		ProjectID:       "project-1",
@@ -449,7 +449,7 @@ func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSession(t
 		Command:         "echo ok",
 		SandboxID:       session.Summary.ID,
 		Source:          domain.ProjectRunSourceAPI,
-		ClientRequestID: "volume-existing-session",
+		ClientRequestID: "volume-existing-sandbox",
 		Volumes: []domain.VolumeMountSpec{{
 			Type:   domain.VolumeMountTypeBind,
 			Source: ".",
@@ -665,7 +665,7 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 	}
 	session, err := store.CreateSandbox(ctx, "command session", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateSession returned error: %v", err)
+		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
 	run := domain.ProjectRunRecord{RunID: "run-edge", ProjectID: "project-1", AgentName: "worker"}
@@ -688,10 +688,10 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 		t.Fatalf("send started transition=%#v err=%v", transition, err)
 	}
 
-	missingVMSession := *session
-	missingVMSession.Summary.ID = "missing-vm"
-	missingVMSession.Summary.WorkspacePath = filepath.Join(root, "missing-vm", "workspace")
-	transition, err = controller.executeProjectRunCommand(ctx, run, &missingVMSession, req, "echo edge", nil)
+	missingVMSandbox := *session
+	missingVMSandbox.Summary.ID = "missing-vm"
+	missingVMSandbox.Summary.WorkspacePath = filepath.Join(root, "missing-vm", "workspace")
+	transition, err = controller.executeProjectRunCommand(ctx, run, &missingVMSandbox, req, "echo edge", nil)
 	if err == nil || transition.ExitCode != 1 || !strings.Contains(transition.Error, "no such file") {
 		t.Fatalf("missing vm transition=%#v err=%v", transition, err)
 	}
@@ -844,7 +844,7 @@ func uuidForTest(name string) string {
 }
 
 func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
-	t.Run("success removes created session", func(t *testing.T) {
+	t.Run("success removes created sandbox", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
 		if err != nil || execErr != nil {
@@ -861,7 +861,7 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("agent failure removes created session and preserves original error", func(t *testing.T) {
+	t.Run("agent failure removes created sandbox and preserves original error", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		fixture.executor.execErr = errors.New("agent failed")
 		fixture.executor.cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "failed", Success: false, ExitCode: 7, Stderr: "agent failed"}
@@ -877,7 +877,7 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("context cancel marks canceled and removes created session", func(t *testing.T) {
+	t.Run("context cancel marks canceled and removes created sandbox", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		fixture.executor.execErr = context.Canceled
 		fixture.executor.cell = domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeAgent, Output: "canceled", Success: false, ExitCode: 1, Stderr: "canceled"}
@@ -893,11 +893,11 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("existing session is stopped but not removed", func(t *testing.T) {
+	t.Run("existing sandbox is stopped but not removed", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 		if err != nil {
-			t.Fatalf("CreateSession returned error: %v", err)
+			t.Fatalf("CreateSandbox returned error: %v", err)
 		}
 		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, func(req *RunAgentRequest) {
 			req.SandboxID = session.Summary.ID
@@ -907,14 +907,14 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 		}
 		loaded, err := fixture.store.GetSandbox(fixture.ctx, session.Summary.ID)
 		if err != nil {
-			t.Fatalf("existing session was removed: %v", err)
+			t.Fatalf("existing sandbox was removed: %v", err)
 		}
 		if run.SandboxID != session.Summary.ID || loaded.Summary.VMStatus != domain.VMStatusStopped {
 			t.Fatalf("run=%#v loaded session=%#v", run, loaded.Summary)
 		}
 	})
 
-	t.Run("driver cannot be combined with existing session", func(t *testing.T) {
+	t.Run("driver cannot be combined with existing sandbox", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, func(req *RunAgentRequest) {
 			req.SandboxID = "existing"
@@ -956,7 +956,7 @@ func TestRunsControllerRunProjectAgentCleanupErrorRecording(t *testing.T) {
 		}
 	})
 
-	t.Run("session start failure cleans created session", func(t *testing.T) {
+	t.Run("session start failure cleans created sandbox", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
 		fixture.driver.startErr = errors.New("start failed")
 		run, execErr, err := runAgentWithRemoveOnCompletion(t, fixture, nil)
@@ -1019,7 +1019,7 @@ func TestRunsControllerRunProjectAgentManualTriggerResolution(t *testing.T) {
 	}
 	session, err := fixture.store.GetSandbox(fixture.ctx, run.SandboxID)
 	if err != nil {
-		t.Fatalf("GetSession returned error: %v", err)
+		t.Fatalf("GetSandbox returned error: %v", err)
 	}
 	if fixture.executor.request.Message != "resolved prompt" || envItemValue(session.EnvItems, "TRIGGER_ENV") != "yes" {
 		t.Fatalf("executor request = %#v", fixture.executor.request)
@@ -1106,18 +1106,18 @@ func TestManualTriggerCaptureHostUnavailableMethodsAndEnvSpecs(t *testing.T) {
 	}
 }
 
-func TestRunsControllerApplyJupyterOptionsToSession(t *testing.T) {
+func TestRunsControllerApplyJupyterOptionsToSandbox(t *testing.T) {
 	fixture := newControllerRunFixture(t)
 	fixture.config.JupyterGuestPort = 8888
 	session, err := fixture.store.CreateSandbox(fixture.ctx, "jupyter session", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateSession returned error: %v", err)
+		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
 	before, err := fixture.store.GetProxyState(session.Summary.ID)
 	if err != nil {
 		t.Fatalf("GetProxyState before returned error: %v", err)
 	}
-	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSandboxOptions{}); err != nil {
+	if err := fixture.controller.applyJupyterOptionsToSandbox(session.Summary.ID, sessionstore.CreateSandboxOptions{}); err != nil {
 		t.Fatalf("apply empty options returned error: %v", err)
 	}
 	unchanged, err := fixture.store.GetProxyState(session.Summary.ID)
@@ -1127,7 +1127,7 @@ func TestRunsControllerApplyJupyterOptionsToSession(t *testing.T) {
 	if unchanged != before {
 		t.Fatalf("empty options changed proxy state before=%#v after=%#v", before, unchanged)
 	}
-	if err := fixture.controller.applyJupyterOptionsToSession(session.Summary.ID, sessionstore.CreateSandboxOptions{JupyterExpose: true, JupyterGuestPort: 9999}); err != nil {
+	if err := fixture.controller.applyJupyterOptionsToSandbox(session.Summary.ID, sessionstore.CreateSandboxOptions{JupyterExpose: true, JupyterGuestPort: 9999}); err != nil {
 		t.Fatalf("apply jupyter options returned error: %v", err)
 	}
 	enabled, err := fixture.store.GetProxyState(session.Summary.ID)
@@ -1203,7 +1203,7 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", WorkspacePath: filepath.Join(root, "sessions", "session-1", "workspace")}}
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-1", WorkspacePath: filepath.Join(root, "sandboxes", "sandbox-1", "workspace")}}
 	run := domain.ProjectRunRecord{RunID: "run-1"}
 	success := transitionFromCommandResult(run, session, "echo ok", domain.ExecResult{Output: "ok\n", ExitCode: 0, Success: true}, nil)
 	if success.ExitCode != 0 || success.Error != "" || success.Output != "ok\n" || success.ArtifactsDir == "" || !strings.Contains(success.ResultJSON, `"success":true`) {
@@ -1221,7 +1221,7 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 		t.Fatalf("artifacts dir = %q", got)
 	}
 	if got := projectRunAgentCellOutputPath(nil, "cell-1"); got != "" {
-		t.Fatalf("nil session cell output path = %q", got)
+		t.Fatalf("nil sandbox cell output path = %q", got)
 	}
 	if got := projectRunAgentCellOutputPath(session, " "); got != "" {
 		t.Fatalf("blank cell output path = %q", got)
@@ -1263,7 +1263,7 @@ func TestRunsControllerHelperEdgeWorkflows(t *testing.T) {
 		errs:   map[string]error{"missing": errors.New("missing guide")},
 		target: "cap-proxy.internal:9000",
 	}
-	guideStore := &fakeGuideSessionStore{}
+	guideStore := &fakeGuideSandboxStore{}
 	streams := sessions.NewStreamBrokerForTest()
 	ch, unsubscribe := streams.Subscribe(session.Summary.ID)
 	defer unsubscribe()
@@ -1393,11 +1393,11 @@ func (s fakeProjectSandboxRunStore) ListProjectSandboxRuns(context.Context, doma
 	return s.runs, nil
 }
 
-type fakeSessionStatusStore struct {
+type fakeSandboxStatusStore struct {
 	sessions map[string]*domain.Sandbox
 }
 
-func (s fakeSessionStatusStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
+func (s fakeSandboxStatusStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
 	session, ok := s.sessions[id]
 	if !ok {
 		return nil, os.ErrNotExist
@@ -1668,43 +1668,43 @@ func (p fakeCapabilityProvider) ProxyTarget() string {
 	return p.target
 }
 
-type fakeGuideSessionStore struct {
+type fakeGuideSandboxStore struct {
 	events []domain.SandboxEvent
 }
 
-func (s *fakeGuideSessionStore) CreateSandboxWithOptions(context.Context, string, string, string, string, string, string, *sessionstore.SandboxWorkspace, []sessionstore.SandboxEnvVar, []sessionstore.SandboxTag, sessionstore.CreateSandboxOptions) (*sessionstore.Sandbox, error) {
+func (s *fakeGuideSandboxStore) CreateSandboxWithOptions(context.Context, string, string, string, string, string, string, *sessionstore.SandboxWorkspace, []sessionstore.SandboxEnvVar, []sessionstore.SandboxTag, sessionstore.CreateSandboxOptions) (*sessionstore.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) GetSandbox(context.Context, string) (*sessionstore.Sandbox, error) {
+func (s *fakeGuideSandboxStore) GetSandbox(context.Context, string) (*sessionstore.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) UpdateSandbox(context.Context, *sessionstore.Sandbox) error {
+func (s *fakeGuideSandboxStore) UpdateSandbox(context.Context, *sessionstore.Sandbox) error {
 	return errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) RemoveSandbox(context.Context, string) error {
+func (s *fakeGuideSandboxStore) RemoveSandbox(context.Context, string) error {
 	return errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) AddEvent(_ context.Context, _ string, event sessionstore.SandboxEvent) error {
+func (s *fakeGuideSandboxStore) AddEvent(_ context.Context, _ string, event sessionstore.SandboxEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
 
-func (s *fakeGuideSessionStore) GetVMState(string) (sessionstore.VMState, error) {
+func (s *fakeGuideSandboxStore) GetVMState(string) (sessionstore.VMState, error) {
 	return sessionstore.VMState{}, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) GetProxyState(string) (sessionstore.ProxyState, error) {
+func (s *fakeGuideSandboxStore) GetProxyState(string) (sessionstore.ProxyState, error) {
 	return sessionstore.ProxyState{}, errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) SaveProxyState(string, sessionstore.ProxyState) error {
+func (s *fakeGuideSandboxStore) SaveProxyState(string, sessionstore.ProxyState) error {
 	return errors.New("not implemented")
 }
 
-func (s *fakeGuideSessionStore) AllocateHostPortForJupyter() (int, error) {
+func (s *fakeGuideSandboxStore) AllocateHostPortForJupyter() (int, error) {
 	return 0, errors.New("not implemented")
 }
