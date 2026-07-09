@@ -5,10 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"agent-compose/pkg/capability"
@@ -21,6 +24,7 @@ import (
 	"agent-compose/pkg/llms"
 	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
+	"agent-compose/pkg/runtimecache"
 	"agent-compose/pkg/sessions"
 	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -605,9 +609,28 @@ func TestAPILightweightHandlersCoverageWorkflows(t *testing.T) {
 	if got := ExecEnvMap([]*agentcomposev2.EnvVarSpec{{Name: " FOO ", Value: "bar"}, {Name: " "}}); got["FOO"] != "bar" {
 		t.Fatalf("exec env = %#v", got)
 	}
-	execResult := ExecResultToProto("exec-1", "session-1", "run-1", &agentcomposev2.ExecRequest{Command: &agentcomposev2.ExecCommand{Command: "echo", Args: []string{"hi"}}}, "/workspace", domain.ExecResult{Stdout: "hi", Output: "hi", Success: true}, errors.New("warning"))
+	execResult := ExecResultToProto("exec-1", "sandbox-1", "run-1", &agentcomposev2.ExecRequest{Command: &agentcomposev2.ExecCommand{Command: "echo", Args: []string{"hi"}}}, "/workspace", domain.ExecResult{Stdout: "hi", Output: "hi", Success: true}, errors.New("warning"))
 	if execResult.GetExecId() != "exec-1" || execResult.GetError() == "" {
 		t.Fatalf("exec result = %#v", execResult)
+	}
+	assertV2ProtoJSONSandboxIDOnly(t, ProjectRunSummaryToProto(domain.ProjectRunRecord{RunID: "run-1", SandboxID: "sandbox-1"}))
+	assertV2ProtoJSONSandboxIDOnly(t, execResult)
+	assertV2ProtoJSONSandboxIDOnly(t, RuntimeCacheItemToProto(runtimecache.Item{
+		CacheID:   "cache-1",
+		Domain:    runtimecache.DomainSandboxEphemeralState,
+		SandboxID: "sandbox-1",
+	}))
+}
+
+func assertV2ProtoJSONSandboxIDOnly(t *testing.T, msg proto.Message) {
+	t.Helper()
+	data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal v2 proto JSON: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "sandbox_id") || strings.Contains(text, "session_id") {
+		t.Fatalf("v2 proto JSON sandbox/session shape = %s", text)
 	}
 }
 

@@ -4722,13 +4722,13 @@ func composePSOutputFromProject(ctx context.Context, clients cliServiceClients, 
 	if err != nil {
 		return composePSOutput{}, err
 	}
-	runBySession := latestRunsBySession(runs)
+	runBySandbox := latestRunsBySandbox(runs)
 	sessions, err := listAllSessions(ctx, clients.session)
 	if err != nil {
 		return composePSOutput{}, err
 	}
 	for _, session := range sessions {
-		if !composePSSessionBelongsToProject(session, project, runBySession) {
+		if !composePSSessionBelongsToProject(session, project, runBySandbox) {
 			continue
 		}
 		status := strings.ToLower(strings.TrimSpace(session.GetVmStatus()))
@@ -4738,7 +4738,7 @@ func composePSOutputFromProject(ctx context.Context, clients cliServiceClients, 
 		if statusFilter != nil && !statusFilter[status] {
 			continue
 		}
-		run := runBySession[session.GetSessionId()]
+		run := runBySandbox[session.GetSessionId()]
 		tags := sessionTagsMap(session.GetTags())
 		agent := firstNonEmptyString(run.GetAgentName(), tags["agent"])
 		runID := firstNonEmptyString(run.GetRunId(), tags["run_id"])
@@ -4827,15 +4827,15 @@ func listProjectRuns(ctx context.Context, client agentcomposev2connect.RunServic
 	return result, nil
 }
 
-func latestRunsBySession(runs []*agentcomposev2.RunSummary) map[string]*agentcomposev2.RunSummary {
+func latestRunsBySandbox(runs []*agentcomposev2.RunSummary) map[string]*agentcomposev2.RunSummary {
 	result := map[string]*agentcomposev2.RunSummary{}
 	for _, run := range runs {
-		sessionID := strings.TrimSpace(run.GetSandboxId())
-		if sessionID == "" {
+		sandboxID := strings.TrimSpace(run.GetSandboxId())
+		if sandboxID == "" {
 			continue
 		}
-		if current := result[sessionID]; current == nil || runSortTime(run) > runSortTime(current) {
-			result[sessionID] = run
+		if current := result[sandboxID]; current == nil || runSortTime(run) > runSortTime(current) {
+			result[sandboxID] = run
 		}
 	}
 	return result
@@ -4852,11 +4852,11 @@ func runSummarySandboxID(run *agentcomposev2.RunSummary) string {
 	return strings.TrimSpace(run.GetSandboxId())
 }
 
-func composePSSessionBelongsToProject(session *agentcomposev1.SessionSummary, project *agentcomposev2.Project, runsBySession map[string]*agentcomposev2.RunSummary) bool {
+func composePSSessionBelongsToProject(session *agentcomposev1.SessionSummary, project *agentcomposev2.Project, runsBySandbox map[string]*agentcomposev2.RunSummary) bool {
 	projectID := strings.TrimSpace(project.GetSummary().GetProjectId())
 	projectName := strings.TrimSpace(project.GetSummary().GetName())
 	sourcePath := strings.TrimSpace(project.GetSummary().GetSourcePath())
-	if run := runsBySession[session.GetSessionId()]; run != nil {
+	if run := runsBySandbox[session.GetSessionId()]; run != nil {
 		if strings.TrimSpace(run.GetProjectId()) == projectID {
 			return true
 		}
@@ -4918,15 +4918,15 @@ func firstRunningSessionOutput(ctx context.Context, clients cliServiceClients, p
 	}
 	seen := map[string]struct{}{}
 	for _, run := range resp.Msg.GetRuns() {
-		sessionID := strings.TrimSpace(run.GetSandboxId())
-		if sessionID == "" {
+		sandboxID := strings.TrimSpace(run.GetSandboxId())
+		if sandboxID == "" {
 			continue
 		}
-		if _, ok := seen[sessionID]; ok {
+		if _, ok := seen[sandboxID]; ok {
 			continue
 		}
-		seen[sessionID] = struct{}{}
-		session, err := clients.session.GetSession(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: sessionID}))
+		seen[sandboxID] = struct{}{}
+		session, err := clients.session.GetSession(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: sandboxID}))
 		if err != nil {
 			continue
 		}

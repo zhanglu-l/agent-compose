@@ -69,7 +69,7 @@ func TestIntegrationAPIHandlerRuntimeWorkflows(t *testing.T) {
 	t.Run("domain connect error", TestConnectErrorForDomainClassifiesReusableSentinels)
 	t.Run("image pull inspect and skip", TestImagePullInspectAndSkip)
 	t.Run("kernel and agent unary handlers", TestKernelAndAgentUnaryHandlerWorkflows)
-	t.Run("exec session target", TestExecHandlerSessionTargetWorkflow)
+	t.Run("exec sandbox target", TestExecHandlerSandboxTargetWorkflow)
 	t.Run("exec run selector and stream sender", TestExecHandlerRunSelectorAndStreamSenderWorkflow)
 	t.Run("exec selector errors", TestExecHandlerSelectorErrors)
 	t.Run("project and run store backed handlers", TestProjectAndRunHandlersStoreBackedWorkflows)
@@ -316,7 +316,7 @@ func TestKernelAndAgentUnaryHandlerWorkflows(t *testing.T) {
 	}
 	store.session = &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", VMStatus: domain.VMStatusStopped}}
 	if _, err := kernel.ExecuteCell(ctx, connect.NewRequest(&agentcomposev1.ExecuteCellRequest{SessionId: "session-1"})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("expected stopped session error, got %v", err)
+		t.Fatalf("expected stopped sandbox error, got %v", err)
 	}
 	store.session = session
 
@@ -390,17 +390,17 @@ func newImageHandlerTestClient(t *testing.T, handler *ImageHandler) (agentcompos
 	return agentcomposev2connect.NewImageServiceClient(server.Client(), server.URL), server.Close
 }
 
-func TestExecHandlerSessionTargetWorkflow(t *testing.T) {
+func TestExecHandlerSandboxTargetWorkflow(t *testing.T) {
 	ctx := context.Background()
-	sessionRoot := t.TempDir()
-	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sessionRoot, "workspace")}}
-	store := &apiExecSessionStore{session: session, vm: domain.VMState{Driver: "docker"}}
+	sandboxRoot := t.TempDir()
+	sandbox := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-1", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sandboxRoot, "workspace")}}
+	store := &apiExecSandboxStore{sandbox: sandbox, vm: domain.VMState{Driver: "docker"}}
 	runtime := &apiExecRuntime{}
 	handler := NewExecHandler(&appconfig.Config{}, store, apiExecProjectStore{}, func(*domain.Sandbox) (ExecRuntime, error) {
 		return runtime, nil
 	})
 	resp, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{
-		Target:  &agentcomposev2.ExecRequest_SandboxId{SandboxId: "session-1"},
+		Target:  &agentcomposev2.ExecRequest_SandboxId{SandboxId: "sandbox-1"},
 		Command: &agentcomposev2.ExecCommand{Command: "echo", Args: []string{"hi"}},
 		Env:     []*agentcomposev2.EnvVarSpec{{Name: "FOO", Value: "bar"}, {Name: " "}},
 	}))
@@ -410,7 +410,7 @@ func TestExecHandlerSessionTargetWorkflow(t *testing.T) {
 	if !resp.Msg.GetResult().GetSuccess() || resp.Msg.GetResult().GetStdout() != "hi\n" || runtime.spec.Command != "sh" || !strings.Contains(strings.Join(runtime.spec.Args, " "), "agent-compose-runtime exec") {
 		t.Fatalf("exec resp=%#v spec=%#v", resp.Msg.GetResult(), runtime.spec)
 	}
-	requestFiles, err := filepath.Glob(filepath.Join(sessionRoot, "state", "exec", "*", "command-request.json"))
+	requestFiles, err := filepath.Glob(filepath.Join(sandboxRoot, "state", "exec", "*", "command-request.json"))
 	if err != nil || len(requestFiles) != 1 {
 		t.Fatalf("command request files=%#v err=%v", requestFiles, err)
 	}
@@ -426,24 +426,24 @@ func TestExecHandlerSessionTargetWorkflow(t *testing.T) {
 	if err != nil || string(outputData) != "hi\n" {
 		t.Fatalf("exec output artifact = %q err=%v", string(outputData), err)
 	}
-	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "session-1"}})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "sandbox-1"}})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("expected missing command error, got %v", err)
 	}
-	store.session = &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", VMStatus: domain.VMStatusStopped}}
-	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "session-1"}, Command: &agentcomposev2.ExecCommand{Command: "echo"}})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("expected stopped session error, got %v", err)
+	store.sandbox = &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-1", VMStatus: domain.VMStatusStopped}}
+	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "sandbox-1"}, Command: &agentcomposev2.ExecCommand{Command: "echo"}})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected stopped sandbox error, got %v", err)
 	}
 }
 
 func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 	ctx := context.Background()
-	sessionRoot := t.TempDir()
-	running := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-running", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sessionRoot, "workspace")}}
-	store := &apiExecWorkflowSessionStore{
-		sessions: map[string]*domain.Sandbox{
-			"session-running": running,
-			"session-second":  {Summary: domain.SandboxSummary{ID: "session-second", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sessionRoot, "workspace-2")}},
-			"session-stopped": {Summary: domain.SandboxSummary{ID: "session-stopped", VMStatus: domain.VMStatusStopped}},
+	sandboxRoot := t.TempDir()
+	running := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-running", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sandboxRoot, "workspace")}}
+	store := &apiExecWorkflowSandboxStore{
+		sandboxes: map[string]*domain.Sandbox{
+			"sandbox-running": running,
+			"sandbox-second":  {Summary: domain.SandboxSummary{ID: "sandbox-second", VMStatus: domain.VMStatusRunning, WorkspacePath: filepath.Join(sandboxRoot, "workspace-2")}},
+			"sandbox-stopped": {Summary: domain.SandboxSummary{ID: "sandbox-stopped", VMStatus: domain.VMStatusStopped}},
 		},
 		vm: domain.VMState{Driver: "docker"},
 	}
@@ -453,10 +453,10 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 			{ID: "project-2", Name: "Project", SourcePath: "/repo/two"},
 		},
 		runs: []domain.ProjectRunRecord{
-			{RunID: "run-1", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-running"},
-			{RunID: "run-second", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-second"},
-			{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-stopped"},
-			{RunID: "run-nosession", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
+			{RunID: "run-1", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "sandbox-running"},
+			{RunID: "run-second", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "sandbox-second"},
+			{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "sandbox-stopped"},
+			{RunID: "run-nosandbox", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
 		},
 	}
 	runtime := &apiExecRuntime{}
@@ -478,7 +478,7 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeProjectCommand run target returned error: %v", err)
 	}
-	if resp.GetRunId() != "run-1" || resp.GetSandboxId() != "session-running" || resp.GetCwd() != "/custom" || len(events) < 2 {
+	if resp.GetRunId() != "run-1" || resp.GetSandboxId() != "sandbox-running" || resp.GetCwd() != "/custom" || len(events) < 2 {
 		t.Fatalf("run target resp=%#v events=%#v", resp, events)
 	}
 	if events[0].GetEventType() != agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_STARTED ||
@@ -495,7 +495,7 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 			t.Fatalf("stream event leaked command payload: %#v", event)
 		}
 	}
-	transcript, err := os.ReadFile(filepath.Join(sessionRoot, "state", "exec", "exec-run", "transcript.txt"))
+	transcript, err := os.ReadFile(filepath.Join(sandboxRoot, "state", "exec", "exec-run", "transcript.txt"))
 	if err != nil || !strings.Contains(string(transcript), "hi\n") || strings.Contains(string(transcript), execution.CommandResultPrefix) {
 		t.Fatalf("transcript = %q err=%v", string(transcript), err)
 	}
@@ -514,7 +514,7 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selector command returned error: %v", err)
 	}
-	if selectorResp.GetRunId() != "run-1" || selectorResp.GetSandboxId() != "session-running" {
+	if selectorResp.GetRunId() != "run-1" || selectorResp.GetSandboxId() != "sandbox-running" {
 		t.Fatalf("selector resp = %#v", selectorResp)
 	}
 	projects.runs = nil
@@ -522,23 +522,23 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 		Target:  &agentcomposev2.ExecRequest_Selector{Selector: &agentcomposev2.ExecSandboxSelector{ProjectId: "project-1", AgentName: "worker"}},
 		Command: &agentcomposev2.ExecCommand{Command: "echo"},
 	}, "exec-missing", nil); connect.CodeOf(err) != connect.CodeNotFound {
-		t.Fatalf("expected no running session selector error, got %v", err)
+		t.Fatalf("expected no running sandbox selector error, got %v", err)
 	}
 	projects.runs = []domain.ProjectRunRecord{
-		{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-stopped"},
-		{RunID: "run-nosession", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
+		{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "sandbox-stopped"},
+		{RunID: "run-nosandbox", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
 	}
 	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{
-		Target:  &agentcomposev2.ExecRequest_RunId{RunId: "run-nosession"},
+		Target:  &agentcomposev2.ExecRequest_RunId{RunId: "run-nosandbox"},
 		Command: &agentcomposev2.ExecCommand{Command: "echo"},
 	})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("expected no session run error, got %v", err)
+		t.Fatalf("expected no sandbox run error, got %v", err)
 	}
 	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{
 		Target:  &agentcomposev2.ExecRequest_RunId{RunId: "run-stopped"},
 		Command: &agentcomposev2.ExecCommand{Command: "echo"},
 	})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("expected stopped run session error, got %v", err)
+		t.Fatalf("expected stopped run sandbox error, got %v", err)
 	}
 	if _, err := handler.resolveProjectRef(ctx, &agentcomposev2.ProjectRef{Name: "Project"}); !errors.Is(err, domain.ErrAmbiguous) {
 		t.Fatalf("expected ambiguous project ref error, got %v", err)
@@ -546,7 +546,7 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 }
 
 func TestExecHandlerSelectorErrors(t *testing.T) {
-	handler := NewExecHandler(&appconfig.Config{}, &apiExecSessionStore{}, apiExecProjectStore{err: sql.ErrNoRows}, func(*domain.Sandbox) (ExecRuntime, error) {
+	handler := NewExecHandler(&appconfig.Config{}, &apiExecSandboxStore{}, apiExecProjectStore{err: sql.ErrNoRows}, func(*domain.Sandbox) (ExecRuntime, error) {
 		return &apiExecRuntime{}, nil
 	})
 	if _, err := handler.Exec(context.Background(), connect.NewRequest(&agentcomposev2.ExecRequest{})); connect.CodeOf(err) != connect.CodeInvalidArgument {
@@ -707,23 +707,36 @@ func collectRunLogChunks(t *testing.T, client agentcomposev2connect.RunServiceCl
 }
 
 type apiHandlerSessionStore struct {
-	session *domain.Sandbox
-	cells   []domain.NotebookCell
-	events  []domain.SandboxEvent
+	session       *domain.Sandbox
+	cells         []domain.NotebookCell
+	events        []domain.SandboxEvent
+	getSandboxIDs []string
+	listCellsIDs  []string
+	listEventsIDs []string
 }
 
-func (s *apiHandlerSessionStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
+func (s *apiHandlerSessionStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
+	s.getSandboxIDs = append(s.getSandboxIDs, id)
 	if s.session == nil {
 		return nil, errors.New("missing")
 	}
 	return s.session, nil
 }
 
-func (s *apiHandlerSessionStore) ListCells(context.Context, string) ([]domain.NotebookCell, error) {
+func (s *apiHandlerSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	if s.session == nil {
+		return domain.SandboxListResult{}, errors.New("missing")
+	}
+	return domain.SandboxListResult{Sandboxes: []*domain.Sandbox{s.session}, TotalCount: 1}, nil
+}
+
+func (s *apiHandlerSessionStore) ListCells(_ context.Context, id string) ([]domain.NotebookCell, error) {
+	s.listCellsIDs = append(s.listCellsIDs, id)
 	return s.cells, nil
 }
 
-func (s *apiHandlerSessionStore) ListEvents(context.Context, string) ([]domain.SandboxEvent, error) {
+func (s *apiHandlerSessionStore) ListEvents(_ context.Context, id string) ([]domain.SandboxEvent, error) {
+	s.listEventsIDs = append(s.listEventsIDs, id)
 	return s.events, nil
 }
 
@@ -770,19 +783,19 @@ func (p *apiHandlerPublisher) Publish(event domain.LoaderTopicEvent) bool {
 	return true
 }
 
-type apiExecSessionStore struct {
-	session *domain.Sandbox
+type apiExecSandboxStore struct {
+	sandbox *domain.Sandbox
 	vm      domain.VMState
 }
 
-func (s *apiExecSessionStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
-	if s.session == nil {
+func (s *apiExecSandboxStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
+	if s.sandbox == nil {
 		return nil, sql.ErrNoRows
 	}
-	return s.session, nil
+	return s.sandbox, nil
 }
 
-func (s *apiExecSessionStore) GetVMState(string) (domain.VMState, error) {
+func (s *apiExecSandboxStore) GetVMState(string) (domain.VMState, error) {
 	return s.vm, nil
 }
 
@@ -806,20 +819,20 @@ func (s apiExecProjectStore) ListProjectSandboxRuns(context.Context, domain.Proj
 	return nil, s.err
 }
 
-type apiExecWorkflowSessionStore struct {
-	sessions map[string]*domain.Sandbox
-	vm       domain.VMState
+type apiExecWorkflowSandboxStore struct {
+	sandboxes map[string]*domain.Sandbox
+	vm        domain.VMState
 }
 
-func (s *apiExecWorkflowSessionStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
-	session := s.sessions[id]
-	if session == nil {
+func (s *apiExecWorkflowSandboxStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
+	sandbox := s.sandboxes[id]
+	if sandbox == nil {
 		return nil, sql.ErrNoRows
 	}
-	return session, nil
+	return sandbox, nil
 }
 
-func (s *apiExecWorkflowSessionStore) GetVMState(string) (domain.VMState, error) {
+func (s *apiExecWorkflowSandboxStore) GetVMState(string) (domain.VMState, error) {
 	return s.vm, nil
 }
 

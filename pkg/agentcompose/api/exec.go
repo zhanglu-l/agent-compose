@@ -21,7 +21,7 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-type ExecSessionStore interface {
+type ExecSandboxStore interface {
 	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 	GetVMState(string) (domain.VMState, error)
 }
@@ -41,12 +41,12 @@ type ExecRuntimeResolver func(*domain.Sandbox) (ExecRuntime, error)
 
 type ExecHandler struct {
 	config   *appconfig.Config
-	store    ExecSessionStore
+	store    ExecSandboxStore
 	projects ExecProjectStore
 	runtime  ExecRuntimeResolver
 }
 
-func NewExecHandler(config *appconfig.Config, store ExecSessionStore, projects ExecProjectStore, runtime ExecRuntimeResolver) *ExecHandler {
+func NewExecHandler(config *appconfig.Config, store ExecSandboxStore, projects ExecProjectStore, runtime ExecRuntimeResolver) *ExecHandler {
 	return &ExecHandler{
 		config:   config,
 		store:    store,
@@ -86,7 +86,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	if h.store == nil || h.projects == nil || h.runtime == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("exec runtime dependencies are required"))
 	}
-	session, runID, err := h.resolveExecTargetSession(ctx, req)
+	sandbox, runID, err := h.resolveExecTargetSandbox(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 		if err := send(&agentcomposev2.ExecStreamResponse{
 			EventType: agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_STARTED,
 			ExecId:    execID,
-			SandboxId: session.Summary.ID,
+			SandboxId: sandbox.Summary.ID,
 			RunId:     runID,
 		}); err != nil {
 			return nil, connect.NewError(connect.CodeUnknown, err)
@@ -109,15 +109,15 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	if cwd == "" {
 		cwd = h.config.GuestWorkspacePath
 	}
-	vmState, err := h.store.GetVMState(session.Summary.ID)
+	vmState, err := h.store.GetVMState(sandbox.Summary.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	runtime, err := h.runtime(session)
+	runtime, err := h.runtime(sandbox)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	hostExecDir := filepath.Join(execution.HostSandboxDir(session), "state", "exec", execID)
+	hostExecDir := filepath.Join(execution.HostSandboxDir(sandbox), "state", "exec", execID)
 	if err := os.MkdirAll(hostExecDir, 0o755); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create exec artifact dir: %w", err))
 	}
@@ -156,7 +156,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 			sendErr = send(&agentcomposev2.ExecStreamResponse{
 				EventType:  agentcomposev2.ExecStreamEventType_EXEC_STREAM_EVENT_TYPE_OUTPUT,
 				ExecId:     execID,
-				SandboxId:  session.Summary.ID,
+				SandboxId:  sandbox.Summary.ID,
 				RunId:      runID,
 				Chunk:      filtered.Text,
 				Stream:     StdioStreamToProto(filtered.Stream),
@@ -166,7 +166,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	}
 	execCtx, cancel := execution.ExecContext(ctx, req.GetTimeoutMs())
 	defer cancel()
-	result, execErr := runtime.ExecStream(execCtx, session, vmState, execution.BuildRuntimeCommandExecSpec(h.config, session, filepath.Join(guestExecDir, "command-request.json"), h.config.GuestHomePath), writer)
+	result, execErr := runtime.ExecStream(execCtx, sandbox, vmState, execution.BuildRuntimeCommandExecSpec(h.config, sandbox, filepath.Join(guestExecDir, "command-request.json"), h.config.GuestHomePath), writer)
 	if sendErr != nil {
 		return nil, connect.NewError(connect.CodeUnknown, sendErr)
 	}
@@ -176,7 +176,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = firstNonEmpty(result.Stderr, result.Stdout, execErr.Error())
 		}
-		return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, result, execErr), nil
+		return ExecResultToProto(execID, sandbox.Summary.ID, runID, req, cwd, result, execErr), nil
 	}
 	commandResult, err := execution.ParseCommandExecResult(result)
 	if err != nil {
@@ -185,22 +185,22 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	if err := execution.MirrorRuntimeCommandArtifacts(hostExecDir, commandResult); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, execution.RuntimeCommandResultToExecResult(commandResult), nil), nil
+	return ExecResultToProto(execID, sandbox.Summary.ID, runID, req, cwd, execution.RuntimeCommandResultToExecResult(commandResult), nil), nil
 }
 
-func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentcomposev2.ExecRequest) (*domain.Sandbox, string, error) {
+func (h *ExecHandler) resolveExecTargetSandbox(ctx context.Context, req *agentcomposev2.ExecRequest) (*domain.Sandbox, string, error) {
 	if req == nil {
 		return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("exec request is required"))
 	}
 	if sandboxID := strings.TrimSpace(req.GetSandboxId()); sandboxID != "" {
-		session, err := h.store.GetSandbox(ctx, sandboxID)
+		sandbox, err := h.store.GetSandbox(ctx, sandboxID)
 		if err != nil {
 			return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("sandbox %s not found: %w", sandboxID, err))
 		}
-		if session.Summary.VMStatus != domain.VMStatusRunning {
+		if sandbox.Summary.VMStatus != domain.VMStatusRunning {
 			return nil, "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("sandbox %s is not running", sandboxID))
 		}
-		return session, "", nil
+		return sandbox, "", nil
 	}
 	if runID := strings.TrimSpace(req.GetRunId()); runID != "" {
 		run, err := h.projects.GetProjectRun(ctx, runID)
@@ -210,11 +210,11 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 			}
 			return nil, "", connect.NewError(connect.CodeInternal, err)
 		}
-		session, err := h.sessionForProjectRun(ctx, run)
+		sandbox, err := h.sandboxForProjectRun(ctx, run)
 		if err != nil {
 			return nil, "", err
 		}
-		return session, run.RunID, nil
+		return sandbox, run.RunID, nil
 	}
 	selector := req.GetSelector()
 	if selector == nil {
@@ -241,7 +241,7 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 		return nil, "", connect.NewError(connect.CodeInternal, err)
 	}
 	type candidate struct {
-		session *domain.Sandbox
+		sandbox *domain.Sandbox
 		run     domain.ProjectRunRecord
 	}
 	var candidates []candidate
@@ -249,7 +249,7 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 		if status.Sandbox == nil || status.Sandbox.Summary.VMStatus != domain.VMStatusRunning {
 			continue
 		}
-		candidates = append(candidates, candidate{session: status.Sandbox, run: status.Run})
+		candidates = append(candidates, candidate{sandbox: status.Sandbox, run: status.Run})
 	}
 	contextParts := []string{fmt.Sprintf("project %s", project.Name)}
 	if agentName := strings.TrimSpace(selector.GetAgentName()); agentName != "" {
@@ -257,32 +257,32 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 	}
 	contextText := strings.Join(contextParts, " ")
 	if len(candidates) == 0 {
-		return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("no running session found for %s", contextText))
+		return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("no running sandbox found for %s", contextText))
 	}
 	if len(candidates) > 1 {
 		ids := make([]string, 0, len(candidates))
 		for _, item := range candidates {
-			ids = append(ids, item.session.Summary.ID)
+			ids = append(ids, item.sandbox.Summary.ID)
 		}
 		slices.Sort(ids)
-		return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multiple running sessions found for %s: %s", contextText, strings.Join(ids, ", ")))
+		return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multiple running sandboxes found for %s: %s", contextText, strings.Join(ids, ", ")))
 	}
-	return candidates[0].session, candidates[0].run.RunID, nil
+	return candidates[0].sandbox, candidates[0].run.RunID, nil
 }
 
-func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.ProjectRunRecord) (*domain.Sandbox, error) {
-	sessionID := strings.TrimSpace(run.SandboxID)
-	if sessionID == "" {
+func (h *ExecHandler) sandboxForProjectRun(ctx context.Context, run domain.ProjectRunRecord) (*domain.Sandbox, error) {
+	sandboxID := strings.TrimSpace(run.SandboxID)
+	if sandboxID == "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run %s has no sandbox", run.RunID))
 	}
-	session, err := h.store.GetSandbox(ctx, sessionID)
+	sandbox, err := h.store.GetSandbox(ctx, sandboxID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("sandbox %s for run %s not found: %w", sessionID, run.RunID, err))
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("sandbox %s for run %s not found: %w", sandboxID, run.RunID, err))
 	}
-	if session.Summary.VMStatus != domain.VMStatusRunning {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("sandbox %s for run %s is not running", sessionID, run.RunID))
+	if sandbox.Summary.VMStatus != domain.VMStatusRunning {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("sandbox %s for run %s is not running", sandboxID, run.RunID))
 	}
-	return session, nil
+	return sandbox, nil
 }
 
 func appendExecTranscriptChunk(path string, chunk domain.ExecChunk) error {
@@ -357,14 +357,14 @@ func ExecEnvMap(items []*agentcomposev2.EnvVarSpec) map[string]string {
 	return result
 }
 
-func ExecResultToProto(execID, sessionID, runID string, req *agentcomposev2.ExecRequest, cwd string, result domain.ExecResult, execErr error) *agentcomposev2.ExecResult {
+func ExecResultToProto(execID, sandboxID, runID string, req *agentcomposev2.ExecRequest, cwd string, result domain.ExecResult, execErr error) *agentcomposev2.ExecResult {
 	errorText := ""
 	if execErr != nil {
 		errorText = execErr.Error()
 	}
 	return &agentcomposev2.ExecResult{
 		ExecId:    execID,
-		SandboxId: sessionID,
+		SandboxId: sandboxID,
 		RunId:     runID,
 		Command: &agentcomposev2.ExecCommand{
 			Command: req.GetCommand().GetCommand(),

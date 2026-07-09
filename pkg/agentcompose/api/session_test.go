@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -111,6 +112,40 @@ func TestV1CompatibilityMappingPreservesSessionWireNames(t *testing.T) {
 	}
 	if got := AgentRunToProto(cell).GetAgentSessionId(); got != cell.AgentThreadID {
 		t.Fatalf("v1 agent run agent_thread_id = %q, want %q", got, cell.AgentThreadID)
+	}
+}
+
+func TestV1CompatibilityHandlersMapSessionIDToSandboxStore(t *testing.T) {
+	ctx := context.Background()
+	store := &apiHandlerSessionStore{
+		session: &domain.Sandbox{Summary: domain.SandboxSummary{ID: "v1-session-wire", VMStatus: domain.VMStatusRunning, CreatedAt: time.Now(), UpdatedAt: time.Now()}},
+		cells:   []domain.NotebookCell{{ID: "cell-1", CreatedAt: time.Now()}},
+		events:  []domain.SandboxEvent{{ID: "event-1", CreatedAt: time.Now()}},
+	}
+
+	sessionHandler := &SessionHandler{store: store}
+	if resp, err := sessionHandler.GetSession(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "v1-session-wire"})); err != nil || resp.Msg.GetSession().GetSummary().GetSessionId() != "v1-session-wire" {
+		t.Fatalf("GetSession compatibility resp=%#v err=%v", resp, err)
+	}
+
+	kernelHandler := NewKernelHandler(store, nil, nil)
+	if resp, err := kernelHandler.ListCells(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "v1-session-wire"})); err != nil || resp.Msg.GetSessionId() != "v1-session-wire" {
+		t.Fatalf("ListCells compatibility resp=%#v err=%v", resp, err)
+	}
+
+	agentHandler := NewAgentHandler(store, nil, nil, nil)
+	if resp, err := agentHandler.ListSessionEvents(ctx, connect.NewRequest(&agentcomposev1.SessionIDRequest{SessionId: "v1-session-wire"})); err != nil || resp.Msg.GetSessionId() != "v1-session-wire" {
+		t.Fatalf("ListSessionEvents compatibility resp=%#v err=%v", resp, err)
+	}
+
+	if want := []string{"v1-session-wire"}; !reflect.DeepEqual(store.getSandboxIDs, want) {
+		t.Fatalf("v1 GetSession store ids = %#v, want %#v", store.getSandboxIDs, want)
+	}
+	if want := []string{"v1-session-wire"}; !reflect.DeepEqual(store.listCellsIDs, want) {
+		t.Fatalf("v1 ListCells store ids = %#v, want %#v", store.listCellsIDs, want)
+	}
+	if want := []string{"v1-session-wire"}; !reflect.DeepEqual(store.listEventsIDs, want) {
+		t.Fatalf("v1 ListSessionEvents store ids = %#v, want %#v", store.listEventsIDs, want)
 	}
 }
 

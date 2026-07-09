@@ -288,25 +288,25 @@ func testComposeProjectOutputHelpers(t *testing.T) {
 		t.Fatalf("composePSStatusFilter default filter=%#v err=%v", filter, err)
 	}
 
-	newerRun := &agentcomposev2.RunSummary{RunId: "run-new", ProjectId: "project-1", SandboxId: "session-1", UpdatedAt: "2026-07-02T00:00:00Z"}
-	olderRun := &agentcomposev2.RunSummary{RunId: "run-old", ProjectId: "project-1", SandboxId: "session-1", CreatedAt: "2026-07-01T00:00:00Z"}
-	bySession := latestRunsBySession([]*agentcomposev2.RunSummary{
+	newerRun := &agentcomposev2.RunSummary{RunId: "run-new", ProjectId: "project-1", SandboxId: "sandbox-1", UpdatedAt: "2026-07-02T00:00:00Z"}
+	olderRun := &agentcomposev2.RunSummary{RunId: "run-old", ProjectId: "project-1", SandboxId: "sandbox-1", CreatedAt: "2026-07-01T00:00:00Z"}
+	bySandbox := latestRunsBySandbox([]*agentcomposev2.RunSummary{
 		olderRun,
-		{RunId: "missing-session"},
+		{RunId: "missing-sandbox"},
 		newerRun,
 	})
-	if bySession["session-1"].GetRunId() != "run-new" {
-		t.Fatalf("latestRunsBySession = %#v", bySession)
+	if bySandbox["sandbox-1"].GetRunId() != "run-new" {
+		t.Fatalf("latestRunsBySandbox = %#v", bySandbox)
 	}
 	session := &agentcomposev1.SessionSummary{
-		SessionId:     "session-1",
+		SessionId:     "sandbox-1",
 		TriggerSource: "manual project-1 run",
 		Tags: []*agentcomposev1.SessionTag{
 			{Name: " project_id ", Value: " project-1 "},
 			{Name: "", Value: "ignored"},
 		},
 	}
-	if !composePSSessionBelongsToProject(session, project, bySession) {
+	if !composePSSessionBelongsToProject(session, project, bySandbox) {
 		t.Fatalf("expected session to belong to project")
 	}
 	if tags := sessionTagsMap(session.GetTags()); tags["project_id"] != "project-1" {

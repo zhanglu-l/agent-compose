@@ -4350,7 +4350,7 @@ agents:
 	}
 }
 
-func TestIntegrationCLIExecAmbiguousSessionIsUsageError(t *testing.T) {
+func TestIntegrationCLIExecAmbiguousSandboxIsUsageError(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-exec-ambiguous
 agents:
@@ -4360,7 +4360,7 @@ agents:
 	server := newComposeServiceStubServer(t, composeServiceStubs{
 		exec: execServiceStub{
 			execStream: func(ctx context.Context, req *connect.Request[agentcomposev2.ExecRequest], stream *connect.ServerStream[agentcomposev2.ExecStreamResponse]) error {
-				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multiple running sessions found for project cli-exec-ambiguous agent reviewer"))
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multiple running sandboxes found for project cli-exec-ambiguous agent reviewer"))
 			},
 		},
 	})
@@ -4370,7 +4370,7 @@ agents:
 	if exitCode != exitCodeUsage {
 		t.Fatalf("exec ambiguous exit code = %d, want %d; stderr=%q", exitCode, exitCodeUsage, stderr)
 	}
-	if stdout != "" || !strings.Contains(stderr, "multiple running sessions") {
+	if stdout != "" || !strings.Contains(stderr, "multiple running sandboxes") {
 		t.Fatalf("exec ambiguous stdout/stderr = %q / %q", stdout, stderr)
 	}
 }

@@ -494,16 +494,16 @@
       - subagent 并行尝试因 `agent thread limit reached` 未执行；本任务由主 agent 完成实现、测试和审计。
     - 下一目标：6.2。
 
-- [ ] 6.2 更新 v2 server/client mappings 和 v1 compatibility mapper
+- [x] 6.2 更新 v2 server/client mappings 和 v1 compatibility mapper
   - 依赖：6.1。
   - 工作内容：
     - 更新 v2 Run/Exec/Sandbox/Cache handlers、CLI client、tests 和 mappings，只读取和返回 `sandbox_id`。
     - v2 response 不再填充空 `session_id`。
     - v1 handlers 使用 compatibility mapper：v1 `session_id` -> internal `SandboxID`，v1 `agent_session_id` -> internal `AgentThreadID`。
   - 可并行子任务：
-    - [ ] 可并行：迁移 `pkg/agentcompose/api` v2 handlers/tests。
-    - [ ] 可并行：迁移 `cmd/agent-compose` v2 client 调用点。
-    - [ ] 可并行：补充 v1 compatibility mapping tests。
+    - [x] 可并行：迁移 `pkg/agentcompose/api` v2 handlers/tests。
+    - [x] 可并行：迁移 `cmd/agent-compose` v2 client 调用点。
+    - [x] 可并行：补充 v1 compatibility mapping tests。
   - 测试方案：
     - `go test ./pkg/agentcompose/api ./cmd/agent-compose`
     - 集成测试覆盖 v2 Run/Exec/Sandbox/Cache sandbox 字段和 v1 response 旧字段。
@@ -511,10 +511,26 @@
     - v2 server/client 不再读取 legacy `session_id`。
     - v1 behavior 保持兼容。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成并准备提交。
+    - 变更：
+      - `pkg/agentcompose/api/exec.go` 将 v2 Exec handler 的 store interface、target resolver、run target helper、local变量和 selector 错误文案收敛为 sandbox 命名；v2 Exec response/stream 继续只填充 `sandbox_id`。
+      - `pkg/agentcompose/api/coverage_shape_workflows_test.go` 增加 v2 RunSummary、ExecResult、CacheItem 的 proto JSON shape 断言，要求存在 `sandbox_id` 且不出现 `session_id`。
+      - `pkg/agentcompose/api/session_test.go` 补充 v1 compatibility handler 测试，证明 v1 `session_id` request 会映射到 sandbox store，同时 v1 response 仍保留 `SessionId`/`AgentSessionId` wire 形态。
+      - `cmd/agent-compose/main.go` 将 v2 `RunSummary.sandbox_id` 相关 helper 从 `latestRunsBySession` 收敛为 `latestRunsBySandbox`，并将 v2 CLI ambiguous exec 错误测试改为 sandbox 文案。
+      - 更新相关 API/CLI coverage fixtures，使 v2 Run/Exec 测试数据使用 `sandbox-*` ID；v1 compatibility fixtures 继续保留 `session_id`。
+    - 验证：
+      - `go test ./pkg/agentcompose/api ./cmd/agent-compose`
+      - `task build`
+      - `git diff --check`
+      - `git diff -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect proto/health/v1 proto/health/v1/healthv1connect`
+      - `rg -n "RunSessionCleanupPolicy|ExecSessionSelector|CACHE_DOMAIN_SESSION_EPHEMERAL_STATE|GetSessionId\\(\\)|SessionId:|ExecRequest_SessionId|stop_running_sessions|session_id" proto/agentcompose/v2/agentcompose.proto pkg/agentcompose/api pkg/agentcompose/app pkg/runs cmd/agent-compose -g'*.go' -g'*.proto'`
+      - `rg -n "latestRunsBySession|runBySession|runsBySession|multiple running sessions|no running session|ExecSessionStore|resolveExecTargetSession|sessionForProjectRun|RunSessionCleanupPolicy|ExecSessionSelector|CACHE_DOMAIN_SESSION_EPHEMERAL_STATE|stop_running_sessions" cmd/agent-compose pkg/agentcompose/api pkg/agentcompose/app pkg/runs proto/agentcompose/v2/agentcompose.proto`
+    - 审计与例外：
+      - v1 proto、v1 generated Go、v1 Connect generated code、health proto generated code 均无 diff。
+      - v2 legacy symbol audit 仅命中 `proto/agentcompose/v2/agentcompose.proto` reserved names；`GetSessionId`、`SessionId`、`agent_session_id` 等剩余命中均位于 v1 compatibility handler、v1 CLI bridge 或 v1 compatibility tests。
+      - v2 response shape 通过 proto JSON 测试固定为 `sandbox_id`，不会输出 legacy `session_id`。
+      - `cmd/agent-compose` 仍在 ps/inspect 等兼容桥接路径调用 v1 `SessionService`，这是 v1 compatibility 边界；后续 CLI 内部类型进一步重命名按 9.x 继续。
+      - subagent 并行尝试因 `agent thread limit reached` 未执行；本任务由主 agent 完成实现、测试和审计。
     - 下一目标：7.1。
 
 ## 7. 阶段 7：runtime JS、runtime SDK、agent thread artifact 和 LLM facade
