@@ -123,7 +123,7 @@ func TestLoaderSandboxRunnerResolvesVolumeMounts(t *testing.T) {
 		}},
 	}
 	request := domain.LoaderAgentRequest{
-		SessionPolicy: domain.LoaderSessionPolicyNew,
+		SessionPolicy: domain.LoaderSandboxPolicyNew,
 		Volumes: []domain.VolumeMountSpec{{
 			Type:   domain.VolumeMountTypeVolume,
 			Source: "request-cache",

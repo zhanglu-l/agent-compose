@@ -361,7 +361,7 @@
 
 参考文档：[docs/plan/sandbox-naming-implementation-plan.md](docs/plan/sandbox-naming-implementation-plan.md#阶段-5sqlite-config-storeloadereventllm-facade-schema-收敛)
 
-- [ ] 5.1 迁移 SQLite schema 和相关模型字段
+- [x] 5.1 迁移 SQLite schema 和相关模型字段
   - 依赖：4.1。
   - 工作内容：
     - `loader.session_policy` -> `loader.sandbox_policy`。
@@ -373,20 +373,35 @@
     - 保持 `project_run.sandbox_id`，将模型中的兼容 `SessionID` 字段收敛为 `SandboxID`。
     - 更新 scan、insert、update、query、index、filter、JSON payload。
   - 可并行子任务：
-    - [ ] 可并行：迁移 loader/configstore schema 和 tests。
-    - [ ] 可并行：迁移 topic event schema 和 tests。
-    - [ ] 可并行：迁移 LLM facade token schema/index 和 tests。
-    - [ ] 可并行：迁移 project/run models 和 query filters。
+    - [x] 可并行：迁移 loader/configstore schema 和 tests。
+    - [x] 可并行：迁移 topic event schema 和 tests。
+    - [x] 可并行：迁移 LLM facade token schema/index 和 tests。
+    - [x] 可并行：迁移 project/run models 和 query filters。
   - 测试方案：
     - `go test ./pkg/storage/configstore ./pkg/projects ./pkg/runs ./pkg/loaders ./pkg/events/... ./pkg/llms/...`
   - 验收标准：
     - 新数据库 schema 不再创建运行实例相关的 `session_id` 列或 `event_session_link` 表。
     - loader/event/LLM/project/run 查询仍能按 sandbox/thread 关联。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - SQLite 新 schema 已将 `loader.sandbox_policy`、`loader_binding.sandbox_id`、`loader_event.linked_sandbox_id`、`loader_event.linked_agent_thread_id`、`event_sandbox_link.sandbox_id`、`llm_facade_token.sandbox_id` 和 `idx_llm_facade_token_sandbox` 作为唯一新建命名。
+      - loader、topic event、LLM facade token 的 model、scan、insert、update、query、binding、trace DTO 和相关测试已迁移到 sandbox/thread 命名。
+      - `ProjectRunRecord` 移除 `SessionID` 兼容影子字段，project/run list filter、relation filter、status 聚合和 API/app 映射改用 `SandboxID`。
+      - webhook event trace 响应改为 `sandboxes[].sandbox_id`，新增 `/api/events/:event_id/sandboxes`，旧 `/api/events/:event_id/sessions` 作为兼容别名继续路由到同一处理逻辑。
+      - configstore coverage 增加 schema 断言，验证新列/新表/新索引存在，并验证旧列和 `event_session_link` 不存在。
+    - 验证：
+      - `go test ./pkg/storage/configstore ./pkg/projects ./pkg/runs ./pkg/loaders ./pkg/events/... ./pkg/llms/... ./pkg/agentcompose/api ./pkg/agentcompose/app ./pkg/agentcompose/adapters ./pkg/sessions ./pkg/agentcompose/proxy`
+      - `go test ./pkg/...`
+      - `git diff --check`
+      - `git diff -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect`
+      - `rg -n "session_policy|loader_binding.*session_id|linked_session_id|linked_agent_session_id|event_session_link|llm_facade_token.*session_id|ProjectSessionRelationFilter|ProjectSessionStatus|LoaderSessionPolicy|EventSessionLink|FacadeToken.*SessionID" pkg cmd`
+      - `rg -n "CREATE TABLE IF NOT EXISTS event_session_link|session_id TEXT NOT NULL|linked_session_id TEXT|linked_agent_session_id TEXT|session_policy TEXT|idx_llm_facade_token_session" pkg/storage/configstore`
+    - 审计与例外：
+      - v1 proto、v1 generated Go 和 v1 Connect generated code 无 diff。
+      - 旧 schema 拒绝和 runtimecache 命名未实现，按计划留给 5.2；本任务没有增加自动迁移。
+      - residual `session_policy` 仅保留在 loader deprecated option aliases 和 schema negative assertions 中；runtime LLM `/api/runtime/sessions/:session_id` 仍按 7.3 保留。
+      - `RevokeLLMFacadeTokensForSandbox` 已迁移到 sandbox 命名；session lifecycle 包仍以 sandbox ID 调用该接口。
     - 下一目标：5.2。
 
 - [ ] 5.2 实现旧 SQLite schema 拒绝和 runtimecache 命名收敛

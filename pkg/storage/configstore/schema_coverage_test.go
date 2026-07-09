@@ -213,9 +213,9 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 		t.Fatalf("CreateProjectRun returned error: %v", err)
 	}
 	run.Status = domain.ProjectRunStatusRunning
-	run.SessionID = "session-1"
+	run.SandboxID = "session-1"
 	run.StartedAt = time.Now().UTC()
-	if run, err = store.UpdateProjectRun(ctx, run); err != nil || run.SessionID != "session-1" {
+	if run, err = store.UpdateProjectRun(ctx, run); err != nil || run.SandboxID != "session-1" {
 		t.Fatalf("UpdateProjectRun run=%#v err=%v", run, err)
 	}
 	if _, err := store.UpdateProjectRun(ctx, domain.ProjectRunRecord{RunID: "missing-run", ProjectID: project.ID, ResultJSON: "{}"}); !errors.Is(err, domain.ErrNotFound) {
@@ -233,14 +233,14 @@ func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	if runs, err := store.ListProjectRunsByOptions(ctx, domain.ProjectRunListOptions{Limit: 500, Offset: -1}); err != nil || len(runs) != 1 {
 		t.Fatalf("ListProjectRunsByOptions unfiltered runs=%#v err=%v", runs, err)
 	}
-	if runs, err := store.ListProjectRunsByOptions(ctx, domain.ProjectRunListOptions{ProjectID: project.ID, AgentName: "worker", SessionID: "session-1", SchedulerID: scheduler.SchedulerID, Status: domain.ProjectRunStatusRunning, Source: domain.ProjectRunSourceAPI, Limit: 10}); err != nil || len(runs) != 1 {
+	if runs, err := store.ListProjectRunsByOptions(ctx, domain.ProjectRunListOptions{ProjectID: project.ID, AgentName: "worker", SandboxID: "session-1", SchedulerID: scheduler.SchedulerID, Status: domain.ProjectRunStatusRunning, Source: domain.ProjectRunSourceAPI, Limit: 10}); err != nil || len(runs) != 1 {
 		t.Fatalf("ListProjectRunsByOptions runs=%#v err=%v", runs, err)
 	}
-	if runs, err := store.ListProjectSessionRuns(ctx, domain.ProjectSessionRelationFilter{ProjectID: project.ID, AgentName: "worker", SessionID: "session-1", Statuses: []string{domain.ProjectRunStatusRunning}, Limit: 10}); err != nil || len(runs) != 1 {
-		t.Fatalf("ListProjectSessionRuns runs=%#v err=%v", runs, err)
+	if runs, err := store.ListProjectSandboxRuns(ctx, domain.ProjectSandboxRelationFilter{ProjectID: project.ID, AgentName: "worker", SandboxID: "session-1", Statuses: []string{domain.ProjectRunStatusRunning}, Limit: 10}); err != nil || len(runs) != 1 {
+		t.Fatalf("ListProjectSandboxRuns runs=%#v err=%v", runs, err)
 	}
-	if runs, err := store.ListProjectRunsForSession(ctx, "session-1"); err != nil || len(runs) != 1 {
-		t.Fatalf("ListProjectRunsForSession runs=%#v err=%v", runs, err)
+	if runs, err := store.ListProjectRunsForSandbox(ctx, "session-1"); err != nil || len(runs) != 1 {
+		t.Fatalf("ListProjectRunsForSandbox runs=%#v err=%v", runs, err)
 	}
 	if _, err := store.MarkProjectRemoved(ctx, ""); err == nil {
 		t.Fatalf("MarkProjectRemoved empty project returned nil error")
@@ -435,17 +435,17 @@ func testConfigStoreTopicEventCoverageWorkflows(t *testing.T) {
 	if deliveries, err := store.ListEventDeliveries(ctx, []string{"", event.ID, event.ID}); err != nil || len(deliveries) != 1 {
 		t.Fatalf("ListEventDeliveries deliveries=%#v err=%v", deliveries, err)
 	}
-	if err := store.AddEventSessionLink(ctx, domain.EventSessionLink{EventID: event.ID, SessionID: "session-1", Relation: "created", LoaderID: "loader-1", RunID: "run-1", TriggerID: "trigger-1", LoaderEventID: "loader-event-1"}); err != nil {
-		t.Fatalf("AddEventSessionLink returned error: %v", err)
+	if err := store.AddEventSandboxLink(ctx, domain.EventSandboxLink{EventID: event.ID, SandboxID: "session-1", Relation: "created", LoaderID: "loader-1", RunID: "run-1", TriggerID: "trigger-1", LoaderEventID: "loader-event-1"}); err != nil {
+		t.Fatalf("AddEventSandboxLink returned error: %v", err)
 	}
-	if err := store.AddEventSessionLink(ctx, domain.EventSessionLink{}); err == nil {
-		t.Fatalf("AddEventSessionLink empty link returned nil error")
+	if err := store.AddEventSandboxLink(ctx, domain.EventSandboxLink{}); err == nil {
+		t.Fatalf("AddEventSandboxLink empty link returned nil error")
 	}
-	if links, err := store.ListEventSessionLinks(ctx, []string{event.ID}); err != nil || len(links) != 1 {
-		t.Fatalf("ListEventSessionLinks links=%#v err=%v", links, err)
+	if links, err := store.ListEventSandboxLinks(ctx, []string{event.ID}); err != nil || len(links) != 1 {
+		t.Fatalf("ListEventSandboxLinks links=%#v err=%v", links, err)
 	}
-	if links, err := store.ListEventSessionLinks(ctx, nil); err != nil || len(links) != 0 {
-		t.Fatalf("ListEventSessionLinks empty links=%#v err=%v", links, err)
+	if links, err := store.ListEventSandboxLinks(ctx, nil); err != nil || len(links) != 0 {
+		t.Fatalf("ListEventSandboxLinks empty links=%#v err=%v", links, err)
 	}
 	if deliveries, err := store.ListEventDeliveries(ctx, nil); err != nil || len(deliveries) != 0 {
 		t.Fatalf("ListEventDeliveries empty deliveries=%#v err=%v", deliveries, err)
@@ -491,6 +491,7 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.initSchema(ctx); err != nil {
 		t.Fatalf("initSchema returned error: %v", err)
 	}
+	assertSandboxNamedSQLiteSchema(t, store)
 	if store.DB() == nil {
 		t.Fatalf("DB returned nil")
 	}
@@ -693,10 +694,10 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if err := store.SetLoaderState(ctx, "", "key", `{}`); err == nil {
 		t.Fatalf("SetLoaderState empty loader returned nil error")
 	}
-	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SessionID: "session-1"}); err != nil {
+	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SandboxID: "session-1"}); err != nil {
 		t.Fatalf("UpsertLoaderBinding returned error: %v", err)
 	}
-	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID); err != nil || !found || binding.SessionID != "session-1" {
+	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID); err != nil || !found || binding.SandboxID != "session-1" {
 		t.Fatalf("GetLoaderBinding binding=%#v found=%v err=%v", binding, found, err)
 	}
 	if binding, found, err := store.GetLoaderBinding(ctx, "missing"); err != nil || found || binding.LoaderID != "" {
@@ -726,14 +727,14 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	}
 	rawToken := "raw-token"
 	hash, fingerprint := llms.HashFacadeToken(rawToken)
-	if err := store.SaveLLMFacadeToken(ctx, llms.FacadeToken{SessionID: "session-1", TokenHash: hash, TokenFingerprint: fingerprint, Model: "model-1", ProviderID: "provider-1"}); err != nil {
+	if err := store.SaveLLMFacadeToken(ctx, llms.FacadeToken{SandboxID: "session-1", TokenHash: hash, TokenFingerprint: fingerprint, Model: "model-1", ProviderID: "provider-1"}); err != nil {
 		t.Fatalf("SaveLLMFacadeToken returned error: %v", err)
 	}
-	if token, err := store.GetLLMFacadeToken(ctx, rawToken); err != nil || token.SessionID != "session-1" {
+	if token, err := store.GetLLMFacadeToken(ctx, rawToken); err != nil || token.SandboxID != "session-1" {
 		t.Fatalf("GetLLMFacadeToken token=%#v err=%v", token, err)
 	}
-	if err := store.RevokeLLMFacadeTokensForSession(ctx, "session-1"); err != nil {
-		t.Fatalf("RevokeLLMFacadeTokensForSession returned error: %v", err)
+	if err := store.RevokeLLMFacadeTokensForSandbox(ctx, "session-1"); err != nil {
+		t.Fatalf("RevokeLLMFacadeTokensForSandbox returned error: %v", err)
 	}
 	if err := store.DeleteLLMFacadeToken(ctx, rawToken); err != nil {
 		t.Fatalf("DeleteLLMFacadeToken returned error: %v", err)
@@ -1073,6 +1074,45 @@ func assertTableColumns(t *testing.T, store *ConfigStore, table string, columns 
 		if _, ok := columnTypes[column]; !ok {
 			t.Fatalf("table %s missing column %s; columns=%v", table, column, columnTypes)
 		}
+	}
+}
+
+func assertSandboxNamedSQLiteSchema(t *testing.T, store *ConfigStore) {
+	t.Helper()
+	assertTableColumns(t, store, "loader", "sandbox_policy")
+	assertTableMissingColumns(t, store, "loader", "session_policy")
+	assertTableColumns(t, store, "loader_binding", "sandbox_id")
+	assertTableMissingColumns(t, store, "loader_binding", "session_id")
+	assertTableColumns(t, store, "loader_event", "linked_sandbox_id", "linked_agent_thread_id")
+	assertTableMissingColumns(t, store, "loader_event", "linked_session_id", "linked_agent_session_id")
+	assertTableColumns(t, store, "event_sandbox_link", "sandbox_id")
+	assertTableDoesNotExist(t, store, "event_session_link")
+	assertTableColumns(t, store, "llm_facade_token", "sandbox_id")
+	assertTableMissingColumns(t, store, "llm_facade_token", "session_id")
+	assertSQLiteIndexExists(t, store.db, "idx_llm_facade_token_sandbox")
+}
+
+func assertTableMissingColumns(t *testing.T, store *ConfigStore, table string, columns ...string) {
+	t.Helper()
+	columnTypes, err := store.tableColumnTypes(context.Background(), table)
+	if err != nil {
+		t.Fatalf("tableColumnTypes(%s) returned error: %v", table, err)
+	}
+	for _, column := range columns {
+		if _, ok := columnTypes[column]; ok {
+			t.Fatalf("table %s unexpectedly has column %s; columns=%v", table, column, columnTypes)
+		}
+	}
+}
+
+func assertTableDoesNotExist(t *testing.T, store *ConfigStore, table string) {
+	t.Helper()
+	columnTypes, err := store.tableColumnTypes(context.Background(), table)
+	if err != nil {
+		t.Fatalf("tableColumnTypes(%s) returned error: %v", table, err)
+	}
+	if len(columnTypes) != 0 {
+		t.Fatalf("table %s unexpectedly exists; columns=%v", table, columnTypes)
 	}
 }
 

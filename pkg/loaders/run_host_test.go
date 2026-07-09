@@ -324,7 +324,7 @@ func TestRuntimeHostLogPublishEventAndState(t *testing.T) {
 type hostStoreFake struct {
 	events []domain.TopicEventRecord
 	state  map[string]string
-	links  []domain.EventSessionLink
+	links  []domain.EventSandboxLink
 }
 
 func (s *hostStoreFake) CreateEvent(_ context.Context, event domain.TopicEventRecord) (domain.TopicEventRecord, error) {
@@ -361,14 +361,14 @@ func (s *hostStoreFake) DeleteLoaderState(_ context.Context, _, key string) erro
 	return nil
 }
 
-func (s *hostStoreFake) AddEventSessionLink(_ context.Context, link domain.EventSessionLink) error {
+func (s *hostStoreFake) AddEventSandboxLink(_ context.Context, link domain.EventSandboxLink) error {
 	s.links = append(s.links, link)
 	return nil
 }
 
 func (s *hostStoreFake) containsLink(sessionID, relation string) bool {
 	for _, link := range s.links {
-		if link.SessionID == sessionID && link.Relation == relation {
+		if link.SandboxID == sessionID && link.Relation == relation {
 			return true
 		}
 	}
@@ -393,7 +393,7 @@ func (e *hostEventsFake) AddRecord(_ context.Context, loaderID, runID, triggerID
 		Type:                eventType,
 		Level:               level,
 		Message:             message,
-		LinkedSessionID:     linkedSessionID,
+		LinkedSandboxID:     linkedSessionID,
 		LinkedCellID:        linkedCellID,
 		LinkedAgentThreadID: linkedAgentThreadID,
 		CreatedAt:           time.Now().UTC(),

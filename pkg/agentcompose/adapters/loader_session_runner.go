@@ -85,21 +85,21 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if err != nil {
 		return nil, "", err
 	}
-	effectivePolicy := domain.NormalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
+	effectivePolicy := domain.NormalizeLoaderSandboxPolicy(loader.Summary.SandboxPolicy)
 	if strings.TrimSpace(request.SessionPolicy) != "" {
-		effectivePolicy = domain.NormalizeLoaderSessionPolicy(request.SessionPolicy)
+		effectivePolicy = domain.NormalizeLoaderSandboxPolicy(request.SessionPolicy)
 	}
 	hasOverrides := loaders.AgentRequestOverridesSession(request, titleOverridesSession)
-	forceNew := effectivePolicy == domain.LoaderSessionPolicyNew || hasOverrides
+	forceNew := effectivePolicy == domain.LoaderSandboxPolicyNew || hasOverrides
 	if !forceNew {
 		if binding, ok, err := r.ConfigDB.GetLoaderBinding(ctx, loader.Summary.ID); err != nil {
 			return nil, "", err
 		} else if ok {
-			session, eventType, err := r.LoadOrResume(ctx, binding.SessionID)
+			session, eventType, err := r.LoadOrResume(ctx, binding.SandboxID)
 			if err == nil {
 				return session, eventType, nil
 			}
-			slog.Warn("failed to reuse loader sticky sandbox, creating a new one", "loader_id", loader.Summary.ID, "sandbox_id", binding.SessionID, "error", err)
+			slog.Warn("failed to reuse loader sticky sandbox, creating a new one", "loader_id", loader.Summary.ID, "sandbox_id", binding.SandboxID, "error", err)
 		}
 	}
 
@@ -175,8 +175,8 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
 	}
-	if effectivePolicy == domain.LoaderSessionPolicySticky {
-		_ = r.ConfigDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SessionID: session.Summary.ID})
+	if effectivePolicy == domain.LoaderSandboxPolicySticky {
+		_ = r.ConfigDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, SandboxID: session.Summary.ID})
 	}
 	loaded, err := r.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {

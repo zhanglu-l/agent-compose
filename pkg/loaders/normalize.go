@@ -51,7 +51,7 @@ func NormalizeLoader(item domain.Loader, assignID bool) (domain.Loader, error) {
 	if item.Summary.DefaultAgent == "" {
 		item.Summary.DefaultAgent = "codex"
 	}
-	item.Summary.SessionPolicy = domain.NormalizeLoaderSessionPolicy(item.Summary.SessionPolicy)
+	item.Summary.SandboxPolicy = domain.NormalizeLoaderSandboxPolicy(item.Summary.SandboxPolicy)
 	item.Summary.ConcurrencyPolicy = domain.NormalizeLoaderConcurrencyPolicy(item.Summary.ConcurrencyPolicy)
 	item.Summary.CapsetIDs = capabilities.NormalizeCapsetIDs(item.Summary.CapsetIDs)
 	item.Summary.ManagedProjectID = strings.TrimSpace(item.Summary.ManagedProjectID)

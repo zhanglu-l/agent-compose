@@ -28,7 +28,6 @@ type TransitionRequest struct {
 	RunID        string
 	Status       string
 	SandboxID    string
-	SessionID    string
 	ExitCode     int
 	Error        string
 	Output       string
@@ -228,13 +227,8 @@ func (c *Coordinator) nowUTC() time.Time {
 }
 
 func applyProjectRunTransitionFields(run *domain.ProjectRunRecord, req TransitionRequest) {
-	sandboxID := strings.TrimSpace(req.SandboxID)
-	if sandboxID == "" {
-		sandboxID = strings.TrimSpace(req.SessionID)
-	}
-	if sandboxID != "" {
+	if sandboxID := strings.TrimSpace(req.SandboxID); sandboxID != "" {
 		run.SandboxID = sandboxID
-		run.SessionID = sandboxID
 	}
 	if req.ExitCode != 0 {
 		run.ExitCode = req.ExitCode

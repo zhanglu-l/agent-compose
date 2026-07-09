@@ -453,9 +453,9 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 			{ID: "project-2", Name: "Project", SourcePath: "/repo/two"},
 		},
 		runs: []domain.ProjectRunRecord{
-			{RunID: "run-1", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SessionID: "session-running"},
-			{RunID: "run-second", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SessionID: "session-second"},
-			{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SessionID: "session-stopped"},
+			{RunID: "run-1", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-running"},
+			{RunID: "run-second", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-second"},
+			{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-stopped"},
 			{RunID: "run-nosession", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
 		},
 	}
@@ -525,7 +525,7 @@ func TestExecHandlerRunSelectorAndStreamSenderWorkflow(t *testing.T) {
 		t.Fatalf("expected no running session selector error, got %v", err)
 	}
 	projects.runs = []domain.ProjectRunRecord{
-		{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SessionID: "session-stopped"},
+		{RunID: "run-stopped", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", SandboxID: "session-stopped"},
 		{RunID: "run-nosession", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker"},
 	}
 	if _, err := handler.Exec(ctx, connect.NewRequest(&agentcomposev2.ExecRequest{
@@ -802,7 +802,7 @@ func (s apiExecProjectStore) ListProjects(context.Context, domain.ProjectListOpt
 	return domain.ProjectListResult{}, s.err
 }
 
-func (s apiExecProjectStore) ListProjectSessionRuns(context.Context, domain.ProjectSessionRelationFilter) ([]domain.ProjectRunRecord, error) {
+func (s apiExecProjectStore) ListProjectSandboxRuns(context.Context, domain.ProjectSandboxRelationFilter) ([]domain.ProjectRunRecord, error) {
 	return nil, s.err
 }
 
@@ -856,7 +856,7 @@ func (s *apiExecWorkflowProjectStore) ListProjects(_ context.Context, options do
 	return domain.ProjectListResult{Projects: projects, TotalCount: len(projects)}, nil
 }
 
-func (s *apiExecWorkflowProjectStore) ListProjectSessionRuns(_ context.Context, filter domain.ProjectSessionRelationFilter) ([]domain.ProjectRunRecord, error) {
+func (s *apiExecWorkflowProjectStore) ListProjectSandboxRuns(_ context.Context, filter domain.ProjectSandboxRelationFilter) ([]domain.ProjectRunRecord, error) {
 	var runs []domain.ProjectRunRecord
 	for _, run := range s.runs {
 		if filter.ProjectID != "" && run.ProjectID != filter.ProjectID {

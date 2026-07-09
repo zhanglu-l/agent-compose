@@ -132,7 +132,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		Summary: domain.LoaderSummary{
 			ID: "loader-1", Name: "Loader", Enabled: true, Runtime: domain.LoaderRuntimeScheduler,
 			WorkspaceID: "workspace-1", AgentID: "agent-1", Driver: "boxlite", GuestImage: "guest:latest",
-			DefaultAgent: "codex", SessionPolicy: domain.LoaderSessionPolicyNew, ConcurrencyPolicy: domain.LoaderConcurrencyPolicySkip,
+			DefaultAgent: "codex", SandboxPolicy: domain.LoaderSandboxPolicyNew, ConcurrencyPolicy: domain.LoaderConcurrencyPolicySkip,
 			CapsetIDs: []string{"dev"}, CreatedAt: now, UpdatedAt: now, LatestRunAt: now, TriggerCount: 1, RunCount: 1, EventCount: 1,
 		},
 		Script:   "function main(){}",
@@ -156,7 +156,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		t.Fatalf("maybe time mapping failed")
 	}
 
-	projectRun := domain.ProjectRunRecord{RunID: "run-1", ProjectID: "project-1", ProjectName: "project", ProjectRevision: 2, ManagedAgentID: "agent-1", AgentName: "Agent", Source: domain.ProjectRunSourceAPI, Status: domain.ProjectRunStatusSucceeded, SessionID: "session-1", ExitCode: 0, CreatedAt: now, UpdatedAt: now, StartedAt: now, CompletedAt: now}
+	projectRun := domain.ProjectRunRecord{RunID: "run-1", ProjectID: "project-1", ProjectName: "project", ProjectRevision: 2, ManagedAgentID: "agent-1", AgentName: "Agent", Source: domain.ProjectRunSourceAPI, Status: domain.ProjectRunStatusSucceeded, SandboxID: "session-1", ExitCode: 0, CreatedAt: now, UpdatedAt: now, StartedAt: now, CompletedAt: now}
 	if ProjectRunDetailToProto(projectRun).GetSummary().GetRunId() != "run-1" {
 		t.Fatalf("project run detail mapping failed")
 	}

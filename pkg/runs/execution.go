@@ -18,7 +18,7 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sandbo
 		Output:   cell.Output,
 	}
 	if session != nil {
-		req.SessionID = session.Summary.ID
+		req.SandboxID = session.Summary.ID
 	}
 	if session != nil && cell.ID != "" {
 		artifactsDir := filepath.Join(execution.HostSandboxDir(session), "state", "cells", cell.ID)
@@ -26,7 +26,7 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sandbo
 		req.LogsPath = filepath.Join(artifactsDir, "output.txt")
 	}
 	resultJSON, err := json.Marshal(map[string]any{
-		"sandboxId":     req.SessionID,
+		"sandboxId":     req.SandboxID,
 		"cellId":        cell.ID,
 		"agent":         cell.Agent,
 		"agentThreadId": cell.AgentThreadID,

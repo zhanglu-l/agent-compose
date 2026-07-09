@@ -60,7 +60,7 @@ func TestEnsureSessionLLMFacadeConfigCreatesCodexEnvAndToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
 	}
-	if token.SessionID != session.Summary.ID || token.Model != "gpt-test" || token.Source != "test" || token.RunID != "run-1" {
+	if token.SandboxID != session.Summary.ID || token.Model != "gpt-test" || token.Source != "test" || token.RunID != "run-1" {
 		t.Fatalf("stored token = %#v", token)
 	}
 }

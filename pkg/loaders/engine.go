@@ -992,7 +992,7 @@ func parseLoaderAgentRequest(args []*qjs.Value) (domain.LoaderAgentRequest, erro
 		return domain.LoaderAgentRequest{}, fmt.Errorf("decode scheduler.agent options: %w", err)
 	}
 	request.Agent = normalizeAgentKind(loaderStringOption(options, "agent"))
-	request.SessionPolicy = normalizeLoaderSessionPolicy(loaderStringOption(options, "sessionPolicy", "session_policy"))
+	request.SessionPolicy = normalizeLoaderSandboxPolicy(loaderStringOption(options, "sessionPolicy", "session_policy"))
 	request.Timeout, err = loaderDurationOption(options, "timeout", "agentTimeout", "agent_timeout")
 	if err != nil {
 		return domain.LoaderAgentRequest{}, fmt.Errorf("decode scheduler.agent timeout: %w", err)
@@ -1151,7 +1151,7 @@ func loaderCommandRequestFromOptions(options map[string]any, apiName string) (do
 	var err error
 	request := domain.LoaderCommandRequest{
 		Cwd:            loaderStringOption(options, "cwd"),
-		SessionPolicy:  normalizeLoaderSessionPolicy(loaderStringOption(options, "sessionPolicy", "session_policy")),
+		SessionPolicy:  normalizeLoaderSandboxPolicy(loaderStringOption(options, "sessionPolicy", "session_policy")),
 		Title:          loaderStringOption(options, "title"),
 		Driver:         loaderStringOption(options, "driver"),
 		GuestImage:     loaderStringOption(options, "guestImage", "guest_image"),

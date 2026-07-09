@@ -19,7 +19,7 @@ type HostStore interface {
 	GetLoaderState(ctx context.Context, loaderID, key string) (string, bool, error)
 	SetLoaderState(ctx context.Context, loaderID, key, valueJSON string) error
 	DeleteLoaderState(ctx context.Context, loaderID, key string) error
-	AddEventSessionLink(ctx context.Context, link domain.EventSessionLink) error
+	AddEventSandboxLink(ctx context.Context, link domain.EventSandboxLink) error
 }
 
 type HostEventRecorder interface {
@@ -165,11 +165,11 @@ func (h *RuntimeHost) CallSessionRPC(ctx context.Context, method, requestJSON st
 	linkedSessionID := h.linkedSessionID(method, requestJSON, responseJSON)
 	if err != nil {
 		event, _ := h.addLoaderEventRecord(ctx, "loader.session.rpc.failed", "error", firstHostNonEmpty(err.Error(), fmt.Sprintf("%s failed", method)), map[string]any{"method": method, "requestJson": requestJSON}, linkedSessionID, "", "")
-		h.addEventSessionLink(ctx, event, linkedSessionID, "session_rpc_failed")
+		h.addEventSandboxLink(ctx, event, linkedSessionID, "session_rpc_failed")
 		return "", err
 	}
 	event, _ := h.addLoaderEventRecord(ctx, "loader.session.rpc.completed", "info", fmt.Sprintf("%s completed", method), map[string]any{"method": method, "requestJson": requestJSON, "responseJson": responseJSON}, linkedSessionID, "", "")
-	h.addEventSessionLink(ctx, event, linkedSessionID, "session_rpc_completed")
+	h.addEventSandboxLink(ctx, event, linkedSessionID, "session_rpc_completed")
 	return responseJSON, nil
 }
 
@@ -411,17 +411,17 @@ func (h *RuntimeHost) addLinkedLoaderEvent(ctx context.Context, eventType, level
 	if err != nil {
 		return err
 	}
-	h.addEventSessionLink(ctx, event, linkedSessionID, event.Type)
+	h.addEventSandboxLink(ctx, event, linkedSessionID, event.Type)
 	return nil
 }
 
-func (h *RuntimeHost) addEventSessionLink(ctx context.Context, event domain.LoaderEvent, sessionID, relation string) {
+func (h *RuntimeHost) addEventSandboxLink(ctx context.Context, event domain.LoaderEvent, sessionID, relation string) {
 	if h.deps.Store == nil || strings.TrimSpace(sessionID) == "" || h.triggerEvent.EventID == "" {
 		return
 	}
-	if err := h.deps.Store.AddEventSessionLink(ctx, domain.EventSessionLink{
+	if err := h.deps.Store.AddEventSandboxLink(ctx, domain.EventSandboxLink{
 		EventID:       h.triggerEvent.EventID,
-		SessionID:     sessionID,
+		SandboxID:     sessionID,
 		Relation:      relation,
 		LoaderID:      h.loader.Summary.ID,
 		RunID:         h.run.ID,

@@ -30,7 +30,7 @@ type ExecProjectStore interface {
 	GetProject(context.Context, string) (domain.ProjectRecord, error)
 	GetProjectRun(context.Context, string) (domain.ProjectRunRecord, error)
 	ListProjects(context.Context, domain.ProjectListOptions) (domain.ProjectListResult, error)
-	ListProjectSessionRuns(context.Context, domain.ProjectSessionRelationFilter) ([]domain.ProjectRunRecord, error)
+	ListProjectSandboxRuns(context.Context, domain.ProjectSandboxRelationFilter) ([]domain.ProjectRunRecord, error)
 }
 
 type ExecRuntime interface {
@@ -233,7 +233,7 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 		}
 		return nil, "", connect.NewError(connect.CodeInternal, err)
 	}
-	statuses, err := runs.ListProjectSessionStatuses(ctx, h.projects, h.store, domain.ProjectSessionRelationFilter{
+	statuses, err := runs.ListProjectSandboxStatuses(ctx, h.projects, h.store, domain.ProjectSandboxRelationFilter{
 		ProjectID: project.ID,
 		AgentName: selector.GetAgentName(),
 	})
@@ -272,9 +272,6 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 
 func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.ProjectRunRecord) (*domain.Sandbox, error) {
 	sessionID := strings.TrimSpace(run.SandboxID)
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(run.SessionID)
-	}
 	if sessionID == "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run %s has no sandbox", run.RunID))
 	}

@@ -33,7 +33,7 @@ type RuntimeLivenessProvider interface {
 }
 
 type FacadeTokenRevoker interface {
-	RevokeLLMFacadeTokensForSession(context.Context, string) error
+	RevokeLLMFacadeTokensForSandbox(context.Context, string) error
 }
 
 type LifecycleNotifier interface {
@@ -99,7 +99,7 @@ func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Sa
 		return nil, err
 	}
 	if l.TokenRevoker != nil {
-		_ = l.TokenRevoker.RevokeLLMFacadeTokensForSession(ctx, session.Summary.ID)
+		_ = l.TokenRevoker.RevokeLLMFacadeTokensForSandbox(ctx, session.Summary.ID)
 	}
 	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),

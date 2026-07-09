@@ -17,9 +17,9 @@ const (
 	LoaderTriggerKindTimeout  = "timeout"
 	LoaderTriggerKindCron     = "cron"
 
-	LoaderSessionPolicySticky = "sticky"
-	LoaderSessionPolicyNew    = "new"
-	LoaderSessionPolicyReuse  = "reuse"
+	LoaderSandboxPolicySticky = "sticky"
+	LoaderSandboxPolicyNew    = "new"
+	LoaderSandboxPolicyReuse  = "reuse"
 
 	LoaderConcurrencyPolicySkip     = "skip"
 	LoaderConcurrencyPolicyParallel = "parallel"
@@ -41,7 +41,7 @@ type LoaderSummary struct {
 	Driver             string    `json:"driver,omitempty"`
 	GuestImage         string    `json:"guest_image,omitempty"`
 	DefaultAgent       string    `json:"default_agent,omitempty"`
-	SessionPolicy      string    `json:"session_policy,omitempty"`
+	SandboxPolicy      string    `json:"sandbox_policy,omitempty"`
 	ConcurrencyPolicy  string    `json:"concurrency_policy,omitempty"`
 	CapsetIDs          []string  `json:"capset_ids,omitempty"`
 	ManagedProjectID   string    `json:"managed_project_id,omitempty"`
@@ -104,7 +104,7 @@ type LoaderEvent struct {
 	Level               string    `json:"level"`
 	Message             string    `json:"message"`
 	PayloadJSON         string    `json:"payload_json,omitempty"`
-	LinkedSessionID     string    `json:"linked_session_id,omitempty"`
+	LinkedSandboxID     string    `json:"linked_sandbox_id,omitempty"`
 	LinkedCellID        string    `json:"linked_cell_id,omitempty"`
 	LinkedAgentThreadID string    `json:"linked_agent_thread_id,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
@@ -112,7 +112,7 @@ type LoaderEvent struct {
 
 type LoaderBinding struct {
 	LoaderID  string    `json:"loader_id"`
-	SessionID string    `json:"session_id"`
+	SandboxID string    `json:"sandbox_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -230,14 +230,14 @@ func NormalizeLoaderTriggerKind(kind string) (string, error) {
 	}
 }
 
-func NormalizeLoaderSessionPolicy(policy string) string {
+func NormalizeLoaderSandboxPolicy(policy string) string {
 	switch strings.ToLower(strings.TrimSpace(policy)) {
-	case "", LoaderSessionPolicySticky, LoaderSessionPolicyReuse:
-		return LoaderSessionPolicySticky
-	case LoaderSessionPolicyNew:
-		return LoaderSessionPolicyNew
+	case "", LoaderSandboxPolicySticky, LoaderSandboxPolicyReuse:
+		return LoaderSandboxPolicySticky
+	case LoaderSandboxPolicyNew:
+		return LoaderSandboxPolicyNew
 	default:
-		return LoaderSessionPolicySticky
+		return LoaderSandboxPolicySticky
 	}
 }
 

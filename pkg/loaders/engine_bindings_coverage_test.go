@@ -173,10 +173,10 @@ function main(payload) {
 	if host.agentCalls[0].Driver != driverpkg.RuntimeDriverMicrosandbox || host.commandCalls[0].Mode != "exec" || host.commandCalls[1].Mode != "shell" {
 		t.Fatalf("unexpected request mappings: agent=%#v commands=%#v", host.agentCalls[0], host.commandCalls)
 	}
-	if host.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SandboxEnvMap(host.agentCalls[0].SessionEnv)["REQUEST_ONLY"] != "request" {
+	if host.agentCalls[0].SessionPolicy != domain.LoaderSandboxPolicyNew || domain.SandboxEnvMap(host.agentCalls[0].SessionEnv)["REQUEST_ONLY"] != "request" {
 		t.Fatalf("deprecated scheduler.agent session aliases mapped to %#v", host.agentCalls[0])
 	}
-	if host.commandCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew {
+	if host.commandCalls[0].SessionPolicy != domain.LoaderSandboxPolicyNew {
 		t.Fatalf("deprecated scheduler.exec sessionPolicy alias mapped to %#v", host.commandCalls[0])
 	}
 	if len(host.agentCalls[0].Volumes) != 2 ||
@@ -227,10 +227,10 @@ function main() {
 	if err != nil {
 		t.Fatalf("deprecated alias characterization execute returned error: %v", err)
 	}
-	if len(aliasHost.agentCalls) != 1 || aliasHost.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SandboxEnvMap(aliasHost.agentCalls[0].SessionEnv)["FROM_SNAKE"] != "yes" {
+	if len(aliasHost.agentCalls) != 1 || aliasHost.agentCalls[0].SessionPolicy != domain.LoaderSandboxPolicyNew || domain.SandboxEnvMap(aliasHost.agentCalls[0].SessionEnv)["FROM_SNAKE"] != "yes" {
 		t.Fatalf("scheduler.agent deprecated alias mapping = %#v", aliasHost.agentCalls)
 	}
-	if len(aliasHost.commandCalls) != 1 || aliasHost.commandCalls[0].SessionPolicy != domain.LoaderSessionPolicySticky || domain.SandboxEnvMap(aliasHost.commandCalls[0].SessionEnv)["FROM_CAMEL"] != "yes" {
+	if len(aliasHost.commandCalls) != 1 || aliasHost.commandCalls[0].SessionPolicy != domain.LoaderSandboxPolicySticky || domain.SandboxEnvMap(aliasHost.commandCalls[0].SessionEnv)["FROM_CAMEL"] != "yes" {
 		t.Fatalf("scheduler.exec deprecated alias mapping = %#v", aliasHost.commandCalls)
 	}
 

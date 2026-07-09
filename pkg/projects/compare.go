@@ -107,7 +107,7 @@ func ManagedLoaderUnchanged(existing, current domain.Loader) bool {
 		existing.Summary.Driver == current.Summary.Driver &&
 		existing.Summary.GuestImage == current.Summary.GuestImage &&
 		existing.Summary.DefaultAgent == current.Summary.DefaultAgent &&
-		existing.Summary.SessionPolicy == current.Summary.SessionPolicy &&
+		existing.Summary.SandboxPolicy == current.Summary.SandboxPolicy &&
 		existing.Summary.ConcurrencyPolicy == current.Summary.ConcurrencyPolicy &&
 		existing.Summary.ManagedProjectID == current.Summary.ManagedProjectID &&
 		existing.Summary.ManagedRevision == current.Summary.ManagedRevision &&

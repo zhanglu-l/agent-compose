@@ -109,7 +109,7 @@ func (d *SandboxDriver) StopSandboxVM(ctx context.Context, session *domain.Sandb
 		vmState.BoxID = ""
 	}
 	if d.ConfigDB != nil {
-		if err := d.ConfigDB.RevokeLLMFacadeTokensForSession(ctx, session.Summary.ID); err != nil {
+		if err := d.ConfigDB.RevokeLLMFacadeTokensForSandbox(ctx, session.Summary.ID); err != nil {
 			return err
 		}
 	}

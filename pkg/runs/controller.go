@@ -152,7 +152,6 @@ type RunAgentRequest struct {
 	Env              []*agentcomposev2.EnvVarSpec
 	SandboxID        string
 	Volumes          []domain.VolumeMountSpec
-	SessionID        string
 	Driver           string
 	OutputSchemaJSON string
 	CleanupPolicy    agentcomposev2.RunSessionCleanupPolicy
@@ -186,13 +185,11 @@ func (c *Controller) StartProjectRun(ctx context.Context, req RunAgentRequest) (
 	if commandText != "" && (strings.TrimSpace(req.Prompt) != "" || strings.TrimSpace(req.TriggerID) != "") {
 		return StartedProjectRun{}, fmt.Errorf("%w: run requires only one of command, prompt, or trigger", ErrInvalidRequest)
 	}
-	if strings.TrimSpace(req.SessionID) == "" {
-		req.SessionID = strings.TrimSpace(req.SandboxID)
-	}
-	if strings.TrimSpace(req.SessionID) != "" && strings.TrimSpace(req.Driver) != "" {
+	req.SandboxID = strings.TrimSpace(req.SandboxID)
+	if req.SandboxID != "" && strings.TrimSpace(req.Driver) != "" {
 		return StartedProjectRun{}, fmt.Errorf("%w: run driver cannot be combined with an existing sandbox", ErrInvalidRequest)
 	}
-	if strings.TrimSpace(req.SessionID) != "" && len(req.Volumes) > 0 {
+	if req.SandboxID != "" && len(req.Volumes) > 0 {
 		return StartedProjectRun{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
 	}
 	resolved, err := c.resolveTriggerForManualRun(ctx, req)
@@ -256,7 +253,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 			Error: fmt.Sprintf("session start failed: %v", err),
 		}
 		if sessionResult.Session != nil {
-			transition.SessionID = sessionResult.Session.Summary.ID
+			transition.SandboxID = sessionResult.Session.Summary.ID
 		}
 		run, markErr := markProjectRunTerminalError(transitionCtx, coordinator, transition, err)
 		if markErr != nil {
@@ -270,7 +267,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 	if err := ctx.Err(); err != nil {
 		run, markErr := coordinator.MarkCanceled(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SessionID: sessionResult.Session.Summary.ID,
+			SandboxID: sessionResult.Session.Summary.ID,
 			Error:     err.Error(),
 		})
 		if markErr != nil {
@@ -313,7 +310,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 	if err != nil {
 		run, markErr := coordinator.MarkFailed(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SessionID: sessionResult.Session.Summary.ID,
+			SandboxID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
 			Error:     fmt.Sprintf("agent execution failed: %v", err),
 		})
@@ -328,7 +325,7 @@ func (c *Controller) executeStartedProjectRun(ctx context.Context, coordinator *
 		err = fmt.Errorf("executor is required")
 		run, markErr := coordinator.MarkFailed(transitionCtx, TransitionRequest{
 			RunID:     run.RunID,
-			SessionID: sessionResult.Session.Summary.ID,
+			SandboxID: sessionResult.Session.Summary.ID,
 			ExitCode:  1,
 			Error:     fmt.Sprintf("agent execution failed: %v", err),
 		})
@@ -384,7 +381,7 @@ func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.Pr
 	logsPath := filepath.Join(artifactsDir, "transcript.txt")
 	transition := TransitionRequest{
 		RunID:     run.RunID,
-		SessionID: session.Summary.ID,
+		SandboxID: session.Summary.ID,
 		LogsPath:  logsPath,
 	}
 	if c.store == nil || c.runtime == nil {
@@ -535,7 +532,7 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Sa
 	artifactsDir := projectRunCommandArtifactsDir(run, session)
 	req := TransitionRequest{
 		RunID:        run.RunID,
-		SessionID:    session.Summary.ID,
+		SandboxID:    session.Summary.ID,
 		ExitCode:     result.ExitCode,
 		Output:       result.Output,
 		ArtifactsDir: artifactsDir,
@@ -649,13 +646,13 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 	tags := SessionTags(run)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(c.cap), prepared.CapsetIDs)
 	tags = append(tags, capabilityTags...)
-	if sessionID := strings.TrimSpace(req.SessionID); sessionID != "" {
+	if sandboxID := strings.TrimSpace(req.SandboxID); sandboxID != "" {
 		if len(req.Volumes) > 0 {
 			return SessionResult{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
 		}
-		session, err := c.store.GetSandbox(ctx, sessionID)
+		session, err := c.store.GetSandbox(ctx, sandboxID)
 		if err != nil {
-			return SessionResult{}, fmt.Errorf("load session %s: %w", sessionID, err)
+			return SessionResult{}, fmt.Errorf("load sandbox %s: %w", sandboxID, err)
 		}
 		if session.Summary.VMStatus != domain.VMStatusRunning {
 			if err := c.applyJupyterOptionsToSession(session.Summary.ID, jupyterOptions); err != nil {
@@ -852,7 +849,7 @@ func (c *Controller) cleanupProjectRunSession(ctx context.Context, coordinator *
 	updated, err := coordinator.TransitionRun(ctx, TransitionRequest{
 		RunID:        run.RunID,
 		Status:       run.Status,
-		SessionID:    run.SessionID,
+		SandboxID:    run.SandboxID,
 		CleanupError: cleanupErr.Error(),
 	})
 	if err != nil {

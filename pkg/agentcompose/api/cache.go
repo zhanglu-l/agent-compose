@@ -238,7 +238,7 @@ func RuntimeCacheItemToProto(item runtimecache.Item) *agentcomposev2.CacheItem {
 		ImageId:        item.ImageID,
 		ImageRef:       item.ImageRef,
 		ResolvedRef:    item.ResolvedRef,
-		SessionId:      item.SessionID,
+		SessionId:      item.SandboxID,
 		SandboxId:      item.SandboxID,
 		Status:         RuntimeCacheStatusToProto(item.Status),
 		Removable:      item.Removable,

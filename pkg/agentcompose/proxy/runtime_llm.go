@@ -74,7 +74,7 @@ func (h runtimeLLMHandler) handle(c echo.Context, inboundProtocol protocolbridge
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid llm facade token"})
 	}
 	now := time.Now().UTC()
-	if token.SessionID != sessionID || !token.RevokedAt.IsZero() || (!token.ExpiresAt.IsZero() && now.After(token.ExpiresAt)) {
+	if token.SandboxID != sessionID || !token.RevokedAt.IsZero() || (!token.ExpiresAt.IsZero() && now.After(token.ExpiresAt)) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "llm facade token is not valid for this session"})
 	}
 	if token.WireAPI != "" && llms.NormalizeWireAPI(token.WireAPI) != llms.NormalizeWireAPI(facadeWireAPI) {

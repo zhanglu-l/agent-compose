@@ -193,7 +193,7 @@ type fakeFacadeTokenRevoker struct {
 	revoked string
 }
 
-func (r *fakeFacadeTokenRevoker) RevokeLLMFacadeTokensForSession(_ context.Context, sessionID string) error {
+func (r *fakeFacadeTokenRevoker) RevokeLLMFacadeTokensForSandbox(_ context.Context, sessionID string) error {
 	r.revoked = sessionID
 	return nil
 }

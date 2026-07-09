@@ -32,11 +32,11 @@ func CommandCellSource(request domain.LoaderCommandRequest) string {
 }
 
 func CommandRequestRequiresCleanup(loader domain.Loader, request domain.LoaderCommandRequest) bool {
-	effectivePolicy := domain.NormalizeLoaderSessionPolicy(loader.Summary.SessionPolicy)
+	effectivePolicy := domain.NormalizeLoaderSandboxPolicy(loader.Summary.SandboxPolicy)
 	if strings.TrimSpace(request.SessionPolicy) != "" {
-		effectivePolicy = domain.NormalizeLoaderSessionPolicy(request.SessionPolicy)
+		effectivePolicy = domain.NormalizeLoaderSandboxPolicy(request.SessionPolicy)
 	}
-	return effectivePolicy == domain.LoaderSessionPolicyNew || CommandRequestOverridesSession(request)
+	return effectivePolicy == domain.LoaderSandboxPolicyNew || CommandRequestOverridesSession(request)
 }
 
 func CommandRequestOverridesSession(request domain.LoaderCommandRequest) bool {

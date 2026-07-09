@@ -106,8 +106,8 @@ func testModelBranchCoverageWorkflows(t *testing.T) {
 	if _, err := domain.NormalizeLoaderTriggerKind("bad"); err == nil {
 		t.Fatalf("NormalizeLoaderTriggerKind bad returned nil error")
 	}
-	if domain.NormalizeLoaderSessionPolicy("new") != domain.LoaderSessionPolicyNew || domain.NormalizeLoaderSessionPolicy("bad") != domain.LoaderSessionPolicySticky {
-		t.Fatalf("NormalizeLoaderSessionPolicy returned unexpected values")
+	if domain.NormalizeLoaderSandboxPolicy("new") != domain.LoaderSandboxPolicyNew || domain.NormalizeLoaderSandboxPolicy("bad") != domain.LoaderSandboxPolicySticky {
+		t.Fatalf("NormalizeLoaderSandboxPolicy returned unexpected values")
 	}
 	if domain.NormalizeLoaderConcurrencyPolicy("allow") != domain.LoaderConcurrencyPolicyParallel || domain.NormalizeLoaderConcurrencyPolicy("bad") != domain.LoaderConcurrencyPolicySkip {
 		t.Fatalf("NormalizeLoaderConcurrencyPolicy returned unexpected values")

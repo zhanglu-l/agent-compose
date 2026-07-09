@@ -28,11 +28,11 @@ func TestCommandAndEventHelperWorkflows(t *testing.T) {
 			t.Fatalf("expected validation error for %#v", req)
 		}
 	}
-	loader := domain.Loader{Summary: domain.LoaderSummary{SessionPolicy: domain.LoaderSessionPolicyReuse}}
+	loader := domain.Loader{Summary: domain.LoaderSummary{SandboxPolicy: domain.LoaderSandboxPolicyReuse}}
 	if CommandRequestRequiresCleanup(loader, domain.LoaderCommandRequest{}) {
 		t.Fatalf("reuse policy without overrides should not require cleanup")
 	}
-	if !CommandRequestRequiresCleanup(loader, domain.LoaderCommandRequest{SessionPolicy: domain.LoaderSessionPolicyNew}) {
+	if !CommandRequestRequiresCleanup(loader, domain.LoaderCommandRequest{SessionPolicy: domain.LoaderSandboxPolicyNew}) {
 		t.Fatalf("new policy should require cleanup")
 	}
 	if !CommandRequestOverridesSession(domain.LoaderCommandRequest{Driver: "docker"}) ||
