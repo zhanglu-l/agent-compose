@@ -12,6 +12,7 @@ type ProjectSpec struct {
 	Name       string                   `yaml:"name,omitempty" json:"name,omitempty"`
 	Variables  map[string]EnvVarSpec    `yaml:"variables,omitempty" json:"variables,omitempty"`
 	Workspaces map[string]WorkspaceSpec `yaml:"workspaces,omitempty" json:"workspaces,omitempty"`
+	MCPs       map[string]MCPServerSpec `yaml:"mcps,omitempty" json:"mcps,omitempty"`
 	Volumes    map[string]VolumeSpec    `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Agents     map[string]AgentSpec     `yaml:"agents,omitempty" json:"agents,omitempty"`
 	Network    *NetworkSpec             `yaml:"network,omitempty" json:"network,omitempty"`
@@ -25,11 +26,24 @@ type AgentSpec struct {
 	Build        *BuildSpec            `yaml:"build,omitempty" json:"build,omitempty"`
 	Driver       *DriverSpec           `yaml:"driver,omitempty" json:"driver,omitempty"`
 	Env          map[string]EnvVarSpec `yaml:"env,omitempty" json:"env,omitempty"`
+	MCP          MCPRefsSpec           `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	CapsetIDs    []string              `yaml:"capset_ids,omitempty" json:"capset_ids,omitempty"`
 	Volumes      []VolumeMountSpec     `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Workspace    *WorkspaceSpec        `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	Scheduler    *SchedulerSpec        `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	Jupyter      *JupyterSpec          `yaml:"jupyter,omitempty" json:"jupyter,omitempty"`
+}
+
+type MCPRefsSpec []string
+
+type MCPServerSpec struct {
+	Type      string                `yaml:"type,omitempty" json:"type,omitempty"`
+	Transport string                `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Command   string                `yaml:"command,omitempty" json:"command,omitempty"`
+	Args      []string              `yaml:"args,omitempty" json:"args,omitempty"`
+	Env       map[string]EnvVarSpec `yaml:"env,omitempty" json:"env,omitempty"`
+	URL       string                `yaml:"url,omitempty" json:"url,omitempty"`
+	Headers   map[string]EnvVarSpec `yaml:"headers,omitempty" json:"headers,omitempty"`
 }
 
 type BuildSpec struct {
@@ -222,6 +236,27 @@ func (s *TriggerSpec) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+func (s *MCPRefsSpec) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var raw string
+		if err := value.Decode(&raw); err != nil {
+			return err
+		}
+		*s = MCPRefsSpec{raw}
+		return nil
+	case yaml.SequenceNode:
+		var decoded []string
+		if err := value.Decode(&decoded); err != nil {
+			return err
+		}
+		*s = MCPRefsSpec(decoded)
+		return nil
+	default:
+		return fmt.Errorf("expected scalar or sequence, got %s", nodeKindName(value.Kind))
+	}
+}
+
 type ParseError struct {
 	Path    string
 	Line    int
@@ -289,6 +324,7 @@ func validateProjectNode(node *yaml.Node) error {
 		"name":       validateScalar,
 		"variables":  validateEnvVarMap,
 		"workspaces": validateWorkspaceMap,
+		"mcps":       validateMCPMap,
 		"volumes":    validateVolumeMap,
 		"agents":     validateAgentMap,
 		"network":    validateNetwork,
@@ -312,12 +348,40 @@ func validateAgent(node *yaml.Node, path string) error {
 		"build":         validateBuild,
 		"driver":        validateDriver,
 		"env":           validateEnvVarMap,
+		"mcp":           validateMCPRefs,
 		"capset_ids":    validateStringList,
 		"volumes":       validateVolumeMountList,
 		"workspace":     validateWorkspace,
 		"scheduler":     validateScheduler,
 		"jupyter":       validateJupyter,
 	})
+}
+
+func validateMCPMap(node *yaml.Node, path string) error {
+	return validateNamedMap(node, path, validateMCPServer)
+}
+
+func validateMCPServer(node *yaml.Node, path string) error {
+	return validateMapping(node, path, map[string]nodeValidator{
+		"type":      validateScalar,
+		"transport": validateScalar,
+		"command":   validateScalar,
+		"args":      validateStringList,
+		"env":       validateEnvVarMap,
+		"url":       validateScalar,
+		"headers":   validateEnvVarMap,
+	})
+}
+
+func validateMCPRefs(node *yaml.Node, path string) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return validateScalar(node, path)
+	case yaml.SequenceNode:
+		return validateStringList(node, path)
+	default:
+		return newParseError(node, path, "expected scalar or sequence")
+	}
 }
 
 func validateVolumeMap(node *yaml.Node, path string) error {

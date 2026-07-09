@@ -31,12 +31,13 @@ type NormalizeOptions struct {
 }
 
 type NormalizedProjectSpec struct {
-	Name       string                          `yaml:"name" json:"name"`
-	Variables  map[string]EnvVarSpec           `yaml:"variables,omitempty" json:"variables,omitempty"`
-	Workspaces map[string]WorkspaceSpec        `yaml:"workspaces,omitempty" json:"workspaces,omitempty"`
-	Volumes    map[string]NormalizedVolumeSpec `yaml:"volumes,omitempty" json:"volumes,omitempty"`
-	Agents     []NormalizedAgentSpec           `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Network    *NetworkSpec                    `yaml:"network,omitempty" json:"network,omitempty"`
+	Name       string                             `yaml:"name" json:"name"`
+	Variables  map[string]EnvVarSpec              `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Workspaces map[string]WorkspaceSpec           `yaml:"workspaces,omitempty" json:"workspaces,omitempty"`
+	MCPs       map[string]NormalizedMCPServerSpec `yaml:"mcps,omitempty" json:"mcps,omitempty"`
+	Volumes    map[string]NormalizedVolumeSpec    `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	Agents     []NormalizedAgentSpec              `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Network    *NetworkSpec                       `yaml:"network,omitempty" json:"network,omitempty"`
 }
 
 type NormalizedAgentSpec struct {
@@ -48,11 +49,22 @@ type NormalizedAgentSpec struct {
 	Build        *NormalizedBuildSpec        `yaml:"build,omitempty" json:"build,omitempty"`
 	Driver       *NormalizedDriverSpec       `yaml:"driver" json:"driver"`
 	Env          map[string]EnvVarSpec       `yaml:"env,omitempty" json:"env,omitempty"`
+	MCP          []string                    `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	CapsetIDs    []string                    `yaml:"capset_ids,omitempty" json:"capset_ids,omitempty"`
 	Volumes      []NormalizedVolumeMountSpec `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Workspace    *WorkspaceSpec              `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	Scheduler    *NormalizedSchedulerSpec    `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	Jupyter      *JupyterSpec                `yaml:"jupyter,omitempty" json:"jupyter,omitempty"`
+}
+
+type NormalizedMCPServerSpec struct {
+	Type      string                `yaml:"type" json:"type"`
+	Transport string                `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Command   string                `yaml:"command,omitempty" json:"command,omitempty"`
+	Args      []string              `yaml:"args,omitempty" json:"args,omitempty"`
+	Env       map[string]EnvVarSpec `yaml:"env,omitempty" json:"env,omitempty"`
+	URL       string                `yaml:"url,omitempty" json:"url,omitempty"`
+	Headers   map[string]EnvVarSpec `yaml:"headers,omitempty" json:"headers,omitempty"`
 }
 
 type NormalizedVolumeSpec struct {
@@ -144,6 +156,11 @@ func Normalize(spec *ProjectSpec, options NormalizeOptions) (*NormalizedProjectS
 		return nil, err
 	}
 	normalized.Workspaces = workspaces
+	mcps, err := normalizeMCPMap("mcps", spec.MCPs, options)
+	if err != nil {
+		return nil, err
+	}
+	normalized.MCPs = mcps
 	if err := validateNetworkSpec(normalized.Network); err != nil {
 		return nil, err
 	}
@@ -164,7 +181,7 @@ func Normalize(spec *ProjectSpec, options NormalizeOptions) (*NormalizedProjectS
 			return nil, err
 		}
 		agent := spec.Agents[agentName]
-		normalizedAgent, err := normalizeAgent(agentName, agent, options, normalized.Volumes, normalized.Workspaces)
+		normalizedAgent, err := normalizeAgent(agentName, agent, options, normalized.Volumes, normalized.Workspaces, normalized.MCPs)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +203,7 @@ func NormalizeFile(path string) (*NormalizedProjectSpec, error) {
 	return normalized, nil
 }
 
-func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions, projectVolumes map[string]NormalizedVolumeSpec, projectWorkspaces map[string]WorkspaceSpec) (NormalizedAgentSpec, error) {
+func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions, projectVolumes map[string]NormalizedVolumeSpec, projectWorkspaces map[string]WorkspaceSpec, projectMCPs map[string]NormalizedMCPServerSpec) (NormalizedAgentSpec, error) {
 	driver, err := normalizeDriverSpec(joinPath("agents", name)+".driver", agent.Driver)
 	if err != nil {
 		return NormalizedAgentSpec{}, err
@@ -200,6 +217,10 @@ func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions, proj
 		return NormalizedAgentSpec{}, err
 	}
 	env, err := normalizeEnvVarMap(joinPath("agents", name)+".env", agent.Env, options)
+	if err != nil {
+		return NormalizedAgentSpec{}, err
+	}
+	mcpRefs, err := normalizeMCPRefs(joinPath("agents", name)+".mcp", []string(agent.MCP), projectMCPs)
 	if err != nil {
 		return NormalizedAgentSpec{}, err
 	}
@@ -228,6 +249,7 @@ func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions, proj
 		Build:        build,
 		Driver:       driver,
 		Env:          env,
+		MCP:          mcpRefs,
 		CapsetIDs:    normalizeStringList(agent.CapsetIDs),
 		Volumes:      volumes,
 		Workspace:    workspace,
@@ -260,6 +282,29 @@ func normalizeProjectWorkspaces(values map[string]WorkspaceSpec) (map[string]Wor
 			return nil, err
 		}
 		normalized[key] = *workspace
+	}
+	return normalized, nil
+}
+
+func normalizeMCPMap(path string, values map[string]MCPServerSpec, options NormalizeOptions) (map[string]NormalizedMCPServerSpec, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	normalized := make(map[string]NormalizedMCPServerSpec, len(values))
+	for _, key := range keys {
+		if err := validateStableIdentifier(joinPath(path, key), key, "mcp name"); err != nil {
+			return nil, err
+		}
+		server, err := normalizeMCPServer(joinPath(path, key), values[key], options)
+		if err != nil {
+			return nil, err
+		}
+		normalized[key] = server
 	}
 	return normalized, nil
 }
@@ -354,6 +399,73 @@ func cleanComposeLocalWorkspacePath(raw string) (string, error) {
 		return "", fmt.Errorf("local workspace path %q escapes project root", trimmed)
 	}
 	return clean, nil
+}
+
+func normalizeMCPServer(path string, server MCPServerSpec, options NormalizeOptions) (NormalizedMCPServerSpec, error) {
+	serverType := strings.ToLower(strings.TrimSpace(server.Type))
+	transport := strings.ToLower(strings.TrimSpace(server.Transport))
+	command := strings.TrimSpace(server.Command)
+	args := normalizeStringList(server.Args)
+	env, err := normalizeEnvVarMap(path+".env", server.Env, options)
+	if err != nil {
+		return NormalizedMCPServerSpec{}, err
+	}
+	url, err := interpolateEnvValue(path+".url", strings.TrimSpace(server.URL), options)
+	if err != nil {
+		return NormalizedMCPServerSpec{}, err
+	}
+	headers, err := normalizeEnvVarMap(path+".headers", server.Headers, options)
+	if err != nil {
+		return NormalizedMCPServerSpec{}, err
+	}
+	switch serverType {
+	case "local":
+		if command == "" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".command", Message: "command is required for local mcp"}
+		}
+		if transport != "" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".transport", Message: "transport is not supported for local mcp"}
+		}
+		if url != "" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".url", Message: "url is not supported for local mcp"}
+		}
+		if len(headers) > 0 {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".headers", Message: "headers are not supported for local mcp"}
+		}
+		return NormalizedMCPServerSpec{Type: serverType, Command: command, Args: args, Env: env}, nil
+	case "remote":
+		if transport != "sse" && transport != "http" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".transport", Message: "transport must be sse or http for remote mcp"}
+		}
+		if url == "" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".url", Message: "url is required for remote mcp"}
+		}
+		if command != "" {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".command", Message: "command is not supported for remote mcp"}
+		}
+		if len(args) > 0 {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".args", Message: "args are not supported for remote mcp"}
+		}
+		if len(env) > 0 {
+			return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".env", Message: "env is not supported for remote mcp"}
+		}
+		return NormalizedMCPServerSpec{Type: serverType, Transport: transport, URL: url, Headers: headers}, nil
+	default:
+		return NormalizedMCPServerSpec{}, &ValidationError{Path: path + ".type", Message: "type must be local or remote"}
+	}
+}
+
+func normalizeMCPRefs(path string, values []string, projectMCPs map[string]NormalizedMCPServerSpec) ([]string, error) {
+	refs := normalizeStringList(values)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	for _, ref := range refs {
+		if _, ok := projectMCPs[ref]; !ok {
+			return nil, &ValidationError{Path: path, Message: fmt.Sprintf("mcp %q is not defined", ref)}
+		}
+	}
+	return refs, nil
 }
 
 func normalizeProjectVolumes(values map[string]VolumeSpec) (map[string]NormalizedVolumeSpec, error) {
