@@ -269,7 +269,9 @@ func resolveAgentWorkspace(path string, spec *WorkspaceSpec, globals map[string]
 		switch len(globals) {
 		case 1:
 			for _, workspace := range globals {
-				return cloneWorkspaceSpec(&workspace), nil
+				resolved := cloneWorkspaceSpec(&workspace)
+				resolved.Name = ""
+				return resolved, nil
 			}
 		case 0:
 			return nil, &ValidationError{Path: path, Message: "workspace is required when project workspaces is empty"}
@@ -288,7 +290,9 @@ func resolveAgentWorkspace(path string, spec *WorkspaceSpec, globals map[string]
 		if !ok {
 			return nil, &ValidationError{Path: path + ".name", Message: fmt.Sprintf("workspace %q is not defined", trimmed.Name)}
 		}
-		return cloneWorkspaceSpec(&workspace), nil
+		resolved := cloneWorkspaceSpec(&workspace)
+		resolved.Name = ""
+		return resolved, nil
 	case hasInline:
 		return normalizeInlineWorkspaceSpec(path, trimmed, "")
 	default:

@@ -799,7 +799,7 @@ agents:
 	if err != nil {
 		t.Fatalf("Normalize returned error: %v", err)
 	}
-	if normalized.Agents[0].Workspace == nil || normalized.Agents[0].Workspace.Provider != "local" || normalized.Agents[0].Workspace.Path != "." || normalized.Agents[0].Workspace.Name != "repo-root" {
+	if normalized.Agents[0].Workspace == nil || normalized.Agents[0].Workspace.Provider != "local" || normalized.Agents[0].Workspace.Path != "." || normalized.Agents[0].Workspace.Name != "" {
 		t.Fatalf("workspace = %#v", normalized.Agents[0].Workspace)
 	}
 }
@@ -820,7 +820,7 @@ agents:
 	if err != nil {
 		t.Fatalf("Normalize returned error: %v", err)
 	}
-	if normalized.Agents[0].Workspace == nil || normalized.Agents[0].Workspace.Name != "repo-root" {
+	if normalized.Agents[0].Workspace == nil || normalized.Agents[0].Workspace.Provider != "local" || normalized.Agents[0].Workspace.Path != "." || normalized.Agents[0].Workspace.Name != "" {
 		t.Fatalf("workspace = %#v", normalized.Agents[0].Workspace)
 	}
 }
