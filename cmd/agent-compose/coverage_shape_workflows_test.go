@@ -336,7 +336,7 @@ func testComposeProjectOutputHelpers(t *testing.T) {
 
 	var out bytes.Buffer
 	psOutput := composePSOutput{Project: output.Project, Sandboxes: []composePSSandboxOutput{{
-		ID: "session-1", ShortID: "session-1", Agent: "reviewer", Status: "running", RunID: "run-new", RunShortID: "run-new", CreatedAt: "created", UpdatedAt: "updated", Driver: "docker", Image: "guest", Workspace: "/repo",
+		SandboxID: "session-1", SandboxShortID: "session-1", Agent: "reviewer", Status: "running", RunID: "run-new", RunShortID: "run-new", CreatedAt: "created", UpdatedAt: "updated", Driver: "docker", Image: "guest", Workspace: "/repo",
 	}}}
 	if err := writePSText(&out, psOutput, true); err != nil {
 		t.Fatalf("writePSText verbose returned error: %v", err)
@@ -566,7 +566,7 @@ func testComposeRunExecAndLogsEdgeHelpers(t *testing.T) {
 	out.Reset()
 	logsCmd.SetErr(&out)
 	logOptions, err := normalizeComposeLogsOptions(logsCmd, composeLogsOptions{SandboxID: "sandbox-logs", TailLines: -1}, nil)
-	if err != nil || logOptions.SandboxID != "sandbox-logs" || logOptions.SessionID != "" || out.String() != "" {
+	if err != nil || logOptions.SandboxID != "sandbox-logs" || out.String() != "" {
 		t.Fatalf("normalizeComposeLogsOptions options=%#v err=%v stderr=%q", logOptions, err, out.String())
 	}
 	if _, err := normalizeComposeLogsOptions(&cobra.Command{Use: "logs"}, composeLogsOptions{TailLines: -2}, nil); commandExitCode(err) != exitCodeUsage {
@@ -661,10 +661,10 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		BlockWriteBytes:  metric("bytes", agentcomposev2.MetricStatus_METRIC_STATUS_OK),
 		UptimeSeconds:    metric("seconds", agentcomposev2.MetricStatus_METRIC_STATUS_OK),
 	})
-	if stats.ID != "session-1" || stats.CPUPercent.Status != "ok" || stats.MemoryLimitBytes.Status != "unavailable" || stats.MemoryPercent.Status != "unknown" {
+	if stats.SandboxID != "session-1" || stats.CPUPercent.Status != "ok" || stats.MemoryLimitBytes.Status != "unavailable" || stats.MemoryPercent.Status != "unknown" {
 		t.Fatalf("composeStatsOutputFromProto = %#v", stats)
 	}
-	if nilStats := composeStatsOutputFromProto(nil); nilStats.ID != "" {
+	if nilStats := composeStatsOutputFromProto(nil); nilStats.SandboxID != "" {
 		t.Fatalf("nil stats = %#v", nilStats)
 	}
 	if nilMetric := composeMetricOutputFromProto(nil); nilMetric.Status != "unknown" {
@@ -873,14 +873,14 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 	if err := writeCacheOperationTable(failingWriter{}, []composeCacheOutput{cacheInspect.Cache}); err == nil {
 		t.Fatalf("writeCacheOperationTable failing writer returned nil error")
 	}
-	if err := writeSandboxPruneMatchedTable(failingWriter{}, []composePSSandboxOutput{{ID: "sandbox"}}, "matched"); err == nil {
+	if err := writeSandboxPruneMatchedTable(failingWriter{}, []composePSSandboxOutput{{SandboxID: "sandbox"}}, "matched"); err == nil {
 		t.Fatalf("writeSandboxPruneMatchedTable failing writer returned nil error")
 	}
-	if err := writeSandboxPruneSkippedTable(failingWriter{}, []composeSandboxPruneSkipped{{Sandbox: "sandbox"}}); err == nil {
+	if err := writeSandboxPruneSkippedTable(failingWriter{}, []composeSandboxPruneSkipped{{SandboxID: "sandbox"}}); err == nil {
 		t.Fatalf("writeSandboxPruneSkippedTable failing writer returned nil error")
 	}
 
-	session := composeSessionOutputFromSummary(&agentcomposev1.SessionSummary{
+	session := composeSandboxOutputFromSummary(&agentcomposev1.SessionSummary{
 		SessionId:     "session-1",
 		Title:         "title",
 		Driver:        "docker",
@@ -898,8 +898,8 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 			{Name: " ", Value: "ignored"},
 		},
 	})
-	if session.VMStatus != "running" || session.Tags["agent"] != "reviewer" || session.EventCount != 4 {
-		t.Fatalf("composeSessionOutputFromSummary = %#v", session)
+	if session.SandboxID != "session-1" || session.VMStatus != "running" || session.Tags["agent"] != "reviewer" || session.EventCount != 4 {
+		t.Fatalf("composeSandboxOutputFromSummary = %#v", session)
 	}
 	if commandExitCode(nil) != 0 ||
 		commandExitCode(commandExitError{Code: exitCodeUsage, Err: connect.NewError(connect.CodeInvalidArgument, nil)}) != exitCodeUsage ||

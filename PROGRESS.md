@@ -769,7 +769,7 @@
 
 参考文档：[docs/plan/sandbox-naming-implementation-plan.md](docs/plan/sandbox-naming-implementation-plan.md#阶段-9cli-用户界面和-e2e-workflow)
 
-- [ ] 9.1 迁移 CLI 命令、文本输出和 JSON shape
+- [x] 9.1 迁移 CLI 命令、文本输出和 JSON shape
   - 依赖：6.2、8.1。
   - 工作内容：
     - 更新 `cmd/agent-compose/main.go` 中 v2 client request/response 使用 `sandbox_id`、`RunSandboxCleanupPolicy`、`ExecSandboxSelector`。
@@ -777,19 +777,29 @@
     - JSON 输出只包含 `sandbox_id`、`sandbox_short_id`、`agent_thread_id`、`thread_id`、`linked_sandbox_id`、`linked_agent_thread_id`。
     - `inspect session <sandbox>` 保留 deprecated alias，stderr 输出 warning，JSON shape 仍为 sandbox output。
   - 可并行子任务：
-    - [ ] 可并行：迁移 CLI command implementation。
-    - [ ] 可并行：迁移 CLI help/golden/snapshot tests。
-    - [ ] 可并行：迁移 deprecated alias tests。
+    - [x] 可并行：迁移 CLI command implementation。
+    - [x] 可并行：迁移 CLI help/golden/snapshot tests。
+    - [x] 可并行：迁移 deprecated alias tests。
   - 测试方案：
     - `go test ./cmd/agent-compose`
   - 验收标准：
     - CLI 新输出不再包含 `session_id`，除 deprecated warning 或 v1 compatibility 调试输出。
     - CLI help 第一层用户语义为 sandbox。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `cmd/agent-compose/main.go` 的 CLI sandbox-shaped JSON output 改为 `sandbox_id` / `sandbox_short_id`，覆盖 `ps` sandbox rows、sandbox action results、sandbox prune skipped entries、stats output、inspect sandbox output 和 inspect agent 的 `running_sandboxes`。
+      - 移除 logs option 中的 `SessionID` mirror，`logs --sandbox` 解析后只保留 `SandboxID`。
+      - 将内部 CLI inspect helper 从 `composeSessionOutput` / `composeSessionOutputFromSummary` 收敛为 `composeSandboxOutput` / `composeSandboxOutputFromSummary`；`inspect session <sandbox>` deprecated alias 继续输出 warning，JSON 与 `inspect sandbox` 保持一致。
+      - 更新 `cmd/agent-compose/main_test.go` 与 `cmd/agent-compose/coverage_shape_workflows_test.go`，锁定 `ps --json`、sandbox prune JSON、sandbox action JSON、stats JSON、inspect sandbox/session alias 的 sandbox shape。
+    - 验证：
+      - `go test ./cmd/agent-compose`
+      - `rg -n 'json:"(id|short_id|sandbox)"|session_id|agent_session_id|linked_session_id|linked_agent_session_id' cmd/agent-compose -S`
+      - `rg -n "SessionID|composeSessionOutput|SessionOutput|AgentSession|agent session|session id|session_id" cmd/agent-compose -S`
+    - 审计与例外：
+      - `json:"id"` / `json:"short_id"` 命中仅属于 project、run、agent、cache 等非 sandbox-shaped CLI 输出；sandbox-shaped CLI 输出已使用 `sandbox_id` / `sandbox_short_id`，未保留 `json:"sandbox"`。
+      - `session_id` audit 仅命中测试中的禁止字段断言；`SessionIDRequest` / `GetSession` 命中属于 v1 compatibility bridge 和 test stubs，不是 CLI JSON shape。
+      - 本任务未修改 `proto/agentcompose/v1/*`、v2 proto 或 generated code。
     - 下一目标：9.2。
 
 - [ ] 9.2 补齐 CLI/E2E 和 compose env 工作流测试

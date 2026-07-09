@@ -3145,10 +3145,10 @@ agents:
 	if decoded.Project.Name != "cli-ps-demo" || len(decoded.Sandboxes) != 1 {
 		t.Fatalf("ps JSON project/sandboxes = %#v", decoded)
 	}
-	if decoded.Sandboxes[0].ID != "session-running" || decoded.Sandboxes[0].Agent != "reviewer" || decoded.Sandboxes[0].Status != "running" || decoded.Sandboxes[0].RunID != "run-running" {
+	if decoded.Sandboxes[0].SandboxID != "session-running" || decoded.Sandboxes[0].Agent != "reviewer" || decoded.Sandboxes[0].Status != "running" || decoded.Sandboxes[0].RunID != "run-running" {
 		t.Fatalf("ps sandbox JSON = %#v", decoded.Sandboxes[0])
 	}
-	if stdout == "" || !strings.Contains(stdout, `"id"`) || strings.Contains(stdout, `"session_id"`) {
+	if stdout == "" || !strings.Contains(stdout, `"sandbox_id"`) || !strings.Contains(stdout, `"sandbox_short_id"`) || strings.Contains(stdout, `"session_id"`) {
 		t.Fatalf("ps JSON sandbox field shape = %q", stdout)
 	}
 
@@ -3324,7 +3324,7 @@ agents:
 		t.Helper()
 		result := map[string]bool{}
 		for _, sandbox := range output.Matched {
-			result[sandbox.ID] = true
+			result[sandbox.SandboxID] = true
 		}
 		return result
 	}
@@ -3484,11 +3484,11 @@ agents:
 			}
 			var skipped []string
 			for _, item := range decoded.Skipped {
-				skipped = append(skipped, item.Sandbox)
+				skipped = append(skipped, item.SandboxID)
 				if !strings.Contains(item.Reason, "remove failed") {
 					t.Fatalf("skipped reason = %q", item.Reason)
 				}
-				if item.Sandbox == "session-remove-b" && (item.Agent != "worker" || item.Status != "failed") {
+				if item.SandboxID == "session-remove-b" && (item.Agent != "worker" || item.Status != "failed") {
 					t.Fatalf("skipped metadata = %#v, want worker/failed context", item)
 				}
 			}
@@ -3499,7 +3499,7 @@ agents:
 				t.Fatalf("RemoveSandbox calls = %#v, want %#v", removed, tc.wantRemoveSeq)
 			}
 			for _, item := range decoded.Matched {
-				if item.ID == "session-running" || item.ID == "session-foreign" {
+				if item.SandboxID == "session-running" || item.SandboxID == "session-foreign" {
 					t.Fatalf("matched unsafe/unowned sandbox in forced prune: %#v", decoded.Matched)
 				}
 			}
@@ -3812,9 +3812,9 @@ func TestIntegrationCLIResumeSandboxesJSON(t *testing.T) {
 		t.Fatalf("resume JSON decode failed: %v\n%s", err, stdout)
 	}
 	if len(decoded.Results) != 2 ||
-		decoded.Results[0].Sandbox != "sandbox-a" ||
+		decoded.Results[0].SandboxID != "sandbox-a" ||
 		decoded.Results[0].Status != "resumed" ||
-		decoded.Results[1].Sandbox != "sandbox-b" ||
+		decoded.Results[1].SandboxID != "sandbox-b" ||
 		decoded.Results[1].Status != "resumed" {
 		t.Fatalf("resume JSON = %#v", decoded)
 	}
@@ -3869,7 +3869,7 @@ func TestIntegrationCLIStatsTableAndJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
 		t.Fatalf("stats JSON decode failed: %v\n%s", err, jsonOut)
 	}
-	if decoded.ID != "sandbox-stats" || decoded.Driver != "docker" || decoded.MemoryLimitBytes.Status != "unknown" || decoded.MemoryLimitBytes.Value != nil {
+	if decoded.SandboxID != "sandbox-stats" || decoded.Driver != "docker" || decoded.MemoryLimitBytes.Status != "unknown" || decoded.MemoryLimitBytes.Value != nil {
 		t.Fatalf("stats JSON = %#v", decoded)
 	}
 	if decoded.CPUPercent.Value == nil || *decoded.CPUPercent.Value != 12.5 {
@@ -3967,7 +3967,7 @@ agents:
 	if decoded.Project.Name != "cli-stats-demo" || len(decoded.Stats) != 2 {
 		t.Fatalf("stats JSON project/stats = %#v", decoded)
 	}
-	if decoded.Stats[0].ID != "session-one" || decoded.Stats[1].ID != "session-two" {
+	if decoded.Stats[0].SandboxID != "session-one" || decoded.Stats[1].SandboxID != "session-two" {
 		t.Fatalf("stats JSON order = %#v", decoded.Stats)
 	}
 	if strings.Contains(jsonOut, "session-stopped") || strings.Contains(jsonOut, "session-foreign") {
@@ -4088,7 +4088,7 @@ func TestIntegrationCLIRemoveSandboxes(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
 		t.Fatalf("rm JSON decode failed: %v\n%s", err, jsonOut)
 	}
-	if len(decoded.Results) != 2 || decoded.Results[0].Sandbox != "sandbox-b" || decoded.Results[0].Status != "removed" || decoded.Results[1].Sandbox != "sandbox-c" {
+	if len(decoded.Results) != 2 || decoded.Results[0].SandboxID != "sandbox-b" || decoded.Results[0].Status != "removed" || decoded.Results[1].SandboxID != "sandbox-c" {
 		t.Fatalf("rm JSON = %#v", decoded)
 	}
 	if len(removed) != 3 || removed[1].force || removed[2].force {
@@ -4461,11 +4461,11 @@ agents:
 	if sandboxCode != 0 || sandboxErr != "" {
 		t.Fatalf("inspect sandbox code/stderr = %d / %q", sandboxCode, sandboxErr)
 	}
-	var sandboxDecoded composeSessionOutput
+	var sandboxDecoded composeSandboxOutput
 	if err := json.Unmarshal([]byte(sandboxOut), &sandboxDecoded); err != nil {
 		t.Fatalf("inspect sandbox JSON decode failed: %v\n%s", err, sandboxOut)
 	}
-	if sandboxDecoded.ID != "session-inspect" || sandboxDecoded.VMStatus != "running" || sandboxDecoded.Tags["project"] == "" {
+	if sandboxDecoded.SandboxID != "session-inspect" || sandboxDecoded.VMStatus != "running" || sandboxDecoded.Tags["project"] == "" {
 		t.Fatalf("inspect sandbox JSON = %#v", sandboxDecoded)
 	}
 
@@ -4476,11 +4476,11 @@ agents:
 	if !strings.Contains(sessionErr, "deprecated") || !strings.Contains(sessionErr, "will be removed") || !strings.Contains(sessionErr, "agent-compose inspect sandbox") {
 		t.Fatalf("inspect session stderr missing deprecated warning: %q", sessionErr)
 	}
-	var sessionDecoded composeSessionOutput
+	var sessionDecoded composeSandboxOutput
 	if err := json.Unmarshal([]byte(sessionOut), &sessionDecoded); err != nil {
 		t.Fatalf("inspect session JSON decode failed: %v\n%s", err, sessionOut)
 	}
-	if sessionDecoded.ID != "session-inspect" || sessionDecoded.VMStatus != "running" || sessionDecoded.Tags["project"] == "" {
+	if sessionDecoded.SandboxID != "session-inspect" || sessionDecoded.VMStatus != "running" || sessionDecoded.Tags["project"] == "" {
 		t.Fatalf("inspect session JSON = %#v", sessionDecoded)
 	}
 	if !reflect.DeepEqual(sessionDecoded, sandboxDecoded) {
@@ -4916,16 +4916,16 @@ func TestComposeSandboxPruneOutputJSONShape(t *testing.T) {
 	output := composeSandboxPruneOutput{
 		DryRun: true,
 		Matched: []composePSSandboxOutput{{
-			ID:        "sandbox-match",
-			ShortID:   "sandbox-match",
-			Agent:     "worker",
-			Status:    "stopped",
-			UpdatedAt: "2026-06-11T00:00:00Z",
-			Driver:    "boxlite",
+			SandboxID:      "sandbox-match",
+			SandboxShortID: "sandbox-match",
+			Agent:          "worker",
+			Status:         "stopped",
+			UpdatedAt:      "2026-06-11T00:00:00Z",
+			Driver:         "boxlite",
 		}},
 		Removed: []string{"sandbox-removed"},
 		Skipped: []composeSandboxPruneSkipped{{
-			Sandbox:   "sandbox-skipped",
+			SandboxID: "sandbox-skipped",
 			Agent:     "worker",
 			Status:    "failed",
 			UpdatedAt: "2026-06-11T00:00:00Z",
@@ -4949,6 +4949,26 @@ func TestComposeSandboxPruneOutputJSONShape(t *testing.T) {
 	}
 	if strings.Contains(string(data), "DryRun") || strings.Contains(string(data), "Sandbox") || strings.Contains(string(data), "Reason") {
 		t.Fatalf("composeSandboxPruneOutput JSON uses Go field names: %s", data)
+	}
+	var matched []map[string]json.RawMessage
+	if err := json.Unmarshal(decoded["matched"], &matched); err != nil {
+		t.Fatalf("decode matched sandboxes: %v", err)
+	}
+	if _, ok := matched[0]["sandbox_id"]; !ok {
+		t.Fatalf("matched sandbox JSON missing sandbox_id: %s", data)
+	}
+	if _, ok := matched[0]["id"]; ok {
+		t.Fatalf("matched sandbox JSON uses id: %s", data)
+	}
+	var skipped []map[string]json.RawMessage
+	if err := json.Unmarshal(decoded["skipped"], &skipped); err != nil {
+		t.Fatalf("decode skipped sandboxes: %v", err)
+	}
+	if _, ok := skipped[0]["sandbox_id"]; !ok {
+		t.Fatalf("skipped sandbox JSON missing sandbox_id: %s", data)
+	}
+	if _, ok := skipped[0]["sandbox"]; ok {
+		t.Fatalf("skipped sandbox JSON uses sandbox: %s", data)
 	}
 	if !strings.Contains(string(data), `"updated_at"`) {
 		t.Fatalf("composeSandboxPruneOutput JSON missing skipped metadata: %s", data)
@@ -6239,7 +6259,7 @@ func TestCLIOutputHelpersCoverEdgeBranches(t *testing.T) {
 		MemoryUsageBytes: &agentcomposev2.MetricValue{Value: &value, Unit: "bytes", Status: agentcomposev2.MetricStatus_METRIC_STATUS_UNAVAILABLE, Message: "n/a"},
 		UptimeSeconds:    &agentcomposev2.MetricValue{Value: &value, Unit: "seconds", Status: agentcomposev2.MetricStatus_METRIC_STATUS_OK},
 	})
-	if stats.CPUPercent.Status != "ok" || stats.MemoryUsageBytes.Status != "unavailable" || composeStatsOutputFromProto(nil).ID != "" {
+	if stats.CPUPercent.Status != "ok" || stats.MemoryUsageBytes.Status != "unavailable" || composeStatsOutputFromProto(nil).SandboxID != "" {
 		t.Fatalf("stats output = %#v", stats)
 	}
 	text.Reset()
@@ -6471,8 +6491,8 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	text.Reset()
 	if err := writeSandboxPruneOutput(&text, false, composeSandboxPruneOutput{
 		DryRun:   true,
-		Matched:  []composePSSandboxOutput{{ID: "sandbox-1", ShortID: "sandbox-1", Agent: "reviewer", Status: "stopped", Driver: "boxlite", CreatedAt: "created"}},
-		Skipped:  []composeSandboxPruneSkipped{{Sandbox: "sandbox-2", Reason: "running"}},
+		Matched:  []composePSSandboxOutput{{SandboxID: "sandbox-1", SandboxShortID: "sandbox-1", Agent: "reviewer", Status: "stopped", Driver: "boxlite", CreatedAt: "created"}},
+		Skipped:  []composeSandboxPruneSkipped{{SandboxID: "sandbox-2", Reason: "running"}},
 		Warnings: []string{"warning"},
 	}); err != nil {
 		t.Fatalf("writeSandboxPruneOutput returned error: %v", err)
@@ -6489,7 +6509,7 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	}
 	text.Reset()
 	if err := writeSandboxPruneOutput(&text, false, composeSandboxPruneOutput{
-		Matched: []composePSSandboxOutput{{ID: "sandbox-3", ShortID: "sandbox-3", Agent: "worker", Status: "stopped", Driver: "docker", UpdatedAt: "updated"}},
+		Matched: []composePSSandboxOutput{{SandboxID: "sandbox-3", SandboxShortID: "sandbox-3", Agent: "worker", Status: "stopped", Driver: "docker", UpdatedAt: "updated"}},
 		Removed: []string{"sandbox-3"},
 	}); err != nil {
 		t.Fatalf("writeSandboxPruneOutput removed returned error: %v", err)
