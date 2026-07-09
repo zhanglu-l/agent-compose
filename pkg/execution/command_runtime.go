@@ -50,11 +50,11 @@ func RuntimeCommandRequestPayloadFromCommand(config *appconfig.Config, mode, com
 	}
 }
 
-func BuildLoaderCommandExecSpec(config *appconfig.Config, session *domain.Session, guestRequestPath, home string) domain.ExecSpec {
+func BuildLoaderCommandExecSpec(config *appconfig.Config, session *domain.Sandbox, guestRequestPath, home string) domain.ExecSpec {
 	return BuildRuntimeCommandExecSpec(config, session, guestRequestPath, home)
 }
 
-func BuildRuntimeCommandExecSpec(config *appconfig.Config, session *domain.Session, guestRequestPath, home string) domain.ExecSpec {
+func BuildRuntimeCommandExecSpec(config *appconfig.Config, session *domain.Sandbox, guestRequestPath, home string) domain.ExecSpec {
 	appconfig.ApplyDefaultGuestPaths(config)
 	env := BuildSessionExecEnv(config, session, home)
 	command := strings.Join([]string{
@@ -85,7 +85,7 @@ func RuntimeCommandResultToExecResult(result domain.RuntimeCommandResult) domain
 	}
 }
 
-func BuildSessionExecEnv(config *appconfig.Config, session *domain.Session, home string) map[string]string {
+func BuildSessionExecEnv(config *appconfig.Config, session *domain.Sandbox, home string) map[string]string {
 	appconfig.ApplyDefaultGuestPaths(config)
 	env := runtimeEnvMap(session.EnvItems)
 	if env == nil {
@@ -107,7 +107,7 @@ func BuildSessionExecEnv(config *appconfig.Config, session *domain.Session, home
 	return env
 }
 
-func runtimeEnvMap(items []domain.SessionEnvVar) map[string]string {
+func runtimeEnvMap(items []domain.SandboxEnvVar) map[string]string {
 	env := make(map[string]string, len(items))
 	for _, item := range domain.NormalizeEnvItems(items) {
 		name := strings.TrimSpace(item.Name)
@@ -122,7 +122,7 @@ func runtimeEnvMap(items []domain.SessionEnvVar) map[string]string {
 	return env
 }
 
-func managedRuntimeEnvMap(items []domain.SessionEnvVar) map[string]string {
+func managedRuntimeEnvMap(items []domain.SandboxEnvVar) map[string]string {
 	env := make(map[string]string, len(items))
 	for _, item := range domain.NormalizeEnvItems(items) {
 		name := strings.TrimSpace(item.Name)

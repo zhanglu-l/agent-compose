@@ -17,7 +17,7 @@ type projectRunWorkspaceResolver struct {
 	controller *Controller
 }
 
-func (r projectRunWorkspaceResolver) ResolveProjectRunWorkspace(ctx context.Context, run domain.ProjectRunRecord, project domain.ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*domain.WorkspaceConfig, *domain.SessionWorkspace, error) {
+func (r projectRunWorkspaceResolver) ResolveProjectRunWorkspace(ctx context.Context, run domain.ProjectRunRecord, project domain.ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*domain.WorkspaceConfig, *domain.SandboxWorkspace, error) {
 	workspace, err := r.controller.prepareProjectRunWorkspace(ctx, run, project, projectWorkspace, agentWorkspace)
 	if err != nil || workspace == nil {
 		return workspace, nil, err
@@ -136,8 +136,8 @@ func resetFileWorkspaceSnapshotContent(config *appconfig.Config, workspaceID str
 	return nil
 }
 
-func toSessionWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SessionWorkspace {
-	return &domain.SessionWorkspace{
+func toSessionWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SandboxWorkspace {
+	return &domain.SandboxWorkspace{
 		ID:         item.ID,
 		Name:       item.Name,
 		Type:       item.Type,

@@ -268,7 +268,7 @@ func TestApplyProjectValidationIssuesOmitProjectAndRevision(t *testing.T) {
 func TestStopProjectSessionUsesInternalStopSemantics(t *testing.T) {
 	sessionID := "session-1"
 	store := &projectStopSessionStore{
-		session: &domain.Session{Summary: domain.SessionSummary{
+		session: &domain.Sandbox{Summary: domain.SandboxSummary{
 			ID:       sessionID,
 			VMStatus: domain.VMStatusRunning,
 		}},
@@ -294,23 +294,23 @@ func TestStopProjectSessionUsesInternalStopSemantics(t *testing.T) {
 }
 
 type projectStopSessionStore struct {
-	session *domain.Session
-	updated *domain.Session
-	events  []domain.SessionEvent
+	session *domain.Sandbox
+	updated *domain.Sandbox
+	events  []domain.SandboxEvent
 }
 
-func (s *projectStopSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
+func (s *projectStopSessionStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
 	copy := *s.session
 	return &copy, nil
 }
 
-func (s *projectStopSessionStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
+func (s *projectStopSessionStore) UpdateSandbox(_ context.Context, session *domain.Sandbox) error {
 	copy := *session
 	s.updated = &copy
 	return nil
 }
 
-func (s *projectStopSessionStore) AddEvent(_ context.Context, _ string, event domain.SessionEvent) error {
+func (s *projectStopSessionStore) AddEvent(_ context.Context, _ string, event domain.SandboxEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -319,7 +319,7 @@ type projectStopSessionDriver struct {
 	stopCount int
 }
 
-func (d *projectStopSessionDriver) StopSessionVM(context.Context, *domain.Session) error {
+func (d *projectStopSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
 	d.stopCount++
 	return nil
 }
@@ -329,11 +329,11 @@ type projectStopSessionStreams struct {
 	eventCount   int
 }
 
-func (s *projectStopSessionStreams) PublishSessionUpdated(*domain.SessionSummary) {
+func (s *projectStopSessionStreams) PublishSessionUpdated(*domain.SandboxSummary) {
 	s.updatedCount++
 }
 
-func (s *projectStopSessionStreams) PublishEventAdded(string, domain.SessionEvent) {
+func (s *projectStopSessionStreams) PublishEventAdded(string, domain.SandboxEvent) {
 	s.eventCount++
 }
 

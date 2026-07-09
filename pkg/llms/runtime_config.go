@@ -12,7 +12,7 @@ import (
 	domain "agent-compose/pkg/model"
 )
 
-func WriteCodexRuntimeConfig(session *domain.Session, model, baseURL, wireAPI string) error {
+func WriteCodexRuntimeConfig(session *domain.Sandbox, model, baseURL, wireAPI string) error {
 	if session == nil {
 		return nil
 	}
@@ -55,7 +55,7 @@ persistence = "save-all"
 	return nil
 }
 
-func WriteOpenCodeRuntimeConfig(session *domain.Session, providerID, model, baseURL string) error {
+func WriteOpenCodeRuntimeConfig(session *domain.Sandbox, providerID, model, baseURL string) error {
 	if session == nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func WriteOpenCodeRuntimeConfig(session *domain.Session, providerID, model, base
 	return nil
 }
 
-func WriteOpenCodeAnthropicRuntimeConfig(session *domain.Session, model, baseURL string) error {
+func WriteOpenCodeAnthropicRuntimeConfig(session *domain.Sandbox, model, baseURL string) error {
 	if session == nil {
 		return nil
 	}
@@ -144,7 +144,7 @@ func GuestOpenCodeConfigPath(config *appconfig.Config) string {
 	return filepath.Join(config.GuestHomePath, ".config", "opencode", "opencode.json")
 }
 
-func GuestRuntimeBaseURL(config *appconfig.Config, session *domain.Session) string {
+func GuestRuntimeBaseURL(config *appconfig.Config, session *domain.Sandbox) string {
 	if config == nil {
 		return ""
 	}
@@ -172,11 +172,11 @@ func GuestRuntimeBaseURL(config *appconfig.Config, session *domain.Session) stri
 	return "http://" + host + ":" + port
 }
 
-func LookupRuntimeBaseURLEnv(session *domain.Session) string {
+func LookupRuntimeBaseURLEnv(session *domain.Sandbox) string {
 	if session == nil {
 		return ""
 	}
-	for _, items := range [][]domain.SessionEnvVar{session.ProviderEnvItems, session.RuntimeEnvItems, session.EnvItems} {
+	for _, items := range [][]domain.SandboxEnvVar{session.ProviderEnvItems, session.RuntimeEnvItems, session.EnvItems} {
 		if value := EnvItemValue(items, RuntimeBaseURLEnvName); strings.TrimSpace(value) != "" {
 			return value
 		}

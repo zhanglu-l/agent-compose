@@ -19,7 +19,7 @@ import (
 )
 
 type (
-	SessionEnvVar          = domain.SessionEnvVar
+	SessionEnvVar          = domain.SandboxEnvVar
 	WorkspaceConfig        = domain.WorkspaceConfig
 	Loader                 = domain.Loader
 	ProjectRecord          = domain.ProjectRecord

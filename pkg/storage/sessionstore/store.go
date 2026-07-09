@@ -36,15 +36,15 @@ const (
 )
 
 type (
-	SandboxTag         = domain.SessionTag
-	SandboxEnvVar      = domain.SessionEnvVar
-	SandboxSummary     = domain.SessionSummary
-	SandboxListOptions = domain.SessionListOptions
-	SandboxListResult  = domain.SessionListResult
-	SandboxWorkspace   = domain.SessionWorkspace
-	Sandbox            = domain.Session
+	SandboxTag         = domain.SandboxTag
+	SandboxEnvVar      = domain.SandboxEnvVar
+	SandboxSummary     = domain.SandboxSummary
+	SandboxListOptions = domain.SandboxListOptions
+	SandboxListResult  = domain.SandboxListResult
+	SandboxWorkspace   = domain.SandboxWorkspace
+	Sandbox            = domain.Sandbox
 	NotebookCell       = domain.NotebookCell
-	SandboxEvent       = domain.SessionEvent
+	SandboxEvent       = domain.SandboxEvent
 	AgentRun           = domain.AgentRun
 	VMState            = domain.VMState
 	ProxyState         = domain.ProxyState
@@ -137,7 +137,7 @@ type CreateSandboxOptions struct {
 	JupyterEnabled   bool
 	JupyterGuestPort int
 	JupyterExpose    bool
-	VolumeMounts     []domain.SessionVolumeMount
+	VolumeMounts     []domain.SandboxVolumeMount
 }
 
 func (s *Store) CreateSandbox(ctx context.Context, title, baseWorkspace, driver, guestImage, workspaceID, triggerSource string, workspace *SandboxWorkspace, envItems []SandboxEnvVar, tags []SandboxTag) (*Sandbox, error) {
@@ -178,7 +178,7 @@ func (s *Store) CreateSandboxWithOptions(_ context.Context, title, baseWorkspace
 			ID:            id,
 			ShortID:       shortID,
 			Title:         strings.TrimSpace(title),
-			TriggerSource: domain.NormalizeSessionTriggerSource(triggerSource, tags),
+			TriggerSource: domain.NormalizeSandboxTriggerSource(triggerSource, tags),
 			Driver:        driver,
 			VMStatus:      VMStatusPending,
 			GuestImage:    guestImage,
@@ -193,7 +193,7 @@ func (s *Store) CreateSandboxWithOptions(_ context.Context, title, baseWorkspace
 		WorkspaceID:   strings.TrimSpace(workspaceID),
 		Workspace:     cloneSandboxWorkspace(workspace),
 		EnvItems:      append([]SandboxEnvVar(nil), envItems...),
-		VolumeMounts:  domain.NormalizeSessionVolumeMounts(options.VolumeMounts),
+		VolumeMounts:  domain.NormalizeSandboxVolumeMounts(options.VolumeMounts),
 	}
 
 	if session.Summary.Title == "" {
@@ -273,7 +273,7 @@ func (s *Store) ListSandboxes(_ context.Context, options SandboxListOptions) (Sa
 			continue
 		}
 		s.hydrateSandboxGuestImage(session)
-		if !domain.SessionMatchesListOptions(session, options) {
+		if !domain.SandboxMatchesListOptions(session, options) {
 			continue
 		}
 		sessions = append(sessions, session)
@@ -282,10 +282,10 @@ func (s *Store) ListSandboxes(_ context.Context, options SandboxListOptions) (Sa
 		return sessions[i].Summary.UpdatedAt.After(sessions[j].Summary.UpdatedAt)
 	})
 	totalCount := len(sessions)
-	offset, limit := domain.NormalizeSessionListBounds(options.Offset, options.Limit)
-	page := domain.PaginateSessions(sessions, offset, limit)
+	offset, limit := domain.NormalizeSandboxListBounds(options.Offset, options.Limit)
+	page := domain.PaginateSandboxes(sessions, offset, limit)
 	result := SandboxListResult{
-		Sessions:   page,
+		Sandboxes:  page,
 		TotalCount: totalCount,
 		HasMore:    offset+len(page) < totalCount,
 		NextOffset: offset + len(page),
@@ -363,17 +363,17 @@ func (s *Store) ListCells(_ context.Context, id string) ([]NotebookCell, error) 
 
 func (s *Store) AddAgentRun(_ context.Context, sessionID string, run AgentRun) error {
 	cell := NotebookCell{
-		ID:             run.ID,
-		Type:           CellTypeAgent,
-		Source:         run.Message,
-		Output:         run.Output,
-		ExitCode:       run.ExitCode,
-		Success:        run.Success,
-		Running:        run.Running,
-		CreatedAt:      run.CreatedAt,
-		Agent:          run.Agent,
-		AgentSessionID: run.AgentSessionID,
-		StopReason:     run.StopReason,
+		ID:            run.ID,
+		Type:          CellTypeAgent,
+		Source:        run.Message,
+		Output:        run.Output,
+		ExitCode:      run.ExitCode,
+		Success:       run.Success,
+		Running:       run.Running,
+		CreatedAt:     run.CreatedAt,
+		Agent:         run.Agent,
+		AgentThreadID: run.AgentThreadID,
+		StopReason:    run.StopReason,
 	}
 	session, err := s.loadSandbox(sessionID)
 	if err != nil {
@@ -518,7 +518,7 @@ func (s *Store) loadSandbox(id string) (*Sandbox, error) {
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("decode session metadata %s: %w", id, err)
 	}
-	session.Summary.TriggerSource = domain.NormalizeSessionTriggerSource(session.Summary.TriggerSource, session.Summary.Tags)
+	session.Summary.TriggerSource = domain.NormalizeSandboxTriggerSource(session.Summary.TriggerSource, session.Summary.Tags)
 	if strings.TrimSpace(session.Summary.ShortID) == "" {
 		session.Summary.ShortID = identity.ShortID(session.Summary.ID)
 	}
@@ -703,16 +703,16 @@ func (s *Store) mergeLegacyAgentRuns(id string, cells []NotebookCell) ([]Noteboo
 			continue
 		}
 		merged = append(merged, NotebookCell{
-			ID:             run.ID,
-			Type:           CellTypeAgent,
-			Source:         run.Message,
-			Output:         run.Output,
-			ExitCode:       run.ExitCode,
-			Success:        run.Success,
-			CreatedAt:      run.CreatedAt,
-			Agent:          run.Agent,
-			AgentSessionID: run.AgentSessionID,
-			StopReason:     run.StopReason,
+			ID:            run.ID,
+			Type:          CellTypeAgent,
+			Source:        run.Message,
+			Output:        run.Output,
+			ExitCode:      run.ExitCode,
+			Success:       run.Success,
+			CreatedAt:     run.CreatedAt,
+			Agent:         run.Agent,
+			AgentThreadID: run.AgentThreadID,
+			StopReason:    run.StopReason,
 		})
 		changed = true
 	}

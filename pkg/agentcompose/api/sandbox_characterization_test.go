@@ -17,7 +17,7 @@ func TestV2SandboxRemoveUsesSandboxIDAndSessionCompatibilityDelegate(t *testing.
 	sandboxID := identity.NewID(identity.ResourceSandbox, "characterization", "remove")
 	delegate := &characterizationSessionDelegate{}
 	store := &characterizationSandboxStore{
-		session: &domain.Session{Summary: domain.SessionSummary{ID: sandboxID, VMStatus: domain.VMStatusRunning}},
+		session: &domain.Sandbox{Summary: domain.SandboxSummary{ID: sandboxID, VMStatus: domain.VMStatusRunning}},
 	}
 	dashboard := &characterizationDashboard{}
 	handler := NewSandboxHandler(delegate, store, dashboard)
@@ -46,7 +46,7 @@ func TestV2SandboxRemoveUsesSandboxIDAndSessionCompatibilityDelegate(t *testing.
 func TestV2SandboxRemoveRejectsRunningWithoutForce(t *testing.T) {
 	sandboxID := identity.NewID(identity.ResourceSandbox, "characterization", "running")
 	store := &characterizationSandboxStore{
-		session: &domain.Session{Summary: domain.SessionSummary{ID: sandboxID, VMStatus: domain.VMStatusRunning}},
+		session: &domain.Sandbox{Summary: domain.SandboxSummary{ID: sandboxID, VMStatus: domain.VMStatusRunning}},
 	}
 	handler := NewSandboxHandler(&characterizationSessionDelegate{}, store, nil)
 
@@ -77,7 +77,7 @@ func TestV2SandboxRemoveValidationAndStoreErrors(t *testing.T) {
 	removeErr := errors.New("remove failed")
 	removeID := identity.NewID(identity.ResourceSandbox, "characterization", "remove-error")
 	failing := NewSandboxHandler(&characterizationSessionDelegate{}, &characterizationSandboxStore{
-		session:   &domain.Session{Summary: domain.SessionSummary{ID: removeID, VMStatus: domain.VMStatusStopped}},
+		session:   &domain.Sandbox{Summary: domain.SandboxSummary{ID: removeID, VMStatus: domain.VMStatusStopped}},
 		removeErr: removeErr,
 	}, nil)
 	if _, err := failing.RemoveSandbox(context.Background(), connect.NewRequest(&agentcomposev2.RemoveSandboxRequest{SandboxId: removeID})); connect.CodeOf(err) != connect.CodeInternal {
@@ -107,14 +107,14 @@ func (d *characterizationSessionDelegate) GetSessionProxy(context.Context, *conn
 }
 
 type characterizationSandboxStore struct {
-	session   *domain.Session
+	session   *domain.Sandbox
 	getID     string
 	removeID  string
 	getErr    error
 	removeErr error
 }
 
-func (s *characterizationSandboxStore) GetSandbox(_ context.Context, id string) (*domain.Session, error) {
+func (s *characterizationSandboxStore) GetSandbox(_ context.Context, id string) (*domain.Sandbox, error) {
 	s.getID = id
 	if s.getErr != nil {
 		return nil, s.getErr

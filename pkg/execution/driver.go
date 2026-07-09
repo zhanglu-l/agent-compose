@@ -5,7 +5,7 @@ import (
 	domain "agent-compose/pkg/model"
 )
 
-func ToDriverSession(session *domain.Session) *driverpkg.Session {
+func ToDriverSession(session *domain.Sandbox) *driverpkg.Session {
 	if session == nil {
 		return nil
 	}
@@ -101,8 +101,8 @@ func ToDriverExecSpec(spec domain.ExecSpec) driverpkg.ExecSpec {
 	}
 }
 
-func FromDriverSessionVMInfo(info driverpkg.SessionVMInfo) domain.SessionVMInfo {
-	result := domain.SessionVMInfo{BoxID: info.BoxID, JupyterURL: info.JupyterURL}
+func FromDriverSessionVMInfo(info driverpkg.SessionVMInfo) domain.SandboxVMInfo {
+	result := domain.SandboxVMInfo{BoxID: info.BoxID, JupyterURL: info.JupyterURL}
 	if info.ProxyState != nil {
 		proxyState := FromDriverProxyState(*info.ProxyState)
 		result.ProxyState = &proxyState

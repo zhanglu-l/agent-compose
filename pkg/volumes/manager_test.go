@@ -173,7 +173,7 @@ func TestManagerResolveNamedVolumeMultipleTargetsNestedAndReadOnly(t *testing.T)
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %#v", warnings)
 	}
-	got := map[string]domain.SessionVolumeMount{}
+	got := map[string]domain.SandboxVolumeMount{}
 	for _, mount := range mounts {
 		got[mount.Target] = mount
 		if !strings.HasPrefix(mount.ID, "mount-") || len(mount.ID) != len("mount-")+24 {
@@ -377,9 +377,9 @@ func TestManagerRemoveRejectsActiveSessionVolumeReferences(t *testing.T) {
 		t.Fatalf("CreateVolume: %v", err)
 	}
 	manager := NewManager(store, LocalDriver{DataRoot: t.TempDir()})
-	manager.Sessions = &fakeSessionStore{sessions: []*domain.Session{{
-		Summary: domain.SessionSummary{ID: "session-1", Title: "using cache"},
-		VolumeMounts: []domain.SessionVolumeMount{{
+	manager.Sessions = &fakeSessionStore{sessions: []*domain.Sandbox{{
+		Summary: domain.SandboxSummary{ID: "session-1", Title: "using cache"},
+		VolumeMounts: []domain.SandboxVolumeMount{{
 			ID:       "mount-cache",
 			Type:     domain.VolumeMountTypeVolume,
 			Source:   "cache",
@@ -452,11 +452,11 @@ func TestManagerFindSessionReferencesUsesPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
-	sessions := make([]*domain.Session, 0, 501)
+	sessions := make([]*domain.Sandbox, 0, 501)
 	for i := range 501 {
-		session := &domain.Session{Summary: domain.SessionSummary{ID: fmt.Sprintf("session-%d", i)}}
+		session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: fmt.Sprintf("session-%d", i)}}
 		if i == 500 {
-			session.VolumeMounts = []domain.SessionVolumeMount{{VolumeID: record.ID, Target: "/cache"}}
+			session.VolumeMounts = []domain.SandboxVolumeMount{{VolumeID: record.ID, Target: "/cache"}}
 		}
 		sessions = append(sessions, session)
 	}
@@ -516,15 +516,15 @@ func (d fakeDriver) ResolveMountSource(_ context.Context, record domain.VolumeRe
 }
 
 type fakeSessionStore struct {
-	sessions []*domain.Session
-	options  []domain.SessionListOptions
+	sessions []*domain.Sandbox
+	options  []domain.SandboxListOptions
 	err      error
 }
 
-func (s *fakeSessionStore) ListSandboxes(_ context.Context, options domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s *fakeSessionStore) ListSandboxes(_ context.Context, options domain.SandboxListOptions) (domain.SandboxListResult, error) {
 	s.options = append(s.options, options)
 	if s.err != nil {
-		return domain.SessionListResult{}, s.err
+		return domain.SandboxListResult{}, s.err
 	}
 	offset := options.Offset
 	if offset < 0 {
@@ -541,8 +541,8 @@ func (s *fakeSessionStore) ListSandboxes(_ context.Context, options domain.Sessi
 	if end > len(s.sessions) {
 		end = len(s.sessions)
 	}
-	return domain.SessionListResult{
-		Sessions:   append([]*domain.Session(nil), s.sessions[offset:end]...),
+	return domain.SandboxListResult{
+		Sandboxes:  append([]*domain.Sandbox(nil), s.sessions[offset:end]...),
 		TotalCount: len(s.sessions),
 		HasMore:    end < len(s.sessions),
 		NextOffset: end,

@@ -14,7 +14,7 @@ import (
 const OverviewPageSize = 20
 
 type SessionStore interface {
-	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error)
 }
 
 type LoaderRunStore interface {
@@ -43,7 +43,7 @@ func (a *Aggregator) SetClock(clock func() time.Time) {
 }
 
 func (a *Aggregator) Build(ctx context.Context) (*agentcomposev1.DashboardOverview, error) {
-	sessions, err := a.store.ListSandboxes(ctx, domain.SessionListOptions{Limit: OverviewPageSize})
+	sessions, err := a.store.ListSandboxes(ctx, domain.SandboxListOptions{Limit: OverviewPageSize})
 	if err != nil {
 		return nil, err
 	}
@@ -60,8 +60,8 @@ func (a *Aggregator) Build(ctx context.Context) (*agentcomposev1.DashboardOvervi
 		Runs:      &agentcomposev1.RunOverview{},
 		UpdatedAt: now().Format(time.RFC3339Nano),
 	}
-	overview.Runs.RecentCount = uint32(len(sessions.Sessions) + len(runs))
-	for _, session := range sessions.Sessions {
+	overview.Runs.RecentCount = uint32(len(sessions.Sandboxes) + len(runs))
+	for _, session := range sessions.Sandboxes {
 		status := ""
 		if session != nil {
 			status = session.Summary.VMStatus

@@ -142,12 +142,12 @@ func (s *LoaderHandler) UpdateLoader(ctx context.Context, req *connect.Request[a
 	return connect.NewResponse(&agentcomposev1.LoaderResponse{Loader: LoaderDetailToProto(item)}), nil
 }
 
-func (s *LoaderHandler) preserveUnchangedLoaderEnvSecrets(ctx context.Context, loaderID string, items []domain.SessionEnvVar) ([]domain.SessionEnvVar, error) {
+func (s *LoaderHandler) preserveUnchangedLoaderEnvSecrets(ctx context.Context, loaderID string, items []domain.SandboxEnvVar) ([]domain.SandboxEnvVar, error) {
 	existing, err := s.store.GetLoader(ctx, loaderID)
 	if err != nil {
 		return nil, loaderServiceConnectError(err)
 	}
-	existingByName := make(map[string]domain.SessionEnvVar, len(existing.EnvItems))
+	existingByName := make(map[string]domain.SandboxEnvVar, len(existing.EnvItems))
 	for _, item := range existing.EnvItems {
 		name := strings.TrimSpace(item.Name)
 		if name != "" {
@@ -278,13 +278,13 @@ func isLoaderInternalError(err error) bool {
 		errors.Is(err, os.ErrNotExist)
 }
 
-func protoEnvItemsToModel(items []*agentcomposev1.SessionEnvVar) []domain.SessionEnvVar {
+func protoEnvItemsToModel(items []*agentcomposev1.SessionEnvVar) []domain.SandboxEnvVar {
 	if len(items) == 0 {
 		return nil
 	}
-	result := make([]domain.SessionEnvVar, 0, len(items))
+	result := make([]domain.SandboxEnvVar, 0, len(items))
 	for _, item := range items {
-		result = append(result, domain.SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
+		result = append(result, domain.SandboxEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
 	}
 	return domain.NormalizeEnvItems(result)
 }

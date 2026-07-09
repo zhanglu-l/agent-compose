@@ -32,8 +32,8 @@ func (h *coverageEngineHost) Agent(_ context.Context, _ string, request domain.L
 		text = `{"summary":"ok","risk":"low"}`
 	}
 	return domain.LoaderAgentResult{
-		Text: text, Output: text, FinalText: text, SessionID: "agent-session", CellID: "agent-cell",
-		Agent: firstNonEmptyTest(request.Agent, "codex"), AgentSessionID: "agent-runtime-session", StopReason: "completed", Success: true,
+		Text: text, Output: text, FinalText: text, SandboxID: "agent-session", CellID: "agent-cell",
+		Agent: firstNonEmptyTest(request.Agent, "codex"), AgentThreadID: "agent-runtime-session", StopReason: "completed", Success: true,
 	}, nil
 }
 
@@ -48,7 +48,7 @@ func (h *coverageEngineHost) LLM(_ context.Context, _ string, request domain.Loa
 
 func (h *coverageEngineHost) Command(_ context.Context, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error) {
 	h.commandCalls = append(h.commandCalls, request)
-	return domain.LoaderCommandResult{Stdout: "command-output", Output: "command-output", ExitCode: 0, Success: true, SessionID: "command-session", CellID: "command-cell", Artifacts: map[string]string{"stdout": "/tmp/stdout.txt"}}, nil
+	return domain.LoaderCommandResult{Stdout: "command-output", Output: "command-output", ExitCode: 0, Success: true, SandboxID: "command-session", CellID: "command-cell", Artifacts: map[string]string{"stdout": "/tmp/stdout.txt"}}, nil
 }
 
 func (h *coverageEngineHost) StateGet(_ context.Context, key string) (string, bool, error) {
@@ -173,7 +173,7 @@ function main(payload) {
 	if host.agentCalls[0].Driver != driverpkg.RuntimeDriverMicrosandbox || host.commandCalls[0].Mode != "exec" || host.commandCalls[1].Mode != "shell" {
 		t.Fatalf("unexpected request mappings: agent=%#v commands=%#v", host.agentCalls[0], host.commandCalls)
 	}
-	if host.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SessionEnvMap(host.agentCalls[0].SessionEnv)["REQUEST_ONLY"] != "request" {
+	if host.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SandboxEnvMap(host.agentCalls[0].SessionEnv)["REQUEST_ONLY"] != "request" {
 		t.Fatalf("deprecated scheduler.agent session aliases mapped to %#v", host.agentCalls[0])
 	}
 	if host.commandCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew {
@@ -227,10 +227,10 @@ function main() {
 	if err != nil {
 		t.Fatalf("deprecated alias characterization execute returned error: %v", err)
 	}
-	if len(aliasHost.agentCalls) != 1 || aliasHost.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SessionEnvMap(aliasHost.agentCalls[0].SessionEnv)["FROM_SNAKE"] != "yes" {
+	if len(aliasHost.agentCalls) != 1 || aliasHost.agentCalls[0].SessionPolicy != domain.LoaderSessionPolicyNew || domain.SandboxEnvMap(aliasHost.agentCalls[0].SessionEnv)["FROM_SNAKE"] != "yes" {
 		t.Fatalf("scheduler.agent deprecated alias mapping = %#v", aliasHost.agentCalls)
 	}
-	if len(aliasHost.commandCalls) != 1 || aliasHost.commandCalls[0].SessionPolicy != domain.LoaderSessionPolicySticky || domain.SessionEnvMap(aliasHost.commandCalls[0].SessionEnv)["FROM_CAMEL"] != "yes" {
+	if len(aliasHost.commandCalls) != 1 || aliasHost.commandCalls[0].SessionPolicy != domain.LoaderSessionPolicySticky || domain.SandboxEnvMap(aliasHost.commandCalls[0].SessionEnv)["FROM_CAMEL"] != "yes" {
 		t.Fatalf("scheduler.exec deprecated alias mapping = %#v", aliasHost.commandCalls)
 	}
 
@@ -368,7 +368,7 @@ func TestLoaderSessionEnvDecodingEdgeBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loaderSessionEnvItems map returned error: %v", err)
 	}
-	env := domain.SessionEnvMap(items)
+	env := domain.SandboxEnvMap(items)
 	if env["BOOL"] != "true" || env["FLOAT"] != "12.5" || env["OPENAI_API_KEY"] != "secret" || env["NUMBER_SECRET"] != "7" {
 		t.Fatalf("env map = %#v items=%#v", env, items)
 	}
@@ -387,7 +387,7 @@ func TestLoaderSessionEnvDecodingEdgeBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loaderSessionEnvItems array returned error: %v", err)
 	}
-	arrayEnv := domain.SessionEnvMap(arrayItems)
+	arrayEnv := domain.SandboxEnvMap(arrayItems)
 	if arrayEnv["A"] != "" || arrayEnv["B"] != "false" || arrayEnv["C_TOKEN"] != "nested" || !findEnvSecretForTest(arrayItems, "C_TOKEN") {
 		t.Fatalf("array env = %#v items=%#v", arrayEnv, arrayItems)
 	}
@@ -422,7 +422,7 @@ func TestLoaderSessionEnvDecodingEdgeBranches(t *testing.T) {
 	}
 }
 
-func findEnvSecretForTest(items []domain.SessionEnvVar, name string) bool {
+func findEnvSecretForTest(items []domain.SandboxEnvVar, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
 			return item.Secret

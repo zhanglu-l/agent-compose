@@ -21,7 +21,7 @@ type RuntimeLLMTokenStore interface {
 }
 
 type RuntimeLLMSessionStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 }
 
 type RuntimeLLMTargetResolver func(ctx context.Context, requestedModel, providerID string) (llms.ResolvedTarget, error)

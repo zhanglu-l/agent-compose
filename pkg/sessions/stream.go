@@ -25,9 +25,9 @@ const (
 type WatchEvent struct {
 	SessionID string
 	EventType WatchEventType
-	Session   *domain.SessionSummary
+	Session   *domain.SandboxSummary
 	Cell      *domain.NotebookCell
-	Event     *domain.SessionEvent
+	Event     *domain.SandboxEvent
 	CellID    string
 	Chunk     string
 	Stream    domain.StdioStream
@@ -81,7 +81,7 @@ func (b *StreamBroker) Subscribe(sessionID string) (<-chan WatchEvent, func()) {
 	}
 }
 
-func (b *StreamBroker) PublishSessionUpdated(summary *domain.SessionSummary) {
+func (b *StreamBroker) PublishSessionUpdated(summary *domain.SandboxSummary) {
 	if summary == nil {
 		return
 	}
@@ -118,7 +118,7 @@ func (b *StreamBroker) PublishCellCompleted(sessionID string, cell domain.Notebo
 	})
 }
 
-func (b *StreamBroker) PublishEventAdded(sessionID string, event domain.SessionEvent) {
+func (b *StreamBroker) PublishEventAdded(sessionID string, event domain.SandboxEvent) {
 	b.publish(WatchEvent{
 		SessionID: strings.TrimSpace(sessionID),
 		EventType: WatchEventTypeEventAdded,
@@ -140,13 +140,13 @@ func (b *StreamBroker) publish(event WatchEvent) {
 	}
 }
 
-func cloneSessionSummary(summary *domain.SessionSummary) *domain.SessionSummary {
+func cloneSessionSummary(summary *domain.SandboxSummary) *domain.SandboxSummary {
 	if summary == nil {
 		return nil
 	}
 	cloned := *summary
 	if len(summary.Tags) > 0 {
-		cloned.Tags = append([]domain.SessionTag(nil), summary.Tags...)
+		cloned.Tags = append([]domain.SandboxTag(nil), summary.Tags...)
 	}
 	return &cloned
 }
@@ -158,15 +158,15 @@ func cloneNotebookCell(cell *domain.NotebookCell) *domain.NotebookCell {
 	cloned := *cell
 	if cell.AgentResume != nil {
 		resume := *cell.AgentResume
-		if len(cell.AgentResume.SessionJSONLPaths) > 0 {
-			resume.SessionJSONLPaths = append([]string(nil), cell.AgentResume.SessionJSONLPaths...)
+		if len(cell.AgentResume.ThreadJSONLPaths) > 0 {
+			resume.ThreadJSONLPaths = append([]string(nil), cell.AgentResume.ThreadJSONLPaths...)
 		}
 		cloned.AgentResume = &resume
 	}
 	return &cloned
 }
 
-func cloneSessionEvent(event *domain.SessionEvent) *domain.SessionEvent {
+func cloneSessionEvent(event *domain.SandboxEvent) *domain.SandboxEvent {
 	if event == nil {
 		return nil
 	}

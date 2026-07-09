@@ -26,7 +26,7 @@ import (
 )
 
 type LoaderVolumeResolver interface {
-	ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SessionVolumeMount, []string, error)
+	ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SandboxVolumeMount, []string, error)
 }
 
 type LoaderSessionRunner struct {
@@ -67,7 +67,7 @@ func (r *LoaderSessionRunner) Shutdown(ctx context.Context, sessionID string) er
 	if r.Streams != nil {
 		r.Streams.PublishSessionUpdated(&session.Summary)
 	}
-	event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}
+	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}
 	_ = r.Store.AddEvent(stopCtx, session.Summary.ID, event)
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
@@ -80,7 +80,7 @@ func (r *LoaderSessionRunner) Shutdown(ctx context.Context, sessionID string) er
 	return nil
 }
 
-func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, titleOverridesSession bool) (*domain.Session, string, error) {
+func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, titleOverridesSession bool) (*domain.Sandbox, string, error) {
 	agentDefinition, err := r.ResolveLoaderAgentDefinition(ctx, loader)
 	if err != nil {
 		return nil, "", err
@@ -116,7 +116,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	envItems = llms.FilterPersistedRuntimeEnv(envItems)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySessionVars(capabilities.ProxyTarget(r.Cap), loader.Summary.CapsetIDs)
 	envItems = domain.MergeEnvItems(envItems, capabilityVars)
-	tags := []domain.SessionTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: loader.Summary.ID}, {Name: "loader_name", Value: loader.Summary.Name}}
+	tags := []domain.SandboxTag{{Name: "origin", Value: "loader"}, {Name: "loader_id", Value: loader.Summary.ID}, {Name: "loader_name", Value: loader.Summary.Name}}
 	tags = append(tags, capabilityTags...)
 
 	workspaceID := r.workspaceID(loader, request, agentDefinition)
@@ -137,7 +137,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if err != nil {
 		return nil, "", err
 	}
-	session, err := r.Store.CreateSandboxWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SessionTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSandboxOptions{
+	session, err := r.Store.CreateSandboxWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SandboxTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSandboxOptions{
 		JupyterEnabled: request.JupyterEnabled,
 		VolumeMounts:   volumeMounts,
 	})
@@ -170,7 +170,7 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if r.Streams != nil {
 		r.Streams.PublishSessionUpdated(&session.Summary)
 	}
-	event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.created", Level: "info", Message: fmt.Sprintf("session started with %s driver using guest image %s", session.Summary.Driver, session.Summary.GuestImage), CreatedAt: time.Now().UTC()}
+	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.created", Level: "info", Message: fmt.Sprintf("session started with %s driver using guest image %s", session.Summary.Driver, session.Summary.GuestImage), CreatedAt: time.Now().UTC()}
 	_ = r.Store.AddEvent(ctx, session.Summary.ID, event)
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
@@ -182,9 +182,9 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if err != nil {
 		return nil, "", err
 	}
-	domain.RestoreSessionTransientFields(loaded, session)
+	domain.RestoreSandboxTransientFields(loaded, session)
 	r.publish("agent-compose.session.created", map[string]any{
-		"sessionId":     loaded.Summary.ID,
+		"sandboxId":     loaded.Summary.ID,
 		"title":         loaded.Summary.Title,
 		"driver":        loaded.Summary.Driver,
 		"triggerSource": loaded.Summary.TriggerSource,
@@ -194,11 +194,11 @@ func (r *LoaderSessionRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	return loaded, "loader.session.created", nil
 }
 
-func (r *LoaderSessionRunner) Load(ctx context.Context, sessionID string) (*domain.Session, error) {
+func (r *LoaderSessionRunner) Load(ctx context.Context, sessionID string) (*domain.Sandbox, error) {
 	return r.Store.GetSandbox(ctx, sessionID)
 }
 
-func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string) (*domain.Session, string, error) {
+func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string) (*domain.Sandbox, string, error) {
 	session, err := r.Store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		return nil, "", err
@@ -220,7 +220,7 @@ func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string
 	if r.Streams != nil {
 		r.Streams.PublishSessionUpdated(&session.Summary)
 	}
-	event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.resumed", Level: "info", Message: fmt.Sprintf("session resumed with %s driver using guest image %s", session.Summary.Driver, session.Summary.GuestImage), CreatedAt: time.Now().UTC()}
+	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.resumed", Level: "info", Message: fmt.Sprintf("session resumed with %s driver using guest image %s", session.Summary.Driver, session.Summary.GuestImage), CreatedAt: time.Now().UTC()}
 	_ = r.Store.AddEvent(ctx, session.Summary.ID, event)
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
@@ -229,9 +229,9 @@ func (r *LoaderSessionRunner) LoadOrResume(ctx context.Context, sessionID string
 	if err != nil {
 		return nil, "", err
 	}
-	domain.RestoreSessionTransientFields(loaded, session)
+	domain.RestoreSandboxTransientFields(loaded, session)
 	r.publish("agent-compose.session.resumed", map[string]any{
-		"sessionId": loaded.Summary.ID,
+		"sandboxId": loaded.Summary.ID,
 		"title":     loaded.Summary.Title,
 		"driver":    loaded.Summary.Driver,
 		"source":    "loader",
@@ -262,7 +262,7 @@ func (r *LoaderSessionRunner) workspaceID(loader domain.Loader, request domain.L
 	return workspaceID
 }
 
-func (r *LoaderSessionRunner) workspaceSnapshot(ctx context.Context, workspaceID string) (*domain.SessionWorkspace, error) {
+func (r *LoaderSessionRunner) workspaceSnapshot(ctx context.Context, workspaceID string) (*domain.SandboxWorkspace, error) {
 	if workspaceID == "" {
 		return nil, nil
 	}
@@ -289,7 +289,7 @@ func (r *LoaderSessionRunner) guestImage(request domain.LoaderAgentRequest, load
 	return driverpkg.ResolveSessionGuestImage(request.GuestImage, loader.Summary.GuestImage, agentGuestImage, driverpkg.DefaultGuestImageForDriver(r.Config, driver))
 }
 
-func (r *LoaderSessionRunner) resolveVolumeMounts(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, agentDefinition *domain.AgentDefinition) ([]domain.SessionVolumeMount, []string, error) {
+func (r *LoaderSessionRunner) resolveVolumeMounts(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, agentDefinition *domain.AgentDefinition) ([]domain.SandboxVolumeMount, []string, error) {
 	specs, err := mergeLoaderVolumeMountSpecs(agentDefinitionVolumes(agentDefinition), loader.Volumes, request.Volumes)
 	if err != nil {
 		return nil, nil, err
@@ -389,7 +389,7 @@ func (r *LoaderSessionRunner) recordVolumeWarnings(ctx context.Context, sessionI
 		return
 	}
 	for _, warning := range warnings {
-		event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.volume.warning", Level: "warn", Message: warning, CreatedAt: time.Now().UTC()}
+		event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.volume.warning", Level: "warn", Message: warning, CreatedAt: time.Now().UTC()}
 		_ = r.Store.AddEvent(ctx, sessionID, event)
 		if r.Streams != nil {
 			r.Streams.PublishEventAdded(sessionID, event)

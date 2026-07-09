@@ -154,11 +154,11 @@ func TestStopProjectSessionCoverage(t *testing.T) {
 	if err := stopProjectSession(ctx, nil, nil, nil, nil); err != nil {
 		t.Fatalf("stopProjectSession nil session err=%v", err)
 	}
-	session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1"}}
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1"}}
 	if err := stopProjectSession(ctx, nil, nil, nil, session); err == nil {
 		t.Fatalf("stopProjectSession nil store returned nil error")
 	}
-	store := &projectSessionStoreFake{session: &domain.Session{Summary: domain.SessionSummary{ID: "session-1", VMStatus: domain.VMStatusStopped}}}
+	store := &projectSessionStoreFake{session: &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", VMStatus: domain.VMStatusStopped}}}
 	if err := stopProjectSession(ctx, store, nil, nil, session); err != nil || store.updated {
 		t.Fatalf("stopProjectSession stopped err=%v updated=%v", err, store.updated)
 	}
@@ -218,12 +218,12 @@ func TestE2EAppControllerHelperCoverage(t *testing.T) {
 }
 
 type projectSessionStoreFake struct {
-	session *domain.Session
+	session *domain.Sandbox
 	updated bool
-	events  []domain.SessionEvent
+	events  []domain.SandboxEvent
 }
 
-func (s *projectSessionStoreFake) GetSandbox(context.Context, string) (*domain.Session, error) {
+func (s *projectSessionStoreFake) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
 	if s.session == nil {
 		return nil, sql.ErrNoRows
 	}
@@ -231,14 +231,14 @@ func (s *projectSessionStoreFake) GetSandbox(context.Context, string) (*domain.S
 	return &copy, nil
 }
 
-func (s *projectSessionStoreFake) UpdateSandbox(_ context.Context, session *domain.Session) error {
+func (s *projectSessionStoreFake) UpdateSandbox(_ context.Context, session *domain.Sandbox) error {
 	s.updated = true
 	copy := *session
 	s.session = &copy
 	return nil
 }
 
-func (s *projectSessionStoreFake) AddEvent(_ context.Context, _ string, event domain.SessionEvent) error {
+func (s *projectSessionStoreFake) AddEvent(_ context.Context, _ string, event domain.SandboxEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -247,7 +247,7 @@ type projectSessionDriverFake struct {
 	err error
 }
 
-func (d *projectSessionDriverFake) StopSessionVM(context.Context, *domain.Session) error {
+func (d *projectSessionDriverFake) StopSessionVM(context.Context, *domain.Sandbox) error {
 	return d.err
 }
 
@@ -256,11 +256,11 @@ type projectSessionStreamsFake struct {
 	events  int
 }
 
-func (s *projectSessionStreamsFake) PublishSessionUpdated(*domain.SessionSummary) {
+func (s *projectSessionStreamsFake) PublishSessionUpdated(*domain.SandboxSummary) {
 	s.updated++
 }
 
-func (s *projectSessionStreamsFake) PublishEventAdded(string, domain.SessionEvent) {
+func (s *projectSessionStreamsFake) PublishEventAdded(string, domain.SandboxEvent) {
 	s.events++
 }
 

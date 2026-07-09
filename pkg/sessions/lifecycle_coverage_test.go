@@ -131,9 +131,9 @@ func TestJupyterTargetReachableCoverage(t *testing.T) {
 	<-accepted
 }
 
-func lifecycleTestSession(id, driver, status string) *domain.Session {
-	return &domain.Session{
-		Summary: domain.SessionSummary{
+func lifecycleTestSession(id, driver, status string) *domain.Sandbox {
+	return &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:            id,
 			Driver:        driver,
 			VMStatus:      status,
@@ -143,7 +143,7 @@ func lifecycleTestSession(id, driver, status string) *domain.Session {
 }
 
 type fakeLifecycleStore struct {
-	session    *domain.Session
+	session    *domain.Sandbox
 	vmState    domain.VMState
 	savedVM    domain.VMState
 	proxyState domain.ProxyState
@@ -151,11 +151,11 @@ type fakeLifecycleStore struct {
 	events     int
 }
 
-func (s *fakeLifecycleStore) GetSandbox(context.Context, string) (*domain.Session, error) {
+func (s *fakeLifecycleStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
 	return s.session, nil
 }
 
-func (s *fakeLifecycleStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
+func (s *fakeLifecycleStore) UpdateSandbox(_ context.Context, session *domain.Sandbox) error {
 	s.updated++
 	s.session = session
 	return nil
@@ -174,7 +174,7 @@ func (s *fakeLifecycleStore) GetProxyState(string) (domain.ProxyState, error) {
 	return s.proxyState, nil
 }
 
-func (s *fakeLifecycleStore) AddEvent(context.Context, string, domain.SessionEvent) error {
+func (s *fakeLifecycleStore) AddEvent(context.Context, string, domain.SandboxEvent) error {
 	s.events++
 	return nil
 }
@@ -185,7 +185,7 @@ type fakeRuntimeLiveness struct {
 	err   error
 }
 
-func (l fakeRuntimeLiveness) IsSessionAlive(context.Context, string, *domain.Session, domain.VMState) (bool, bool, error) {
+func (l fakeRuntimeLiveness) IsSessionAlive(context.Context, string, *domain.Sandbox, domain.VMState) (bool, bool, error) {
 	return l.alive, l.ok, l.err
 }
 
@@ -204,11 +204,11 @@ type fakeLifecycleNotifier struct {
 	dashboard string
 }
 
-func (n *fakeLifecycleNotifier) PublishSessionUpdated(*domain.SessionSummary) {
+func (n *fakeLifecycleNotifier) PublishSessionUpdated(*domain.SandboxSummary) {
 	n.updated++
 }
 
-func (n *fakeLifecycleNotifier) PublishEventAdded(string, domain.SessionEvent) {
+func (n *fakeLifecycleNotifier) PublishEventAdded(string, domain.SandboxEvent) {
 	n.events++
 }
 
@@ -221,11 +221,11 @@ type fakeSessionDriver struct {
 	stopErr  error
 }
 
-func (d fakeSessionDriver) StartSessionVM(context.Context, *domain.Session) error {
+func (d fakeSessionDriver) StartSessionVM(context.Context, *domain.Sandbox) error {
 	return d.startErr
 }
 
-func (d fakeSessionDriver) StopSessionVM(context.Context, *domain.Session) error {
+func (d fakeSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
 	return d.stopErr
 }
 
@@ -233,12 +233,12 @@ type recordingSessionDriver struct {
 	started bool
 }
 
-func (d *recordingSessionDriver) StartSessionVM(context.Context, *domain.Session) error {
+func (d *recordingSessionDriver) StartSessionVM(context.Context, *domain.Sandbox) error {
 	d.started = true
 	return nil
 }
 
-func (d *recordingSessionDriver) StopSessionVM(context.Context, *domain.Session) error {
+func (d *recordingSessionDriver) StopSessionVM(context.Context, *domain.Sandbox) error {
 	return nil
 }
 

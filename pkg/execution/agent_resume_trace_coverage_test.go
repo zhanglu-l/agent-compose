@@ -11,9 +11,9 @@ import (
 	domain "agent-compose/pkg/model"
 )
 
-func TestLoadStoredAgentSessionIDHandlesMissingInvalidAndValidFiles(t *testing.T) {
+func TestLoadStoredAgentThreadIDHandlesMissingInvalidAndValidFiles(t *testing.T) {
 	root := t.TempDir()
-	if got := LoadStoredAgentSessionID(filepath.Join(root, "missing.json")); got != "" {
+	if got := LoadStoredAgentThreadID(filepath.Join(root, "missing.json")); got != "" {
 		t.Fatalf("missing session id = %q, want empty", got)
 	}
 
@@ -21,7 +21,7 @@ func TestLoadStoredAgentSessionIDHandlesMissingInvalidAndValidFiles(t *testing.T
 	if err := os.WriteFile(invalidPath, []byte("{broken"), 0o644); err != nil {
 		t.Fatalf("write invalid state: %v", err)
 	}
-	if got := LoadStoredAgentSessionID(invalidPath); got != "" {
+	if got := LoadStoredAgentThreadID(invalidPath); got != "" {
 		t.Fatalf("invalid session id = %q, want empty", got)
 	}
 
@@ -29,7 +29,7 @@ func TestLoadStoredAgentSessionIDHandlesMissingInvalidAndValidFiles(t *testing.T
 	if err := os.WriteFile(blankPath, []byte(`{"sessionId":"   "}`), 0o644); err != nil {
 		t.Fatalf("write blank state: %v", err)
 	}
-	if got := LoadStoredAgentSessionID(blankPath); got != "" {
+	if got := LoadStoredAgentThreadID(blankPath); got != "" {
 		t.Fatalf("blank session id = %q, want empty", got)
 	}
 
@@ -37,7 +37,7 @@ func TestLoadStoredAgentSessionIDHandlesMissingInvalidAndValidFiles(t *testing.T
 	if err := os.WriteFile(validPath, []byte(`{"sessionId":"  sess-123  "}`), 0o644); err != nil {
 		t.Fatalf("write valid state: %v", err)
 	}
-	if got := LoadStoredAgentSessionID(validPath); got != "sess-123" {
+	if got := LoadStoredAgentThreadID(validPath); got != "sess-123" {
 		t.Fatalf("valid session id = %q, want sess-123", got)
 	}
 }
@@ -45,7 +45,7 @@ func TestLoadStoredAgentSessionIDHandlesMissingInvalidAndValidFiles(t *testing.T
 func TestAgentSessionJSONLSelectionAndResumeInfo(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "session")
-	session := &domain.Session{Summary: domain.SessionSummary{WorkspacePath: filepath.Join(sessionDir, "workspace")}}
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{WorkspacePath: filepath.Join(sessionDir, "workspace")}}
 
 	statePath := filepath.Join(sessionDir, "state", "agents", "providers", "codex.json")
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
@@ -100,14 +100,14 @@ func TestAgentSessionJSONLSelectionAndResumeInfo(t *testing.T) {
 	if info == nil {
 		t.Fatal("CollectAgentResumeInfo returned nil")
 	}
-	if info.Provider != "codex" || info.SessionID != "sess-1" || info.SessionStatePath != statePath || info.SessionManifestPath != "/guest/session.json" {
+	if info.Provider != "codex" || info.ThreadID != "sess-1" || info.ThreadStatePath != statePath || info.ThreadManifestPath != "/guest/session.json" {
 		t.Fatalf("resume info = %#v", info)
 	}
-	if !reflect.DeepEqual(info.SessionJSONLPaths, wantPaths) {
-		t.Fatalf("resume jsonl paths = %#v, want %#v", info.SessionJSONLPaths, wantPaths)
+	if !reflect.DeepEqual(info.ThreadJSONLPaths, wantPaths) {
+		t.Fatalf("resume jsonl paths = %#v, want %#v", info.ThreadJSONLPaths, wantPaths)
 	}
 
-	emptySession := &domain.Session{Summary: domain.SessionSummary{WorkspacePath: filepath.Join(root, "empty", "workspace")}}
+	emptySession := &domain.Sandbox{Summary: domain.SandboxSummary{WorkspacePath: filepath.Join(root, "empty", "workspace")}}
 	if got := CollectAgentResumeInfo(emptySession, "", "", ""); got != nil {
 		t.Fatalf("empty resume info = %#v, want nil", got)
 	}

@@ -23,13 +23,13 @@ type HostStore interface {
 }
 
 type HostEventRecorder interface {
-	Add(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error
-	AddRecord(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) (domain.LoaderEvent, error)
+	Add(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error
+	AddRecord(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) (domain.LoaderEvent, error)
 }
 
 type HostSessionRunner interface {
-	Ensure(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, titleOverridesSession bool) (*domain.Session, string, error)
-	Load(ctx context.Context, sessionID string) (*domain.Session, error)
+	Ensure(ctx context.Context, loader domain.Loader, request domain.LoaderAgentRequest, titleOverridesSession bool) (*domain.Sandbox, string, error)
+	Load(ctx context.Context, sessionID string) (*domain.Sandbox, error)
 	Shutdown(ctx context.Context, sessionID string) error
 }
 
@@ -48,11 +48,11 @@ type HostAgentExecutionRequest struct {
 }
 
 type HostAgentExecutor interface {
-	ExecuteAgent(ctx context.Context, session *domain.Session, request HostAgentExecutionRequest) (domain.NotebookCell, error)
+	ExecuteAgent(ctx context.Context, session *domain.Sandbox, request HostAgentExecutionRequest) (domain.NotebookCell, error)
 }
 
 type HostCommandExecutor interface {
-	ExecuteLoaderCommand(ctx context.Context, session *domain.Session, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error)
+	ExecuteLoaderCommand(ctx context.Context, session *domain.Sandbox, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error)
 }
 
 type HostProjectAgentRequest struct {
@@ -105,7 +105,7 @@ type RuntimeHost struct {
 
 	commandSessionIDs      map[string]struct{}
 	commandSessionIDOrder  []string
-	commandReusableSession *domain.Session
+	commandReusableSession *domain.Sandbox
 }
 
 func NewRuntimeHost(deps RunHostDependencies, loader domain.Loader, run *domain.LoaderRunSummary, triggerEvent TriggerEventMetadata) *RuntimeHost {
@@ -161,7 +161,7 @@ func (h *RuntimeHost) CallSessionRPC(ctx context.Context, method, requestJSON st
 	}
 	method = strings.TrimSpace(method)
 	requestJSON = strings.TrimSpace(requestJSON)
-	responseJSON, err := h.deps.SessionRPC.CallJSONWithSource(ctx, method, requestJSON, domain.SessionTypeScript+":"+h.loader.Summary.ID)
+	responseJSON, err := h.deps.SessionRPC.CallJSONWithSource(ctx, method, requestJSON, domain.SandboxTypeScript+":"+h.loader.Summary.ID)
 	linkedSessionID := h.linkedSessionID(method, requestJSON, responseJSON)
 	if err != nil {
 		event, _ := h.addLoaderEventRecord(ctx, "loader.session.rpc.failed", "error", firstHostNonEmpty(err.Error(), fmt.Sprintf("%s failed", method)), map[string]any{"method": method, "requestJson": requestJSON}, linkedSessionID, "", "")
@@ -182,7 +182,7 @@ func (h *RuntimeHost) Agent(ctx context.Context, prompt string, request domain.L
 		return domain.LoaderAgentResult{}, err
 	}
 	if eventType != "" {
-		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader session ready", map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 
 	agentConfig := execution.AgentConfig{Provider: domain.NormalizeAgentKind(request.Agent)}
@@ -222,17 +222,17 @@ func (h *RuntimeHost) Agent(ctx context.Context, prompt string, request domain.L
 		execErr = jsonErr
 	}
 	result := domain.LoaderAgentResult{
-		Text:           finalText,
-		Output:         cell.Output,
-		FinalText:      finalText,
-		JSON:           jsonValue,
-		SessionID:      session.Summary.ID,
-		CellID:         cell.ID,
-		Agent:          firstHostNonEmpty(cell.Agent, agentConfig.Provider),
-		AgentSessionID: cell.AgentSessionID,
-		StopReason:     cell.StopReason,
-		Success:        cell.Success,
-		ExitCode:       cell.ExitCode,
+		Text:          finalText,
+		Output:        cell.Output,
+		FinalText:     finalText,
+		JSON:          jsonValue,
+		SandboxID:     session.Summary.ID,
+		CellID:        cell.ID,
+		Agent:         firstHostNonEmpty(cell.Agent, agentConfig.Provider),
+		AgentThreadID: cell.AgentThreadID,
+		StopReason:    cell.StopReason,
+		Success:       cell.Success,
+		ExitCode:      cell.ExitCode,
 	}
 	level := "info"
 	eventName := "loader.agent.completed"
@@ -241,13 +241,13 @@ func (h *RuntimeHost) Agent(ctx context.Context, prompt string, request domain.L
 		eventName = "loader.agent.failed"
 		result.Text = firstHostNonEmpty(result.Text, execErr.Error())
 	}
-	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstHostNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
+	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstHostNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SandboxID, result.CellID, result.AgentThreadID)
 	h.publishAgentCompleted(result, nil)
 	if shutdownErr := h.deps.Sessions.Shutdown(ctx, session.Summary.ID); shutdownErr != nil {
 		slog.Warn("failed to stop loader session after agent run", "loader_id", h.loader.Summary.ID, "session_id", session.Summary.ID, "error", shutdownErr)
-		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", shutdownErr.Error(), map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", shutdownErr.Error(), map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
 	} else {
-		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader session stopped after agent run", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader session stopped after agent run", map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 	if execErr != nil {
 		return result, execErr
@@ -280,7 +280,7 @@ func (h *RuntimeHost) ProjectAgent(ctx context.Context, prompt string, request d
 		eventName = "loader.agent.failed"
 		result.Text = firstHostNonEmpty(result.Text, run.Error, execErrString(execErr))
 	}
-	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstHostNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SessionID, result.CellID, result.AgentSessionID)
+	_ = h.addLinkedLoaderEvent(ctx, eventName, level, firstHostNonEmpty(result.Text, fmt.Sprintf("%s completed", result.Agent)), result, result.SandboxID, result.CellID, result.AgentThreadID)
 	h.publishAgentCompleted(result, &run)
 	if execErr != nil {
 		return result, execErr
@@ -307,20 +307,20 @@ func (h *RuntimeHost) Command(ctx context.Context, request domain.LoaderCommandR
 		return domain.LoaderCommandResult{}, err
 	}
 	if eventType != "" {
-		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader command session ready", map[string]any{"sessionId": session.Summary.ID}, session.Summary.ID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, eventType, "info", "loader command session ready", map[string]any{"sandboxId": session.Summary.ID}, session.Summary.ID, "", "")
 	}
 	h.trackCommandSession(session.Summary.ID, cleanupSession)
 
 	result, err := h.deps.CommandExecutor.ExecuteLoaderCommand(ctx, session, request)
 	if err != nil {
-		_ = h.addLinkedLoaderEvent(ctx, "loader.command.failed", "error", err.Error(), CommandEventPayload(request, result), result.SessionID, result.CellID, "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.command.failed", "error", err.Error(), CommandEventPayload(request, result), result.SandboxID, result.CellID, "")
 		return result, err
 	}
 	level := "info"
 	if !result.Success {
 		level = "error"
 	}
-	_ = h.addLinkedLoaderEvent(ctx, "loader.command.completed", level, firstHostNonEmpty(result.Output, result.Stdout, result.Stderr, "loader command completed"), CommandEventPayload(request, result), result.SessionID, result.CellID, "")
+	_ = h.addLinkedLoaderEvent(ctx, "loader.command.completed", level, firstHostNonEmpty(result.Output, result.Stdout, result.Stderr, "loader command completed"), CommandEventPayload(request, result), result.SandboxID, result.CellID, "")
 	return result, nil
 }
 
@@ -344,10 +344,10 @@ func (h *RuntimeHost) CleanupCommandSessions(ctx context.Context) {
 	for _, sessionID := range sessionIDs {
 		if err := h.deps.Sessions.Shutdown(ctx, sessionID); err != nil {
 			slog.Warn("failed to stop loader command session after run", "loader_id", h.loader.Summary.ID, "session_id", sessionID, "error", err)
-			_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", err.Error(), map[string]any{"sessionId": sessionID}, sessionID, "", "")
+			_ = h.addLinkedLoaderEvent(ctx, "loader.session.stop_failed", "error", err.Error(), map[string]any{"sandboxId": sessionID}, sessionID, "", "")
 			continue
 		}
-		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader command session stopped after run", map[string]any{"sessionId": sessionID}, sessionID, "", "")
+		_ = h.addLinkedLoaderEvent(ctx, "loader.session.stopped", "info", "loader command session stopped after run", map[string]any{"sandboxId": sessionID}, sessionID, "", "")
 	}
 }
 
@@ -361,7 +361,7 @@ func (h *RuntimeHost) useProjectManagedAgentRun(request domain.LoaderAgentReques
 	return !AgentRequestOverridesSession(request, true)
 }
 
-func (h *RuntimeHost) ensureCommandSession(ctx context.Context, request domain.LoaderAgentRequest, cleanupSession bool) (*domain.Session, string, error) {
+func (h *RuntimeHost) ensureCommandSession(ctx context.Context, request domain.LoaderAgentRequest, cleanupSession bool) (*domain.Sandbox, string, error) {
 	if cleanupSession && h.commandReusableSession != nil {
 		if loaded, err := h.deps.Sessions.Load(ctx, h.commandReusableSession.Summary.ID); err == nil && loaded.Summary.VMStatus == domain.VMStatusRunning {
 			return loaded, "", nil
@@ -392,22 +392,22 @@ func (h *RuntimeHost) trackCommandSession(sessionID string, cleanup bool) {
 	h.commandSessionIDOrder = append(h.commandSessionIDOrder, sessionID)
 }
 
-func (h *RuntimeHost) addLoaderEvent(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error {
+func (h *RuntimeHost) addLoaderEvent(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error {
 	if h.deps.Events == nil {
 		return nil
 	}
-	return h.deps.Events.Add(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	return h.deps.Events.Add(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 }
 
-func (h *RuntimeHost) addLoaderEventRecord(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) (domain.LoaderEvent, error) {
+func (h *RuntimeHost) addLoaderEventRecord(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) (domain.LoaderEvent, error) {
 	if h.deps.Events == nil {
 		return domain.LoaderEvent{}, nil
 	}
-	return h.deps.Events.AddRecord(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	return h.deps.Events.AddRecord(ctx, h.loader.Summary.ID, h.run.ID, h.run.TriggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 }
 
-func (h *RuntimeHost) addLinkedLoaderEvent(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error {
-	event, err := h.addLoaderEventRecord(ctx, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+func (h *RuntimeHost) addLinkedLoaderEvent(ctx context.Context, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error {
+	event, err := h.addLoaderEventRecord(ctx, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 	if err != nil {
 		return err
 	}
@@ -438,14 +438,14 @@ func (h *RuntimeHost) publishAgentCompleted(result domain.LoaderAgentResult, pro
 		return
 	}
 	payload := map[string]any{
-		"sessionId":      result.SessionID,
-		"cellId":         result.CellID,
-		"agent":          result.Agent,
-		"agentSessionId": result.AgentSessionID,
-		"success":        result.Success,
-		"stopReason":     result.StopReason,
-		"source":         "loader",
-		"loaderId":       h.loader.Summary.ID,
+		"sandboxId":     result.SandboxID,
+		"cellId":        result.CellID,
+		"agent":         result.Agent,
+		"agentThreadId": result.AgentThreadID,
+		"success":       result.Success,
+		"stopReason":    result.StopReason,
+		"source":        "loader",
+		"loaderId":      h.loader.Summary.ID,
 	}
 	if projectRun != nil {
 		payload["loaderRunId"] = h.run.ID

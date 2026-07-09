@@ -47,7 +47,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		WorkspaceID:  workspace.ID,
 		Driver:       "boxlite",
 		GuestImage:   "guest:latest",
-		EnvItems:     []domain.SessionEnvVar{{Name: "TOKEN", Value: "secret", Secret: true}},
+		EnvItems:     []domain.SandboxEnvVar{{Name: "TOKEN", Value: "secret", Secret: true}},
 		ConfigJSON:   `{"temperature":0}`,
 		CapsetIDs:    []string{"dev"},
 		CreatedAt:    now,
@@ -73,11 +73,11 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		t.Fatalf("unexpected proto time formatting")
 	}
 
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:            "session-1",
 			Title:         "session",
-			TriggerSource: domain.SessionTypeManual,
+			TriggerSource: domain.SandboxTypeManual,
 			Driver:        "boxlite",
 			VMStatus:      domain.VMStatusRunning,
 			GuestImage:    "guest:latest",
@@ -87,11 +87,11 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 			UpdatedAt:     now,
 			CellCount:     1,
 			EventCount:    1,
-			Tags:          []domain.SessionTag{{Name: "tag", Value: "value"}},
+			Tags:          []domain.SandboxTag{{Name: "tag", Value: "value"}},
 		},
 		WorkspaceID: "workspace-1",
-		Workspace:   &domain.SessionWorkspace{ID: "workspace-1", Name: "repo", Type: "git", ConfigJSON: "{}"},
-		EnvItems:    []domain.SessionEnvVar{{Name: "SECRET", Value: "value", Secret: true}},
+		Workspace:   &domain.SandboxWorkspace{ID: "workspace-1", Name: "repo", Type: "git", ConfigJSON: "{}"},
+		EnvItems:    []domain.SandboxEnvVar{{Name: "SECRET", Value: "value", Secret: true}},
 	}
 	if detail := SessionDetailToProto(session); detail.GetSummary().GetSessionId() != "session-1" || detail.GetEnvItems()[0].GetValue() != secretRedactedValue {
 		t.Fatalf("session detail = %#v", detail)
@@ -102,7 +102,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 	if WorkspaceConfigToProto(workspace).GetId() != workspace.ID || SessionWorkspaceToProto(session.Workspace).GetId() != workspace.ID {
 		t.Fatalf("workspace proto mapping failed")
 	}
-	cell := domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeShell, Source: "echo hi", Stdout: "hi\n", Success: true, CreatedAt: now, ExitCode: 0, Agent: "codex", AgentSessionID: "agent-session"}
+	cell := domain.NotebookCell{ID: "cell-1", Type: execution.CellTypeShell, Source: "echo hi", Stdout: "hi\n", Success: true, CreatedAt: now, ExitCode: 0, Agent: "codex", AgentThreadID: "agent-session"}
 	if CellToProto(cell).GetType() != agentcomposev1.CellType_CELL_TYPE_SHELL || AgentRunToProto(cell).GetAgentSessionId() != "agent-session" {
 		t.Fatalf("cell mappings failed")
 	}
@@ -117,14 +117,14 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		{EventType: sessions.WatchEventTypeCellStarted, Cell: &cell},
 		{EventType: sessions.WatchEventTypeCellOutput, CellID: "cell-1", Chunk: "hi"},
 		{EventType: sessions.WatchEventTypeCellCompleted, Cell: &cell},
-		{EventType: sessions.WatchEventTypeEventAdded, Event: &domain.SessionEvent{ID: "event-1", Type: "test", CreatedAt: now}},
+		{EventType: sessions.WatchEventTypeEventAdded, Event: &domain.SandboxEvent{ID: "event-1", Type: "test", CreatedAt: now}},
 		{EventType: sessions.WatchEventTypeUnspecified},
 	} {
 		if WatchSessionResponseToProto(event) == nil {
 			t.Fatalf("nil watch response")
 		}
 	}
-	if SessionEventToProto(domain.SessionEvent{ID: "event-1", Type: "test", CreatedAt: now}).GetId() != "event-1" {
+	if SessionEventToProto(domain.SandboxEvent{ID: "event-1", Type: "test", CreatedAt: now}).GetId() != "event-1" {
 		t.Fatalf("session event mapping failed")
 	}
 
@@ -137,7 +137,7 @@ func TestAPIMappingCoverageWorkflows(t *testing.T) {
 		},
 		Script:   "function main(){}",
 		Triggers: []domain.LoaderTrigger{{LoaderID: "loader-1", ID: "trigger-1", Kind: domain.LoaderTriggerKindCron, Topic: "topic", IntervalMs: 1000, Enabled: true, AutoID: true, NextFireAt: now, LastFiredAt: now}},
-		EnvItems: []domain.SessionEnvVar{{Name: "LOADER_SECRET", Value: "value", Secret: true}},
+		EnvItems: []domain.SandboxEnvVar{{Name: "LOADER_SECRET", Value: "value", Secret: true}},
 	}
 	if detail := LoaderDetailToProto(loader); detail.GetSummary().GetLoaderId() != "loader-1" || detail.GetEnvItems()[0].GetValue() != secretRedactedValue {
 		t.Fatalf("loader detail = %#v", detail)
@@ -405,9 +405,9 @@ func TestAPILightweightHandlersCoverageWorkflows(t *testing.T) {
 	}
 
 	agentStore := newFakeAgentDefinitionStore()
-	agentSessions := &fakeAgentDefinitionSessionStore{sessions: []*domain.Session{
-		{Summary: domain.SessionSummary{ID: "session-running", VMStatus: domain.VMStatusRunning, Tags: []domain.SessionTag{{Name: domain.AgentSessionTagSource, Value: domain.AgentSessionTagSourceVal}, {Name: domain.AgentSessionTagID, Value: "agent-1"}}}},
-		{Summary: domain.SessionSummary{ID: "session-pending", VMStatus: domain.VMStatusPending, Tags: []domain.SessionTag{{Name: domain.AgentSessionTagSource, Value: domain.AgentSessionTagSourceVal}, {Name: domain.AgentSessionTagID, Value: "agent-1"}}}},
+	agentSessions := &fakeAgentDefinitionSessionStore{sessions: []*domain.Sandbox{
+		{Summary: domain.SandboxSummary{ID: "session-running", VMStatus: domain.VMStatusRunning, Tags: []domain.SandboxTag{{Name: domain.AgentSandboxTagSource, Value: domain.AgentSandboxTagSourceVal}, {Name: domain.AgentSandboxTagID, Value: "agent-1"}}}},
+		{Summary: domain.SandboxSummary{ID: "session-pending", VMStatus: domain.VMStatusPending, Tags: []domain.SandboxTag{{Name: domain.AgentSandboxTagSource, Value: domain.AgentSandboxTagSourceVal}, {Name: domain.AgentSandboxTagID, Value: "agent-1"}}}},
 	}}
 	agentDelegate := &fakeSessionDelegate{}
 	agentHandler := NewAgentDefinitionHandler(&appconfig.Config{RuntimeDriver: "boxlite"}, agentSessions, agentStore, agentDelegate, sessions.NewStreamBrokerForTest())
@@ -631,7 +631,7 @@ func TestE2EAPIStoreBackedHandlerWorkflows(t *testing.T) {
 type fakeCapabilityProvider struct{}
 
 type fakeConfigStore struct {
-	env             []domain.SessionEnvVar
+	env             []domain.SandboxEnvVar
 	gateway         domain.CapabilityGatewaySettings
 	workspaces      map[string]domain.WorkspaceConfig
 	lastWorkspaceID string
@@ -639,18 +639,18 @@ type fakeConfigStore struct {
 
 func newFakeConfigStore() *fakeConfigStore {
 	return &fakeConfigStore{
-		env:        []domain.SessionEnvVar{{Name: "SECRET", Value: "secret", Secret: true}},
+		env:        []domain.SandboxEnvVar{{Name: "SECRET", Value: "secret", Secret: true}},
 		gateway:    domain.CapabilityGatewaySettings{Addr: "http://octobus", Token: "token"},
 		workspaces: map[string]domain.WorkspaceConfig{},
 	}
 }
 
-func (s *fakeConfigStore) ListGlobalEnv(context.Context) ([]domain.SessionEnvVar, error) {
-	return append([]domain.SessionEnvVar(nil), s.env...), nil
+func (s *fakeConfigStore) ListGlobalEnv(context.Context) ([]domain.SandboxEnvVar, error) {
+	return append([]domain.SandboxEnvVar(nil), s.env...), nil
 }
 
-func (s *fakeConfigStore) ReplaceGlobalEnv(_ context.Context, items []domain.SessionEnvVar) ([]domain.SessionEnvVar, error) {
-	s.env = append([]domain.SessionEnvVar(nil), items...)
+func (s *fakeConfigStore) ReplaceGlobalEnv(_ context.Context, items []domain.SandboxEnvVar) ([]domain.SandboxEnvVar, error) {
+	s.env = append([]domain.SandboxEnvVar(nil), items...)
 	return s.ListGlobalEnv(context.Background())
 }
 
@@ -790,13 +790,13 @@ func (s *fakeAgentDefinitionStore) GetWorkspaceConfig(context.Context, string) (
 }
 
 type fakeAgentDefinitionSessionStore struct {
-	sessions []*domain.Session
+	sessions []*domain.Sandbox
 	updated  int
 	events   int
 }
 
-func (s *fakeAgentDefinitionSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{Sessions: s.sessions, TotalCount: len(s.sessions)}, nil
+func (s *fakeAgentDefinitionSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{Sandboxes: s.sessions, TotalCount: len(s.sessions)}, nil
 }
 
 func (s *fakeAgentDefinitionSessionStore) GetVMState(string) (domain.VMState, error) {
@@ -807,7 +807,7 @@ func (s *fakeAgentDefinitionSessionStore) SaveVMState(string, domain.VMState) er
 	return nil
 }
 
-func (s *fakeAgentDefinitionSessionStore) UpdateSandbox(_ context.Context, session *domain.Session) error {
+func (s *fakeAgentDefinitionSessionStore) UpdateSandbox(_ context.Context, session *domain.Sandbox) error {
 	s.updated++
 	for i, current := range s.sessions {
 		if current.Summary.ID == session.Summary.ID {
@@ -817,7 +817,7 @@ func (s *fakeAgentDefinitionSessionStore) UpdateSandbox(_ context.Context, sessi
 	return nil
 }
 
-func (s *fakeAgentDefinitionSessionStore) AddEvent(context.Context, string, domain.SessionEvent) error {
+func (s *fakeAgentDefinitionSessionStore) AddEvent(context.Context, string, domain.SandboxEvent) error {
 	s.events++
 	return nil
 }
@@ -863,10 +863,10 @@ func (fakeRunDelegate) RunAgentStream(context.Context, *connect.Request[agentcom
 
 type fakeDashboardSessionStore struct{}
 
-func (fakeDashboardSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{Sessions: []*domain.Session{
-		{Summary: domain.SessionSummary{ID: "session-running", VMStatus: domain.VMStatusRunning}},
-		{Summary: domain.SessionSummary{ID: "session-failed", VMStatus: domain.VMStatusFailed}},
+func (fakeDashboardSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{Sandboxes: []*domain.Sandbox{
+		{Summary: domain.SandboxSummary{ID: "session-running", VMStatus: domain.VMStatusRunning}},
+		{Summary: domain.SandboxSummary{ID: "session-failed", VMStatus: domain.VMStatusFailed}},
 	}}, nil
 }
 
@@ -941,9 +941,9 @@ func (fakeLoaderStore) GetLoader(_ context.Context, loaderID string) (domain.Loa
 	case "loader-error":
 		return domain.Loader{}, domain.ResourceError(domain.ErrNotFound, "loader", loaderID, "not found", nil)
 	case "loader-non-secret":
-		loader.EnvItems = []domain.SessionEnvVar{{Name: "LOADER_SECRET", Value: "loader-value"}}
+		loader.EnvItems = []domain.SandboxEnvVar{{Name: "LOADER_SECRET", Value: "loader-value"}}
 	case "loader-empty-secret":
-		loader.EnvItems = []domain.SessionEnvVar{{Name: "LOADER_SECRET", Secret: true}}
+		loader.EnvItems = []domain.SandboxEnvVar{{Name: "LOADER_SECRET", Secret: true}}
 	}
 	return loader, nil
 }
@@ -972,7 +972,7 @@ func testLoaderFixture() domain.Loader {
 	return domain.Loader{
 		Summary: domain.LoaderSummary{ID: "loader-1", Name: "Loader", Enabled: true, Runtime: domain.LoaderRuntimeScheduler, DefaultAgent: "codex", CreatedAt: now, UpdatedAt: now},
 		Script:  "function main(){}",
-		EnvItems: []domain.SessionEnvVar{
+		EnvItems: []domain.SandboxEnvVar{
 			{Name: "LOADER_SECRET", Value: "loader-secret", Secret: true},
 		},
 		Triggers: []domain.LoaderTrigger{

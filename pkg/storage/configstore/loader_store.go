@@ -859,7 +859,7 @@ func (s *loaderStore) AddLoaderEvent(ctx context.Context, event domain.LoaderEve
 		strings.TrimSpace(event.PayloadJSON),
 		strings.TrimSpace(event.LinkedSessionID),
 		strings.TrimSpace(event.LinkedCellID),
-		strings.TrimSpace(event.LinkedAgentSessionID),
+		strings.TrimSpace(event.LinkedAgentThreadID),
 		event.CreatedAt.UTC().UnixMilli(),
 	)
 	if err != nil {

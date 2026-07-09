@@ -20,20 +20,20 @@ type PreparationStore interface {
 	GetProject(ctx context.Context, projectID string) (domain.ProjectRecord, error)
 	GetProjectRevision(ctx context.Context, projectID string, revision int64) (domain.ProjectRevisionRecord, error)
 	GetAgentDefinition(ctx context.Context, id string) (domain.AgentDefinition, error)
-	ListGlobalEnv(ctx context.Context) ([]domain.SessionEnvVar, error)
+	ListGlobalEnv(ctx context.Context) ([]domain.SandboxEnvVar, error)
 	ListProjectVolumes(ctx context.Context, projectID string) (map[string]domain.VolumeRecord, error)
 }
 
 type WorkspaceResolver interface {
-	ResolveProjectRunWorkspace(ctx context.Context, run domain.ProjectRunRecord, project domain.ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*domain.WorkspaceConfig, *domain.SessionWorkspace, error)
+	ResolveProjectRunWorkspace(ctx context.Context, run domain.ProjectRunRecord, project domain.ProjectRecord, projectWorkspace, agentWorkspace *compose.WorkspaceSpec) (*domain.WorkspaceConfig, *domain.SandboxWorkspace, error)
 }
 
 type Preparation struct {
-	EnvItems         []domain.SessionEnvVar
-	ProviderEnvItems []domain.SessionEnvVar
+	EnvItems         []domain.SandboxEnvVar
+	ProviderEnvItems []domain.SandboxEnvVar
 	CapsetIDs        []string
 	WorkspaceConfig  *domain.WorkspaceConfig
-	Workspace        *domain.SessionWorkspace
+	Workspace        *domain.SandboxWorkspace
 	Volumes          []domain.VolumeMountSpec
 	ProjectRoot      string
 	ProjectVolumes   map[string]domain.VolumeRecord
@@ -147,13 +147,13 @@ func AgentSpecByName(spec *agentcomposev2.ProjectSpec, name string) (*agentcompo
 	return nil, false
 }
 
-func EnvItemsFromV2(items []*agentcomposev2.EnvVarSpec) []domain.SessionEnvVar {
-	env := make([]domain.SessionEnvVar, 0, len(items))
+func EnvItemsFromV2(items []*agentcomposev2.EnvVarSpec) []domain.SandboxEnvVar {
+	env := make([]domain.SandboxEnvVar, 0, len(items))
 	for _, item := range items {
 		if item == nil {
 			continue
 		}
-		env = append(env, domain.SessionEnvVar{
+		env = append(env, domain.SandboxEnvVar{
 			Name:   item.GetName(),
 			Value:  item.GetValue(),
 			Secret: item.GetSecret(),
@@ -174,8 +174,8 @@ func ComposeWorkspaceSpecFromV2(workspace *agentcomposev2.WorkspaceSpec) *compos
 	}
 }
 
-func MergeEnvItems(groups ...[]domain.SessionEnvVar) []domain.SessionEnvVar {
-	var merged []domain.SessionEnvVar
+func MergeEnvItems(groups ...[]domain.SandboxEnvVar) []domain.SandboxEnvVar {
+	var merged []domain.SandboxEnvVar
 	for _, group := range groups {
 		merged = domain.MergeEnvItems(merged, group)
 	}

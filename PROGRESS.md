@@ -233,7 +233,7 @@
 
 参考文档：[docs/plan/sandbox-naming-implementation-plan.md](docs/plan/sandbox-naming-implementation-plan.md#阶段-4核心-domainruntime-driver-和-app-service-graph-重命名)
 
-- [ ] 4.1 重命名核心 domain 和 provider thread 字段
+- [x] 4.1 重命名核心 domain 和 provider thread 字段
   - 依赖：3.1。
   - 工作内容：
     - 在 `pkg/model` 中将运行实例相关类型重命名为 `Sandbox`、`SandboxSummary`、`SandboxEvent`、`SandboxEnvVar`、`SandboxWorkspace`、`SandboxVMInfo`。
@@ -241,19 +241,36 @@
     - 将 `AgentResumeInfo.SessionID` 改为 `ThreadID`。
     - JSON 字段统一为 `sandbox_id`、`agent_thread_id` 或 `thread_id`，v1 mapping 层负责旧字段转换。
   - 可并行子任务：
-    - [ ] 可并行：模型类型和 JSON tag 重命名。
-    - [ ] 可并行：API/proto mapping 调用点迁移。
-    - [ ] 可并行：loader/project/run payload 调用点迁移。
+    - [x] 可并行：模型类型和 JSON tag 重命名。
+    - [x] 可并行：API/proto mapping 调用点迁移。
+    - [x] 可并行：loader/project/run payload 调用点迁移。
   - 测试方案：
     - `go test ./pkg/model ./pkg/agentcompose/api ./pkg/loaders ./pkg/projects ./pkg/runs`
   - 验收标准：
     - 内部 domain 不再把低层运行实例称为 `Session`。
     - v1 request/response 仍保持 `session_id` 和 `agent_session_id` wire shape。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `pkg/model` 的运行实例核心类型已从 `Session*` 切换为 `Sandbox*`，包括 `Sandbox`、`SandboxSummary`、`SandboxEvent`、`SandboxEnvVar`、`SandboxWorkspace`、`SandboxVMInfo`、`SandboxTag`、`SandboxListOptions`、`SandboxListResult`、`SandboxVolumeMount`。
+      - provider 续接字段已切换为 thread 语义：`NotebookCell.AgentThreadID`、`AgentRun.AgentThreadID`、`AgentRunResult.ThreadID`、`AgentResumeInfo.ThreadID`、`ThreadStatePath`、`ThreadManifestPath`、`ThreadJSONLPaths`。
+      - session list/model helpers 已切换为 sandbox 命名：`NormalizeSandboxTriggerSource`、`SandboxTypeFromTriggerSource`、`NormalizeSandboxListBounds`、`PaginateSandboxes`、`SandboxMatchesListOptions`、`DefaultSandboxListLimit`。
+      - v1 API mapping 层继续输出 `Session*`、`session_id`、`agent_session_id`，但内部读取 `Sandbox*` 和 `AgentThreadID`。
+      - loader/project/run 调用点已迁移到 `SandboxID`、`AgentThreadID`，内部 payload keys 使用 `sandboxId`、`agentThreadId`；deprecated loader RPC/v1 compatibility 边界仍处理旧 `sessionId`。
+    - 验证：
+      - `go test ./pkg/model ./pkg/agentcompose/api ./pkg/loaders ./pkg/projects ./pkg/runs`
+      - `go test ./pkg/execution ./pkg/storage/sessionstore ./pkg/sessions ./pkg/volumes ./pkg/dashboard ./pkg/agentcompose/adapters ./pkg/agentcompose/app`
+      - `go test ./pkg/...`
+      - `go test ./cmd/agent-compose`
+      - `git diff --check`
+      - `git diff -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect`
+    - 审计与例外：
+      - v1 proto、v1 generated Go、v1 Connect generated code diff 为空；v1 compatibility names `Session*`、`SessionIDRequest`、`GetSessionId`、`AgentSessionId`、`GetAgentSessionId`、`LinkedAgentSessionId` 未改。
+      - `pkg/storage/configstore/loader_store.go` 未出现 `linked_agent_thread` 或 `agent_thread` schema rename；SQLite columns 仍保留 `linked_agent_session_id`、`linked_session_id`、`session_id`，按 phase 5 处理。
+      - `ProjectRunRecord.SessionID`、`ProjectSessionRelationFilter`、`ProjectSessionStatus`、loader binding/link `SessionID` 等兼容影子或 SQLite schema 边界仍保留，避免提前执行 phase 5。
+      - `pkg/driver` 的 `Session*` runtime interface/type 命名按计划留给 4.2；app/adapters service graph 和部分 lifecycle/event type 命名留给 4.3。
+      - provider-native JSON `sessionId`、v1 Session RPC JSON、deprecated `scheduler.session.*` 和 `sessionPolicy/sessionEnv` alias 测试仍保留为兼容边界。
+      - 已尝试启动 subagent 做独立审计，但当前线程 subagent 数达到上限，无法新增；主 agent 使用本地 `rg`/diff/test 证据完成审计。
     - 下一目标：4.2。
 
 - [ ] 4.2 重命名 runtime driver domain 和实现

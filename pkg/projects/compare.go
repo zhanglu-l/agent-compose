@@ -8,7 +8,7 @@ import (
 	domain "agent-compose/pkg/model"
 )
 
-func SameSessionEnvItems(a, b []domain.SessionEnvVar) bool {
+func SameSessionEnvItems(a, b []domain.SandboxEnvVar) bool {
 	a = domain.NormalizeEnvItems(a)
 	b = domain.NormalizeEnvItems(b)
 	if len(a) != len(b) {

@@ -1403,7 +1403,7 @@ func loaderInt64Option(options map[string]any, keys ...string) (int64, error) {
 	return 0, nil
 }
 
-func loaderSessionEnvOption(options map[string]any) ([]domain.SessionEnvVar, error) {
+func loaderSessionEnvOption(options map[string]any) ([]domain.SandboxEnvVar, error) {
 	for _, key := range []string{"sessionEnv", "session_env"} {
 		value, ok := options[key]
 		if !ok {
@@ -1418,7 +1418,7 @@ func loaderSessionEnvOption(options map[string]any) ([]domain.SessionEnvVar, err
 	return nil, nil
 }
 
-func loaderSessionEnvItems(value any) ([]domain.SessionEnvVar, error) {
+func loaderSessionEnvItems(value any) ([]domain.SandboxEnvVar, error) {
 	switch typed := value.(type) {
 	case nil:
 		return nil, nil
@@ -1431,7 +1431,7 @@ func loaderSessionEnvItems(value any) ([]domain.SessionEnvVar, error) {
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
-		items := make([]domain.SessionEnvVar, 0, len(keys))
+		items := make([]domain.SandboxEnvVar, 0, len(keys))
 		for _, key := range keys {
 			name := strings.TrimSpace(key)
 			if name == "" {
@@ -1441,11 +1441,11 @@ func loaderSessionEnvItems(value any) ([]domain.SessionEnvVar, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", name, err)
 			}
-			items = append(items, domain.SessionEnvVar{Name: name, Value: envValue, Secret: secret})
+			items = append(items, domain.SandboxEnvVar{Name: name, Value: envValue, Secret: secret})
 		}
 		return normalizeEnvItems(items), nil
 	case []any:
-		items := make([]domain.SessionEnvVar, 0, len(typed))
+		items := make([]domain.SandboxEnvVar, 0, len(typed))
 		for index, rawItem := range typed {
 			entry, ok := rawItem.(map[string]any)
 			if !ok {
@@ -1471,7 +1471,7 @@ func loaderSessionEnvItems(value any) ([]domain.SessionEnvVar, error) {
 					return nil, fmt.Errorf("item %d secret must be a boolean", index)
 				}
 			}
-			items = append(items, domain.SessionEnvVar{Name: name, Value: envValue, Secret: secret})
+			items = append(items, domain.SandboxEnvVar{Name: name, Value: envValue, Secret: secret})
 		}
 		return normalizeEnvItems(items), nil
 	default:

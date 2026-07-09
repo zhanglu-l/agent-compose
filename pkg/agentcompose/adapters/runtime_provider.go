@@ -11,19 +11,19 @@ import (
 )
 
 type BoxRuntime interface {
-	EnsureSession(context.Context, *domain.Session, domain.VMState, domain.ProxyState) (domain.SessionVMInfo, error)
-	StopSession(context.Context, *domain.Session, domain.VMState) (bool, error)
-	Exec(context.Context, *domain.Session, domain.VMState, domain.ExecSpec) (domain.ExecResult, error)
-	ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
+	EnsureSession(context.Context, *domain.Sandbox, domain.VMState, domain.ProxyState) (domain.SandboxVMInfo, error)
+	StopSession(context.Context, *domain.Sandbox, domain.VMState) (bool, error)
+	Exec(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec) (domain.ExecResult, error)
+	ExecStream(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
 }
 
 type SandboxStatsRuntime interface {
-	Stats(context.Context, *domain.Session, domain.VMState) (domain.SandboxStats, error)
+	Stats(context.Context, *domain.Sandbox, domain.VMState) (domain.SandboxStats, error)
 }
 
 type RuntimeProvider interface {
 	ForDriver(string) (BoxRuntime, error)
-	ForSession(*domain.Session) (BoxRuntime, error)
+	ForSession(*domain.Sandbox) (BoxRuntime, error)
 }
 
 type runtimeProvider struct {
@@ -70,7 +70,7 @@ func (p *runtimeProvider) ForDriver(driver string) (BoxRuntime, error) {
 	return runtime, nil
 }
 
-func (p *runtimeProvider) ForSession(session *domain.Session) (BoxRuntime, error) {
+func (p *runtimeProvider) ForSession(session *domain.Sandbox) (BoxRuntime, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session is required")
 	}
@@ -81,24 +81,24 @@ func (p *runtimeProvider) ForSession(session *domain.Session) (BoxRuntime, error
 	return p.ForDriver(driver)
 }
 
-func (r driverRuntimeAdapter) EnsureSession(ctx context.Context, session *domain.Session, vmState domain.VMState, proxyState domain.ProxyState) (domain.SessionVMInfo, error) {
+func (r driverRuntimeAdapter) EnsureSession(ctx context.Context, session *domain.Sandbox, vmState domain.VMState, proxyState domain.ProxyState) (domain.SandboxVMInfo, error) {
 	info, err := r.runtime.EnsureSession(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState), execution.ToDriverProxyState(proxyState))
 	if err != nil {
-		return domain.SessionVMInfo{}, err
+		return domain.SandboxVMInfo{}, err
 	}
 	return execution.FromDriverSessionVMInfo(info), nil
 }
 
-func (r driverRuntimeAdapter) StopSession(ctx context.Context, session *domain.Session, vmState domain.VMState) (bool, error) {
+func (r driverRuntimeAdapter) StopSession(ctx context.Context, session *domain.Sandbox, vmState domain.VMState) (bool, error) {
 	return r.runtime.StopSession(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState))
 }
 
-func (r driverRuntimeAdapter) Exec(ctx context.Context, session *domain.Session, vmState domain.VMState, spec domain.ExecSpec) (domain.ExecResult, error) {
+func (r driverRuntimeAdapter) Exec(ctx context.Context, session *domain.Sandbox, vmState domain.VMState, spec domain.ExecSpec) (domain.ExecResult, error) {
 	result, err := r.runtime.Exec(ctx, execution.ToDriverSession(session), execution.ToDriverVMState(vmState), execution.ToDriverExecSpec(spec))
 	return execution.FromDriverExecResult(result), err
 }
 
-func (r driverRuntimeAdapter) ExecStream(ctx context.Context, session *domain.Session, vmState domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r driverRuntimeAdapter) ExecStream(ctx context.Context, session *domain.Sandbox, vmState domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
 	driverStream := func(chunk driverpkg.ExecChunk) {
 		if stream != nil {
 			stream(domain.ExecChunk{Text: chunk.Text, Stream: domainStreamFromDriver(chunk.Stream)})
@@ -115,7 +115,7 @@ func domainStreamFromDriver(stream driverpkg.StdioStream) domain.StdioStream {
 	return domain.StdioStdout
 }
 
-func (r driverRuntimeAdapter) Stats(ctx context.Context, session *domain.Session, vmState domain.VMState) (domain.SandboxStats, error) {
+func (r driverRuntimeAdapter) Stats(ctx context.Context, session *domain.Sandbox, vmState domain.VMState) (domain.SandboxStats, error) {
 	statsRuntime, ok := r.runtime.(interface {
 		Stats(context.Context, *driverpkg.Session, driverpkg.VMState) (driverpkg.SandboxStats, error)
 	})
@@ -126,7 +126,7 @@ func (r driverRuntimeAdapter) Stats(ctx context.Context, session *domain.Session
 	return execution.FromDriverSandboxStats(stats), err
 }
 
-func (r driverRuntimeAdapter) IsSessionAlive(ctx context.Context, session *domain.Session, vmState domain.VMState) (bool, error) {
+func (r driverRuntimeAdapter) IsSessionAlive(ctx context.Context, session *domain.Sandbox, vmState domain.VMState) (bool, error) {
 	aliveRuntime, ok := r.runtime.(interface {
 		IsSessionAlive(context.Context, *driverpkg.Session, driverpkg.VMState) (bool, error)
 	})

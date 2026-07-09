@@ -60,7 +60,7 @@ func DecodeCapsetIDs(raw string) []string {
 	return NormalizeCapsetIDs(ids)
 }
 
-func BuildGatewaySessionVars(publicTarget string, capsetIDs []string) ([]domain.SessionEnvVar, []domain.SessionTag) {
+func BuildGatewaySessionVars(publicTarget string, capsetIDs []string) ([]domain.SandboxEnvVar, []domain.SandboxTag) {
 	ids := NormalizeCapsetIDs(capsetIDs)
 	if len(ids) == 0 {
 		return nil, nil
@@ -70,13 +70,13 @@ func BuildGatewaySessionVars(publicTarget string, capsetIDs []string) ([]domain.
 		slog.Warn("capability injection skipped: CAP_GRPC_TARGET not configured", "capsets", ids)
 		return nil, nil
 	}
-	env := []domain.SessionEnvVar{
+	env := []domain.SandboxEnvVar{
 		{Name: ProxyTargetEnvName, Value: publicTarget},
 		{Name: SessionTokenEnvName, Value: uuid.NewString(), Secret: true},
 	}
-	tags := make([]domain.SessionTag, 0, len(ids))
+	tags := make([]domain.SandboxTag, 0, len(ids))
 	for _, id := range ids {
-		tags = append(tags, domain.SessionTag{Name: CapsetTagName, Value: id})
+		tags = append(tags, domain.SandboxTag{Name: CapsetTagName, Value: id})
 	}
 	return env, tags
 }
@@ -101,7 +101,7 @@ any method in the catalog below:
 `, target, capproxy.SessionTokenMetadata)
 }
 
-func SessionRuntimeDir(session *domain.Session) string {
+func SessionRuntimeDir(session *domain.Sandbox) string {
 	if session == nil {
 		return ""
 	}
@@ -112,7 +112,7 @@ func SessionRuntimeDir(session *domain.Session) string {
 	return filepath.Join(filepath.Dir(workspace), "runtime")
 }
 
-func SessionGuidePath(session *domain.Session) string {
+func SessionGuidePath(session *domain.Sandbox) string {
 	dir := SessionRuntimeDir(session)
 	if dir == "" {
 		return ""
@@ -120,11 +120,11 @@ func SessionGuidePath(session *domain.Session) string {
 	return filepath.Join(dir, "mpi", "catalog.md")
 }
 
-func SessionToken(session *domain.Session) string {
+func SessionToken(session *domain.Sandbox) string {
 	return sessionEnvValue(session, SessionTokenEnvName)
 }
 
-func SessionCapsets(session *domain.Session) []string {
+func SessionCapsets(session *domain.Sandbox) []string {
 	if session == nil {
 		return nil
 	}
@@ -139,7 +139,7 @@ func SessionCapsets(session *domain.Session) []string {
 	return NormalizeCapsetIDs(ids)
 }
 
-func sessionEnvValue(session *domain.Session, name string) string {
+func sessionEnvValue(session *domain.Sandbox, name string) string {
 	if session == nil {
 		return ""
 	}

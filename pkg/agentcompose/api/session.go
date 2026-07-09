@@ -25,12 +25,12 @@ type SessionDelegate interface {
 }
 
 type WatchSessionStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
-	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
+	ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error)
 }
 
 type SessionRuntimeReconciler interface {
-	ReconcileRuntimeState(context.Context, *domain.Session) (*domain.Session, error)
+	ReconcileRuntimeState(context.Context, *domain.Sandbox) (*domain.Sandbox, error)
 }
 
 type SessionHandler struct {
@@ -48,28 +48,28 @@ func NewSessionHandler(delegate SessionDelegate, store WatchSessionStore, stream
 	return handler
 }
 
-func SessionListOptionsFromProto(req *agentcomposev1.ListSessionsRequest) (domain.SessionListOptions, error) {
+func SessionListOptionsFromProto(req *agentcomposev1.ListSessionsRequest) (domain.SandboxListOptions, error) {
 	if req == nil {
-		return domain.SessionListOptions{}, nil
+		return domain.SandboxListOptions{}, nil
 	}
 	createdFrom, err := ParseOptionalRFC3339(req.GetCreatedFrom(), "created_from")
 	if err != nil {
-		return domain.SessionListOptions{}, err
+		return domain.SandboxListOptions{}, err
 	}
 	createdTo, err := ParseOptionalRFC3339(req.GetCreatedTo(), "created_to")
 	if err != nil {
-		return domain.SessionListOptions{}, err
+		return domain.SandboxListOptions{}, err
 	}
 	updatedFrom, err := ParseOptionalRFC3339(req.GetUpdatedFrom(), "updated_from")
 	if err != nil {
-		return domain.SessionListOptions{}, err
+		return domain.SandboxListOptions{}, err
 	}
 	updatedTo, err := ParseOptionalRFC3339(req.GetUpdatedTo(), "updated_to")
 	if err != nil {
-		return domain.SessionListOptions{}, err
+		return domain.SandboxListOptions{}, err
 	}
-	return domain.SessionListOptions{
-		SessionType:        req.GetSessionType(),
+	return domain.SandboxListOptions{
+		SandboxType:        req.GetSessionType(),
 		TriggerSourceQuery: req.GetTriggerSourceQuery(),
 		TitleQuery:         req.GetTitleQuery(),
 		WorkspaceQuery:     req.GetWorkspaceQuery(),
@@ -138,7 +138,7 @@ func (h *SessionHandler) ListSessions(ctx context.Context, req *connect.Request[
 		HasMore:    result.HasMore,
 		NextOffset: uint32(result.NextOffset),
 	}
-	for _, session := range result.Sessions {
+	for _, session := range result.Sandboxes {
 		session = h.reconcileRuntimeState(ctx, session, "list")
 		resp.Sessions = append(resp.Sessions, SessionSummaryToProto(&session.Summary))
 	}
@@ -178,7 +178,7 @@ func (h *SessionHandler) WatchSession(ctx context.Context, req *connect.Request[
 	}
 }
 
-func (h *SessionHandler) reconcileRuntimeState(ctx context.Context, session *domain.Session, operation string) *domain.Session {
+func (h *SessionHandler) reconcileRuntimeState(ctx context.Context, session *domain.Sandbox, operation string) *domain.Sandbox {
 	if h.reconciler == nil {
 		return session
 	}

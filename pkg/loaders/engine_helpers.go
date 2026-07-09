@@ -129,7 +129,7 @@ func normalizeLoaderSessionPolicy(policy string) string {
 	return domain.NormalizeLoaderSessionPolicy(policy)
 }
 
-func normalizeEnvItems(items []domain.SessionEnvVar) []domain.SessionEnvVar {
+func normalizeEnvItems(items []domain.SandboxEnvVar) []domain.SandboxEnvVar {
 	return domain.NormalizeEnvItems(items)
 }
 

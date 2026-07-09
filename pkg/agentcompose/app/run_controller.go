@@ -38,7 +38,7 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 		ConfigDB: do.MustInvoke[*configstore.ConfigStore](di),
 		Driver:   do.MustInvoke[*adapters.SessionDriver](di),
 		Executor: do.MustInvoke[*adapters.AgentExecutor](di),
-		Runtime: func(session *domain.Session) (runs.Runtime, error) {
+		Runtime: func(session *domain.Sandbox) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)
 		},
 		Images:       imageBackends.Auto,

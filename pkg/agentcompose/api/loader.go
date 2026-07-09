@@ -102,7 +102,7 @@ func LoaderEventToProto(item domain.LoaderEvent) *agentcomposev1.LoaderEvent {
 		PayloadJson:          item.PayloadJSON,
 		LinkedSessionId:      item.LinkedSessionID,
 		LinkedCellId:         item.LinkedCellID,
-		LinkedAgentSessionId: item.LinkedAgentSessionID,
+		LinkedAgentSessionId: item.LinkedAgentThreadID,
 		CreatedAt:            item.CreatedAt.Format(time.RFC3339Nano),
 	}
 }

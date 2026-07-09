@@ -56,11 +56,11 @@ func testCapabilityGatewayCoverage(t *testing.T) {
 		t.Fatalf("GuidePreamble did not include expected metadata")
 	}
 
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:            "session-1",
 			WorkspacePath: filepath.Join(t.TempDir(), "workspace"),
-			Tags:          append(tags, domain.SessionTag{Name: CapsetTagName, Value: " dev "}),
+			Tags:          append(tags, domain.SandboxTag{Name: CapsetTagName, Value: " dev "}),
 		},
 		EnvItems: env,
 	}
@@ -76,7 +76,7 @@ func testCapabilityGatewayCoverage(t *testing.T) {
 	if capsets := SessionCapsets(session); strings.Join(capsets, ",") != "dev,ops" {
 		t.Fatalf("SessionCapsets = %#v", capsets)
 	}
-	if SessionRuntimeDir(nil) != "" || SessionGuidePath(&domain.Session{}) != "" {
+	if SessionRuntimeDir(nil) != "" || SessionGuidePath(&domain.Sandbox{}) != "" {
 		t.Fatalf("empty session paths returned non-empty values")
 	}
 }

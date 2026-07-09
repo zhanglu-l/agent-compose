@@ -142,7 +142,7 @@ func ScanLoaderRun(scan func(dest ...any) error) (domain.LoaderRunSummary, error
 func ScanLoaderEvent(scan func(dest ...any) error) (domain.LoaderEvent, error) {
 	var item domain.LoaderEvent
 	var createdAtRaw any
-	if err := scan(&item.LoaderID, &item.ID, &item.RunID, &item.TriggerID, &item.Type, &item.Level, &item.Message, &item.PayloadJSON, &item.LinkedSessionID, &item.LinkedCellID, &item.LinkedAgentSessionID, &createdAtRaw); err != nil {
+	if err := scan(&item.LoaderID, &item.ID, &item.RunID, &item.TriggerID, &item.Type, &item.Level, &item.Message, &item.PayloadJSON, &item.LinkedSessionID, &item.LinkedCellID, &item.LinkedAgentThreadID, &createdAtRaw); err != nil {
 		return domain.LoaderEvent{}, fmt.Errorf("scan loader event: %w", err)
 	}
 	item.CreatedAt = parseStoredTime(createdAtRaw)

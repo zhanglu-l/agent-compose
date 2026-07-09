@@ -147,7 +147,7 @@ func RegisterRoutes(di do.Injector) {
 		do.MustInvoke[*appconfig.Config](di),
 		do.MustInvoke[*sessionstore.Store](di),
 		do.MustInvoke[*configstore.ConfigStore](di),
-		func(session *domain.Session) (api.ExecRuntime, error) {
+		func(session *domain.Sandbox) (api.ExecRuntime, error) {
 			return do.MustInvoke[adapters.RuntimeProvider](di).ForSession(session)
 		},
 	)
@@ -166,7 +166,7 @@ func RegisterRoutes(di do.Injector) {
 		do.MustInvoke[*adapters.SessionRPCBridge](di),
 		do.MustInvoke[*sessionstore.Store](di),
 		do.MustInvoke[*dashboard.Hub](di),
-		func(session *domain.Session) (api.SandboxStatsRuntime, error) {
+		func(session *domain.Sandbox) (api.SandboxStatsRuntime, error) {
 			runtime, err := do.MustInvoke[adapters.RuntimeProvider](di).ForSession(session)
 			if err != nil {
 				return nil, err

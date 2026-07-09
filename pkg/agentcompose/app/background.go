@@ -21,7 +21,7 @@ const stalePendingSessionLastError = "session startup interrupted before runtime
 const staleProjectRunError = "daemon interrupted project run before reaching terminal state"
 
 type runtimeReconciler interface {
-	ReconcileRuntimeState(context.Context, *domain.Session) (*domain.Session, error)
+	ReconcileRuntimeState(context.Context, *domain.Sandbox) (*domain.Sandbox, error)
 }
 
 type backgroundLoaderManager interface {
@@ -41,11 +41,11 @@ func startBackgroundManagers(ctx context.Context, sessions *sessionstore.Store, 
 }
 
 func reconcilePersistedSessions(ctx context.Context, store *sessionstore.Store, configDB *configstore.ConfigStore, bridge runtimeReconciler, startedAt time.Time) error {
-	result, err := store.ListSandboxes(ctx, domain.SessionListOptions{Limit: 1 << 30})
+	result, err := store.ListSandboxes(ctx, domain.SandboxListOptions{Limit: 1 << 30})
 	if err != nil {
 		return err
 	}
-	for _, session := range result.Sessions {
+	for _, session := range result.Sandboxes {
 		reconciled, err := reconcilePendingSessionState(ctx, store, session, startedAt)
 		if err != nil {
 			slog.Warn("failed to reconcile pending session state", "session_id", session.Summary.ID, "error", err)
@@ -61,7 +61,7 @@ func reconcilePersistedSessions(ctx context.Context, store *sessionstore.Store, 
 	return nil
 }
 
-func reconcilePendingSessionState(ctx context.Context, store *sessionstore.Store, session *domain.Session, startedAt time.Time) (*domain.Session, error) {
+func reconcilePendingSessionState(ctx context.Context, store *sessionstore.Store, session *domain.Sandbox, startedAt time.Time) (*domain.Sandbox, error) {
 	if session == nil || session.Summary.VMStatus != domain.VMStatusPending {
 		return session, nil
 	}
@@ -88,7 +88,7 @@ func reconcilePendingSessionState(ctx context.Context, store *sessionstore.Store
 	if err := store.UpdateSandbox(ctx, session); err != nil {
 		return nil, err
 	}
-	_ = store.AddEvent(ctx, session.Summary.ID, domain.SessionEvent{
+	_ = store.AddEvent(ctx, session.Summary.ID, domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.startup_interrupted",
 		Level:     "warn",

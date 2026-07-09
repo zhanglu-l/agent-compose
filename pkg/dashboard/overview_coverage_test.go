@@ -11,9 +11,9 @@ import (
 
 func TestAggregatorAndHubWorkflows(t *testing.T) {
 	ctx := context.Background()
-	store := dashboardSessionStore{sessions: []*domain.Session{
-		{Summary: domain.SessionSummary{ID: "pending", VMStatus: domain.VMStatusPending}},
-		{Summary: domain.SessionSummary{ID: "failed", VMStatus: domain.VMStatusFailed}},
+	store := dashboardSessionStore{sessions: []*domain.Sandbox{
+		{Summary: domain.SandboxSummary{ID: "pending", VMStatus: domain.VMStatusPending}},
+		{Summary: domain.SandboxSummary{ID: "failed", VMStatus: domain.VMStatusFailed}},
 	}}
 	runs := dashboardRunStore{runs: []domain.LoaderRunSummary{{ID: "run", Status: "running"}, {ID: "skip", Status: "skipped"}}}
 	aggregator := NewAggregator(store, runs)
@@ -88,12 +88,12 @@ func TestE2EDashboardOverviewWorkflows(t *testing.T) {
 }
 
 type dashboardSessionStore struct {
-	sessions []*domain.Session
+	sessions []*domain.Sandbox
 	err      error
 }
 
-func (s dashboardSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{Sessions: s.sessions}, s.err
+func (s dashboardSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{Sandboxes: s.sessions}, s.err
 }
 
 type dashboardRunStore struct {

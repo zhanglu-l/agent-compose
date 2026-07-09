@@ -511,15 +511,15 @@ func testStoreLegacyWrappersAndMissingStateWorkflows(t *testing.T) {
 	}
 	legacyRuns := []AgentRun{
 		{
-			ID:             "run-new",
-			Agent:          "codex",
-			Message:        "legacy prompt",
-			Output:         "legacy output",
-			ExitCode:       7,
-			Success:        false,
-			CreatedAt:      baseTime.Add(time.Minute),
-			AgentSessionID: "legacy-agent-session",
-			StopReason:     "stopped",
+			ID:            "run-new",
+			Agent:         "codex",
+			Message:       "legacy prompt",
+			Output:        "legacy output",
+			ExitCode:      7,
+			Success:       false,
+			CreatedAt:     baseTime.Add(time.Minute),
+			AgentThreadID: "legacy-agent-session",
+			StopReason:    "stopped",
 		},
 		{ID: "run-existing", Agent: "codex", Message: "duplicate", CreatedAt: baseTime.Add(4 * time.Minute)},
 	}
@@ -537,7 +537,7 @@ func testStoreLegacyWrappersAndMissingStateWorkflows(t *testing.T) {
 	if len(cells) != 3 || cells[0].ID != "run-new" || cells[1].ID != "run-existing" || cells[2].ID != "shell-later" {
 		t.Fatalf("legacy merged cells = %#v", cells)
 	}
-	if cells[0].Type != CellTypeAgent || cells[0].Source != "legacy prompt" || cells[0].Output != "legacy output" || cells[0].ExitCode != 7 || cells[0].AgentSessionID != "legacy-agent-session" || cells[0].StopReason != "stopped" {
+	if cells[0].Type != CellTypeAgent || cells[0].Source != "legacy prompt" || cells[0].Output != "legacy output" || cells[0].ExitCode != 7 || cells[0].AgentThreadID != "legacy-agent-session" || cells[0].StopReason != "stopped" {
 		t.Fatalf("legacy run cell = %#v", cells[0])
 	}
 
@@ -703,16 +703,16 @@ func testStoreAgentRunLegacyVMAndListWorkflows(t *testing.T) {
 
 	createdAt := time.Now().UTC().Add(-time.Minute)
 	if err := store.AddAgentRun(ctx, session.Summary.ID, AgentRun{
-		ID:             "run-1",
-		Agent:          "codex",
-		Message:        "hello",
-		Output:         "world",
-		ExitCode:       0,
-		Success:        true,
-		Running:        true,
-		CreatedAt:      createdAt,
-		AgentSessionID: "agent-session-1",
-		StopReason:     "completed",
+		ID:            "run-1",
+		Agent:         "codex",
+		Message:       "hello",
+		Output:        "world",
+		ExitCode:      0,
+		Success:       true,
+		Running:       true,
+		CreatedAt:     createdAt,
+		AgentThreadID: "agent-session-1",
+		StopReason:    "completed",
 	}); err != nil {
 		t.Fatalf("AddAgentRun returned error: %v", err)
 	}
@@ -720,7 +720,7 @@ func testStoreAgentRunLegacyVMAndListWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCells returned error: %v", err)
 	}
-	if len(cells) != 1 || cells[0].Type != execution.CellTypeAgent || cells[0].AgentSessionID != "agent-session-1" || !cells[0].Running {
+	if len(cells) != 1 || cells[0].Type != execution.CellTypeAgent || cells[0].AgentThreadID != "agent-session-1" || !cells[0].Running {
 		t.Fatalf("agent run cells = %#v", cells)
 	}
 
@@ -768,7 +768,7 @@ func testStoreAgentRunLegacyVMAndListWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSessions returned error: %v", err)
 	}
-	if listed.TotalCount != 1 || len(listed.Sessions) != 1 || listed.HasMore {
+	if listed.TotalCount != 1 || len(listed.Sandboxes) != 1 || listed.HasMore {
 		t.Fatalf("listed sessions = %#v", listed)
 	}
 	stored, err := store.loadSandbox(session.Summary.ID)

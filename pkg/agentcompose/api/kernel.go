@@ -15,13 +15,13 @@ import (
 )
 
 type KernelStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 	ListCells(context.Context, string) ([]domain.NotebookCell, error)
 }
 
 type CellExecutor interface {
-	ExecuteCell(context.Context, *domain.Session, string, string) (domain.NotebookCell, error)
-	ExecuteCellStream(context.Context, *domain.Session, string, string, execution.CellExecutionStream) (domain.NotebookCell, error)
+	ExecuteCell(context.Context, *domain.Sandbox, string, string) (domain.NotebookCell, error)
+	ExecuteCellStream(context.Context, *domain.Sandbox, string, string, execution.CellExecutionStream) (domain.NotebookCell, error)
 }
 
 type LoaderTopicPublisher interface {

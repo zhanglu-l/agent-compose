@@ -27,7 +27,7 @@ type DownStore interface {
 }
 
 type DownSessionStore interface {
-	ListSandboxes(ctx context.Context, options domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(ctx context.Context, options domain.SandboxListOptions) (domain.SandboxListResult, error)
 }
 
 type DownOptions struct {
@@ -35,7 +35,7 @@ type DownOptions struct {
 	Sessions             DownSessionStore
 	DisableManagedLoader func(ctx context.Context, loaderID, projectID, schedulerID string) error
 	RefreshLoaders       func(ctx context.Context) error
-	StopSession          func(ctx context.Context, session *domain.Session) error
+	StopSession          func(ctx context.Context, session *domain.Sandbox) error
 }
 
 func DownProject(ctx context.Context, project domain.ProjectRecord, options DownOptions) ([]DownChange, error) {
@@ -104,12 +104,12 @@ func StopProjectRunningSessions(ctx context.Context, project domain.ProjectRecor
 	if options.Sessions == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
-	result, err := options.Sessions.ListSandboxes(ctx, domain.SessionListOptions{VMStatus: domain.VMStatusRunning, Limit: 1 << 30})
+	result, err := options.Sessions.ListSandboxes(ctx, domain.SandboxListOptions{VMStatus: domain.VMStatusRunning, Limit: 1 << 30})
 	if err != nil {
 		return nil, fmt.Errorf("list running sessions for project down %s: %w", project.Name, err)
 	}
 	var changes []DownChange
-	for _, session := range result.Sessions {
+	for _, session := range result.Sandboxes {
 		if !SessionHasTag(session, "project", project.ID) {
 			continue
 		}
@@ -137,7 +137,7 @@ func StopProjectRunningSessions(ctx context.Context, project domain.ProjectRecor
 	return changes, nil
 }
 
-func SessionHasTag(session *domain.Session, name, value string) bool {
+func SessionHasTag(session *domain.Sandbox, name, value string) bool {
 	if session == nil {
 		return false
 	}

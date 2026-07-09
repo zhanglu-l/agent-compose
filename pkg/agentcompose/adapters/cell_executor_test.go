@@ -18,19 +18,19 @@ type fakeCellRuntime struct {
 	result domain.ExecResult
 }
 
-func (r fakeCellRuntime) EnsureSession(context.Context, *domain.Session, domain.VMState, domain.ProxyState) (domain.SessionVMInfo, error) {
-	return domain.SessionVMInfo{}, nil
+func (r fakeCellRuntime) EnsureSession(context.Context, *domain.Sandbox, domain.VMState, domain.ProxyState) (domain.SandboxVMInfo, error) {
+	return domain.SandboxVMInfo{}, nil
 }
 
-func (r fakeCellRuntime) StopSession(context.Context, *domain.Session, domain.VMState) (bool, error) {
+func (r fakeCellRuntime) StopSession(context.Context, *domain.Sandbox, domain.VMState) (bool, error) {
 	return false, nil
 }
 
-func (r fakeCellRuntime) Exec(context.Context, *domain.Session, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
+func (r fakeCellRuntime) Exec(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
 	return r.result, nil
 }
 
-func (r fakeCellRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, _ domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r fakeCellRuntime) ExecStream(_ context.Context, _ *domain.Sandbox, _ domain.VMState, _ domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
 	if stream != nil {
 		stream(domain.ExecChunk{Text: r.result.Stdout})
 	}
@@ -54,7 +54,7 @@ func TestCellExecutorExecuteCellPersistsCellAndEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "cell session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "cell session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}

@@ -26,7 +26,7 @@ type Store interface {
 }
 
 type SessionStore interface {
-	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error)
 }
 
 type ProjectVolumeStore interface {
@@ -241,11 +241,11 @@ func (m *Manager) findSessionReferences(ctx context.Context, volumeID string) ([
 	const pageSize = 500
 	var refs []domain.VolumeReference
 	for offset := 0; ; {
-		result, err := m.Sessions.ListSandboxes(ctx, domain.SessionListOptions{Offset: offset, Limit: pageSize})
+		result, err := m.Sessions.ListSandboxes(ctx, domain.SandboxListOptions{Offset: offset, Limit: pageSize})
 		if err != nil {
 			return nil, fmt.Errorf("list sessions for volume references: %w", err)
 		}
-		for _, session := range result.Sessions {
+		for _, session := range result.Sandboxes {
 			if session == nil {
 				continue
 			}
@@ -261,19 +261,19 @@ func (m *Manager) findSessionReferences(ctx context.Context, volumeID string) ([
 				break
 			}
 		}
-		if !result.HasMore || len(result.Sessions) == 0 {
+		if !result.HasMore || len(result.Sandboxes) == 0 {
 			break
 		}
 		if result.NextOffset > offset {
 			offset = result.NextOffset
 		} else {
-			offset += len(result.Sessions)
+			offset += len(result.Sandboxes)
 		}
 	}
 	return refs, nil
 }
 
-func (m *Manager) ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options ResolveOptions) ([]domain.SessionVolumeMount, []string, error) {
+func (m *Manager) ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options ResolveOptions) ([]domain.SandboxVolumeMount, []string, error) {
 	normalized, err := domain.NormalizeVolumeMountSpecs(specs)
 	if err != nil {
 		return nil, nil, err
@@ -282,17 +282,17 @@ func (m *Manager) ResolveMounts(ctx context.Context, specs []domain.VolumeMountS
 		return nil, nil, nil
 	}
 	resolver := BindResolver{ProjectRoot: options.ProjectRoot}
-	mounts := make([]domain.SessionVolumeMount, 0, len(normalized))
+	mounts := make([]domain.SandboxVolumeMount, 0, len(normalized))
 	var warnings []string
 	for _, spec := range normalized {
-		var mount domain.SessionVolumeMount
+		var mount domain.SandboxVolumeMount
 		switch spec.Type {
 		case domain.VolumeMountTypeBind:
 			hostPath, err := resolver.Resolve(spec.Source)
 			if err != nil {
 				return nil, nil, err
 			}
-			mount = domain.SessionVolumeMount{
+			mount = domain.SandboxVolumeMount{
 				ID:          stableVolumeMountID(spec.Type, spec.Source, spec.Target),
 				Type:        spec.Type,
 				Source:      spec.Source,
@@ -321,7 +321,7 @@ func (m *Manager) ResolveMounts(ctx context.Context, specs []domain.VolumeMountS
 			if err != nil {
 				return nil, nil, err
 			}
-			mount = domain.SessionVolumeMount{
+			mount = domain.SandboxVolumeMount{
 				ID:       stableVolumeMountID(spec.Type, record.ID, spec.Target),
 				Type:     spec.Type,
 				Source:   spec.Source,

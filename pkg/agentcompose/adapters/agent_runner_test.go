@@ -34,19 +34,19 @@ type fakeAgentRuntime struct {
 	result       domain.ExecResult
 }
 
-func (r *fakeAgentRuntime) EnsureSession(context.Context, *domain.Session, domain.VMState, domain.ProxyState) (domain.SessionVMInfo, error) {
-	return domain.SessionVMInfo{}, nil
+func (r *fakeAgentRuntime) EnsureSession(context.Context, *domain.Sandbox, domain.VMState, domain.ProxyState) (domain.SandboxVMInfo, error) {
+	return domain.SandboxVMInfo{}, nil
 }
 
-func (r *fakeAgentRuntime) StopSession(context.Context, *domain.Session, domain.VMState) (bool, error) {
+func (r *fakeAgentRuntime) StopSession(context.Context, *domain.Sandbox, domain.VMState) (bool, error) {
 	return false, nil
 }
 
-func (r *fakeAgentRuntime) Exec(context.Context, *domain.Session, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
+func (r *fakeAgentRuntime) Exec(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
 	return domain.ExecResult{}, nil
 }
 
-func (r *fakeAgentRuntime) ExecStream(_ context.Context, _ *domain.Session, _ domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r *fakeAgentRuntime) ExecStream(_ context.Context, _ *domain.Sandbox, _ domain.VMState, spec domain.ExecSpec, stream domain.ExecStreamWriter) (domain.ExecResult, error) {
 	r.specs = append(r.specs, spec)
 	for _, chunk := range r.streamChunks {
 		if stream != nil {
@@ -78,7 +78,7 @@ func TestAgentRunnerExecuteAgentRunWritesSystemPromptAndParsesResult(t *testing.
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "agent session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "agent session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -114,9 +114,9 @@ func TestAgentRunnerExecuteAgentRunWritesSystemPromptAndParsesResult(t *testing.
 
 func TestAgentRunnerResolveAgentSystemPromptBranches(t *testing.T) {
 	ctx := context.Background()
-	session := &domain.Session{Summary: domain.SessionSummary{Tags: []domain.SessionTag{
-		{Name: domain.AgentSessionTagID, Value: "agent-tagged"},
-		{Name: domain.AgentSessionTagSource, Value: domain.AgentSessionTagSourceVal},
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{Tags: []domain.SandboxTag{
+		{Name: domain.AgentSandboxTagID, Value: "agent-tagged"},
+		{Name: domain.AgentSandboxTagSource, Value: domain.AgentSandboxTagSourceVal},
 	}}}
 	runner := NewAgentRunner(nil, nil, nil, fakeAgentDefinitionStore{agent: domain.AgentDefinition{SystemPrompt: "  tagged prompt  "}}, nil)
 	if prompt, err := runner.ResolveAgentSystemPrompt(ctx, session, ""); err != nil || prompt != "tagged prompt" {
@@ -135,7 +135,7 @@ func TestAgentRunnerResolveAgentSystemPromptBranches(t *testing.T) {
 	if prompt, err := runner.ResolveAgentSystemPrompt(ctx, nil, "agent-tagged"); err != nil || prompt != "" {
 		t.Fatalf("nil session prompt = %q err=%v", prompt, err)
 	}
-	untagged := &domain.Session{Summary: domain.SessionSummary{Tags: []domain.SessionTag{{Name: domain.AgentSessionTagID, Value: "agent-tagged"}}}}
+	untagged := &domain.Sandbox{Summary: domain.SandboxSummary{Tags: []domain.SandboxTag{{Name: domain.AgentSandboxTagID, Value: "agent-tagged"}}}}
 	if prompt, err := runner.ResolveAgentSystemPrompt(ctx, untagged, ""); err != nil || prompt != "" {
 		t.Fatalf("untagged prompt = %q err=%v", prompt, err)
 	}

@@ -53,7 +53,7 @@ func ParseAgentExecResult(agent string, result domain.ExecResult) (domain.AgentR
 		FinalText:     strings.TrimSpace(payload.FinalText),
 		JSONText:      strings.TrimSpace(payload.FinalText),
 		Transcript:    strings.TrimSpace(payload.Transcript),
-		SessionID:     strings.TrimSpace(payload.SessionID),
+		ThreadID:      strings.TrimSpace(payload.SessionID),
 		StopReason:    strings.TrimSpace(payload.StopReason),
 		ExitCode:      result.ExitCode,
 		Success:       result.Success,

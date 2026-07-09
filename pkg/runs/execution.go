@@ -11,7 +11,7 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Session, cell domain.NotebookCell, execErr error) TransitionRequest {
+func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sandbox, cell domain.NotebookCell, execErr error) TransitionRequest {
 	req := TransitionRequest{
 		RunID:    run.RunID,
 		ExitCode: cell.ExitCode,
@@ -26,12 +26,13 @@ func TransitionFromAgentCell(run domain.ProjectRunRecord, session *domain.Sessio
 		req.LogsPath = filepath.Join(artifactsDir, "output.txt")
 	}
 	resultJSON, err := json.Marshal(map[string]any{
-		"cellId":         cell.ID,
-		"agent":          cell.Agent,
-		"agentSessionId": cell.AgentSessionID,
-		"stopReason":     cell.StopReason,
-		"success":        cell.Success,
-		"exitCode":       cell.ExitCode,
+		"sandboxId":     req.SessionID,
+		"cellId":        cell.ID,
+		"agent":         cell.Agent,
+		"agentThreadId": cell.AgentThreadID,
+		"stopReason":    cell.StopReason,
+		"success":       cell.Success,
+		"exitCode":      cell.ExitCode,
 	})
 	if err == nil {
 		req.ResultJSON = string(resultJSON)

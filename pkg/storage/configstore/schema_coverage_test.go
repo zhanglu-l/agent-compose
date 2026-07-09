@@ -526,7 +526,7 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 		t.Fatalf("GetCapabilityGateway gateway=%#v err=%v", gateway, err)
 	}
 
-	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SessionEnvVar{{Name: "A", Value: "1"}, {Name: "SECRET", Value: "2", Secret: true}}); err != nil {
+	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SandboxEnvVar{{Name: "A", Value: "1"}, {Name: "SECRET", Value: "2", Secret: true}}); err != nil {
 		t.Fatalf("ReplaceGlobalEnv returned error: %v", err)
 	}
 	if env, err := store.ListGlobalEnv(ctx); err != nil || len(env) != 2 {
@@ -548,7 +548,7 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	agent, err := store.CreateAgentDefinition(ctx, domain.AgentDefinition{
 		ID: "agent-1", Name: "Agent", Enabled: true, Provider: "codex", Model: "gpt", SystemPrompt: "prompt",
 		Driver: driverpkg.RuntimeDriverBoxlite, GuestImage: "guest:latest", WorkspaceID: workspace.ID,
-		EnvItems: []domain.SessionEnvVar{{Name: "TOKEN", Value: "secret", Secret: true}}, CapsetIDs: []string{"dev"},
+		EnvItems: []domain.SandboxEnvVar{{Name: "TOKEN", Value: "secret", Secret: true}}, CapsetIDs: []string{"dev"},
 	})
 	if err != nil {
 		t.Fatalf("CreateAgentDefinition returned error: %v", err)
@@ -582,7 +582,7 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	loader, err := store.CreateLoader(ctx, Loader{
 		Summary:  domain.LoaderSummary{ID: "loader-1", Name: "Loader", Enabled: true, Runtime: domain.LoaderRuntimeScheduler, DefaultAgent: "agent-1", AgentID: agent.ID},
 		Script:   "function main(){}",
-		EnvItems: []domain.SessionEnvVar{{Name: "LOADER", Value: "value"}},
+		EnvItems: []domain.SandboxEnvVar{{Name: "LOADER", Value: "value"}},
 	})
 	if err != nil {
 		t.Fatalf("CreateLoader returned error: %v", err)
@@ -764,7 +764,7 @@ func testConfigStoreLLMBootstrapResolveCoverage(t *testing.T, ctx context.Contex
 	if lookup := llms.DefaultLLMEnvProviderLookup(ctx, config, store); lookup("LLM_API_ENDPOINT") != "https://config.example/v1" {
 		t.Fatalf("config LLM lookup failed")
 	}
-	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SessionEnvVar{
+	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SandboxEnvVar{
 		{Name: "LLM_API_ENDPOINT", Value: "https://global.example/v1"},
 		{Name: "LLM_API_PROTOCOL", Value: "chat_completions"},
 		{Name: "LLM_API_KEY", Value: "global-key", Secret: true},
@@ -779,7 +779,7 @@ func testConfigStoreLLMBootstrapResolveCoverage(t *testing.T, ctx context.Contex
 	if target.Provider.ID != llms.ProviderIDDefaultOpenAI || target.Provider.APIKey != "global-key" || target.Model.ID != "global-model" || target.WireAPI != llms.APIProtocolChatCompletions {
 		t.Fatalf("OpenAI resolved target = %#v", target)
 	}
-	runtimeTarget, err := llms.ResolveRuntimeLLMTargetWithEnv(ctx, config, store, "session-1", llms.ProviderFamilyOpenAI, "session-model", "", []domain.SessionEnvVar{
+	runtimeTarget, err := llms.ResolveRuntimeLLMTargetWithEnv(ctx, config, store, "session-1", llms.ProviderFamilyOpenAI, "session-model", "", []domain.SandboxEnvVar{
 		{Name: "LLM_API_ENDPOINT", Value: "https://session.example/v1"},
 		{Name: "LLM_API_KEY", Value: "session-key", Secret: true},
 		{Name: "LLM_MODEL", Value: "session-model"},
@@ -815,7 +815,7 @@ func testConfigStoreLLMBootstrapResolveCoverage(t *testing.T, ctx context.Contex
 	if anthropicTarget.Provider.ProviderType != llms.ProviderFamilyAnthropic || anthropicTarget.WireAPI != llms.APIProtocolMessages || anthropicTarget.Model.ID != "claude-test" {
 		t.Fatalf("Anthropic target = %#v", anthropicTarget)
 	}
-	sessionAnthropicID, err := llms.EnsureSessionAnthropicEnvProvider(ctx, anthropicStore, "session-2", "claude-session", []domain.SessionEnvVar{
+	sessionAnthropicID, err := llms.EnsureSessionAnthropicEnvProvider(ctx, anthropicStore, "session-2", "claude-session", []domain.SandboxEnvVar{
 		{Name: "ANTHROPIC_API_KEY", Value: "session-anthropic-key", Secret: true},
 		{Name: "ANTHROPIC_MODEL", Value: "claude-session"},
 	})
@@ -985,7 +985,7 @@ func testConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := sessionStore.CreateSandbox(ctx, "Legacy Session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, []domain.SessionTag{{Name: "legacy", Value: "true"}})
+	session, err := sessionStore.CreateSandbox(ctx, "Legacy Session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, []domain.SandboxTag{{Name: "legacy", Value: "true"}})
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -1150,7 +1150,7 @@ func TestConfigStoreExportedSchemaHelpers(t *testing.T) {
 	if err := store.InitCoreSchema(ctx); err != nil {
 		t.Fatalf("InitCoreSchema returned error: %v", err)
 	}
-	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SessionEnvVar{{Name: "A", Value: "1", Secret: true}}); err != nil {
+	if _, err := store.ReplaceGlobalEnv(ctx, []domain.SandboxEnvVar{{Name: "A", Value: "1", Secret: true}}); err != nil {
 		t.Fatalf("ReplaceGlobalEnv returned error: %v", err)
 	}
 	if _, err := store.CreateWorkspaceConfig(ctx, domain.WorkspaceConfig{ID: "workspace-1", Name: "Workspace", Type: "file", ConfigJSON: `{}`}); err != nil {

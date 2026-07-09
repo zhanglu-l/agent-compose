@@ -13,7 +13,7 @@ func TestParseAgentAndCommandExecResultWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAgentExecResult returned error: %v", err)
 	}
-	if agent.Agent != "codex" || agent.SessionID != "agent-session" || agent.DisplayOutput != "transcript" {
+	if agent.Agent != "codex" || agent.ThreadID != "agent-session" || agent.DisplayOutput != "transcript" {
 		t.Fatalf("agent result = %#v", agent)
 	}
 	if _, err := ParseAgentExecResult("codex", domain.ExecResult{Stderr: strings.Repeat("x", 300)}); err == nil || !strings.Contains(err.Error(), "...") {

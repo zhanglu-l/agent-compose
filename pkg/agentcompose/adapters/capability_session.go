@@ -11,7 +11,7 @@ import (
 )
 
 type CapabilitySessionStore interface {
-	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error)
 }
 
 type CapabilitySessionResolver struct {
@@ -33,11 +33,11 @@ func (r *CapabilitySessionResolver) ResolveCapabilitySession(ctx context.Context
 	offset := 0
 	const pageSize = 200
 	for {
-		result, err := r.store.ListSandboxes(ctx, domain.SessionListOptions{Offset: offset, Limit: pageSize})
+		result, err := r.store.ListSandboxes(ctx, domain.SandboxListOptions{Offset: offset, Limit: pageSize})
 		if err != nil {
 			return capproxy.SessionBinding{}, err
 		}
-		for _, session := range result.Sessions {
+		for _, session := range result.Sandboxes {
 			if session == nil || capabilities.SessionToken(session) != token {
 				continue
 			}

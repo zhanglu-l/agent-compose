@@ -163,11 +163,11 @@ func TestDownProjectSessionAndSchedulerWorkflows(t *testing.T) {
 		{ProjectID: project.ID, SchedulerID: "scheduler-disabled", AgentName: "idle", ManagedLoaderID: "loader-idle", Enabled: false},
 		{ProjectID: project.ID, SchedulerID: "scheduler-1", AgentName: "worker", ManagedLoaderID: "loader-1", Enabled: true},
 	}}
-	sessionStore := downCoverageSessions{sessions: []*domain.Session{
+	sessionStore := downCoverageSessions{sessions: []*domain.Sandbox{
 		nil,
-		{Summary: domain.SessionSummary{ID: "other", Title: "Other", Tags: []domain.SessionTag{{Name: "project", Value: "other"}}}},
-		{Summary: domain.SessionSummary{ID: "session-fail", Title: "Fail", Tags: []domain.SessionTag{{Name: " project ", Value: " project-1 "}}}},
-		{Summary: domain.SessionSummary{ID: "session-ok", Title: "OK", Tags: []domain.SessionTag{{Name: "project", Value: "project-1"}}}},
+		{Summary: domain.SandboxSummary{ID: "other", Title: "Other", Tags: []domain.SandboxTag{{Name: "project", Value: "other"}}}},
+		{Summary: domain.SandboxSummary{ID: "session-fail", Title: "Fail", Tags: []domain.SandboxTag{{Name: " project ", Value: " project-1 "}}}},
+		{Summary: domain.SandboxSummary{ID: "session-ok", Title: "OK", Tags: []domain.SandboxTag{{Name: "project", Value: "project-1"}}}},
 	}}
 	stopped := make([]string, 0)
 	refreshed := false
@@ -184,7 +184,7 @@ func TestDownProjectSessionAndSchedulerWorkflows(t *testing.T) {
 			refreshed = true
 			return nil
 		},
-		StopSession: func(_ context.Context, session *domain.Session) error {
+		StopSession: func(_ context.Context, session *domain.Sandbox) error {
 			stopped = append(stopped, session.Summary.ID)
 			if session.Summary.ID == "session-fail" {
 				return errors.New("stop failed")
@@ -234,7 +234,7 @@ func TestDownProjectSessionAndSchedulerWorkflows(t *testing.T) {
 	if _, err := StopProjectRunningSessions(ctx, project, DownOptions{Sessions: downCoverageSessions{err: errors.New("list failed")}}); err == nil {
 		t.Fatalf("StopProjectRunningSessions list error returned nil error")
 	}
-	if _, err := StopProjectRunningSessions(ctx, project, DownOptions{Sessions: downCoverageSessions{sessions: []*domain.Session{{Summary: domain.SessionSummary{ID: "session-1", Tags: []domain.SessionTag{{Name: "project", Value: project.ID}}}}}}}); err == nil {
+	if _, err := StopProjectRunningSessions(ctx, project, DownOptions{Sessions: downCoverageSessions{sessions: []*domain.Sandbox{{Summary: domain.SandboxSummary{ID: "session-1", Tags: []domain.SandboxTag{{Name: "project", Value: project.ID}}}}}}}); err == nil {
 		t.Fatalf("StopProjectRunningSessions without stopper returned nil error")
 	}
 }
@@ -380,8 +380,8 @@ func (s *controllerCoverageStore) SetLoaderEnabled(context.Context, string, bool
 
 type controllerCoverageSessionStore struct{}
 
-func (controllerCoverageSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{}, nil
+func (controllerCoverageSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{}, nil
 }
 
 type controllerCoverageVolumeManager struct {
@@ -438,12 +438,12 @@ func (s *downCoverageStore) SetProjectSchedulerEnabled(_ context.Context, projec
 }
 
 type downCoverageSessions struct {
-	sessions []*domain.Session
+	sessions []*domain.Sandbox
 	err      error
 }
 
-func (s downCoverageSessions) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{Sessions: s.sessions}, s.err
+func (s downCoverageSessions) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{Sandboxes: s.sessions}, s.err
 }
 
 func assertDownChange(t *testing.T, changes []DownChange, action, resourceType, resourceID string) {

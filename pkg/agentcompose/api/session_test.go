@@ -22,7 +22,7 @@ type testSessionReconciler struct {
 	calls int
 }
 
-func (r *testSessionReconciler) ReconcileRuntimeState(_ context.Context, session *domain.Session) (*domain.Session, error) {
+func (r *testSessionReconciler) ReconcileRuntimeState(_ context.Context, session *domain.Sandbox) (*domain.Sandbox, error) {
 	r.calls++
 	session.Summary.VMStatus = domain.VMStatusStopped
 	return session, nil
@@ -41,7 +41,7 @@ func TestSessionHandlerGetAndListSessionsUseStoreAndReconciler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "api session", "", driverpkg.RuntimeDriverBoxlite, "debian:bookworm-slim", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "api session", "", driverpkg.RuntimeDriverBoxlite, "debian:bookworm-slim", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -76,17 +76,17 @@ func TestSessionHandlerGetAndListSessionsUseStoreAndReconciler(t *testing.T) {
 
 func TestV1CompatibilityMappingPreservesSessionWireNames(t *testing.T) {
 	now := time.Date(2026, 7, 9, 10, 11, 12, 0, time.UTC)
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:        "sandbox-compatible-id",
 			Title:     "v1 compatibility",
 			VMStatus:  domain.VMStatusRunning,
 			Driver:    driverpkg.RuntimeDriverDocker,
-			Tags:      []domain.SessionTag{{Name: "project", Value: "demo"}},
+			Tags:      []domain.SandboxTag{{Name: "project", Value: "demo"}},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
-		EnvItems: []domain.SessionEnvVar{{Name: "PLAIN", Value: "visible"}, {Name: "SECRET", Value: "hidden", Secret: true}},
+		EnvItems: []domain.SandboxEnvVar{{Name: "PLAIN", Value: "visible"}, {Name: "SECRET", Value: "hidden", Secret: true}},
 	}
 
 	detail := SessionDetailToProto(session)
@@ -102,15 +102,15 @@ func TestV1CompatibilityMappingPreservesSessionWireNames(t *testing.T) {
 		Type:           "agent",
 		Source:         "prompt",
 		Agent:          "codex",
-		AgentSessionID: "provider-thread-compatible-id",
+		AgentThreadID: "provider-thread-compatible-id",
 		Success:        true,
 		CreatedAt:      now,
 	}
-	if got := CellToProto(cell).GetAgentSessionId(); got != cell.AgentSessionID {
-		t.Fatalf("v1 cell agent_session_id = %q, want %q", got, cell.AgentSessionID)
+	if got := CellToProto(cell).GetAgentSessionId(); got != cell.AgentThreadID {
+		t.Fatalf("v1 cell agent_thread_id = %q, want %q", got, cell.AgentThreadID)
 	}
-	if got := AgentRunToProto(cell).GetAgentSessionId(); got != cell.AgentSessionID {
-		t.Fatalf("v1 agent run agent_session_id = %q, want %q", got, cell.AgentSessionID)
+	if got := AgentRunToProto(cell).GetAgentSessionId(); got != cell.AgentThreadID {
+		t.Fatalf("v1 agent run agent_thread_id = %q, want %q", got, cell.AgentThreadID)
 	}
 }
 
@@ -139,10 +139,10 @@ type errorSessionStore struct {
 	err error
 }
 
-func (s errorSessionStore) GetSandbox(context.Context, string) (*domain.Session, error) {
+func (s errorSessionStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
 	return nil, s.err
 }
 
-func (s errorSessionStore) ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error) {
-	return domain.SessionListResult{}, s.err
+func (s errorSessionStore) ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error) {
+	return domain.SandboxListResult{}, s.err
 }

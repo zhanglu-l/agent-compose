@@ -57,7 +57,7 @@ func NewSessionRPCBridge(config *appconfig.Config, store *sessionstore.Store, co
 }
 
 func (b *SessionRPCBridge) CallJSON(ctx context.Context, method, requestJSON string) (string, error) {
-	return b.CallJSONWithSource(ctx, method, requestJSON, domain.SessionTypeScript)
+	return b.CallJSONWithSource(ctx, method, requestJSON, domain.SandboxTypeScript)
 }
 
 func (b *SessionRPCBridge) CallJSONWithSource(ctx context.Context, method, requestJSON, source string) (string, error) {
@@ -162,17 +162,17 @@ func (b *SessionRPCBridge) publishLoaderTopic(topic string, payload map[string]a
 }
 
 func (b *SessionRPCBridge) CreateSession(ctx context.Context, req *connect.Request[agentcomposev1.CreateSessionRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	return b.createSession(ctx, req, domain.SessionTypeManual)
+	return b.createSession(ctx, req, domain.SandboxTypeManual)
 }
 
 func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Request[agentcomposev1.CreateSessionRequest], source string) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	tags := make([]domain.SessionTag, 0, len(req.Msg.GetTags()))
+	tags := make([]domain.SandboxTag, 0, len(req.Msg.GetTags()))
 	for _, tag := range req.Msg.GetTags() {
-		tags = append(tags, domain.SessionTag{Name: tag.GetName(), Value: tag.GetValue()})
+		tags = append(tags, domain.SandboxTag{Name: tag.GetName(), Value: tag.GetValue()})
 	}
-	envItems := make([]domain.SessionEnvVar, 0, len(req.Msg.GetEnvItems()))
+	envItems := make([]domain.SandboxEnvVar, 0, len(req.Msg.GetEnvItems()))
 	for _, item := range req.Msg.GetEnvItems() {
-		envItems = append(envItems, domain.SessionEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
+		envItems = append(envItems, domain.SandboxEnvVar{Name: item.GetName(), Value: item.GetValue(), Secret: item.GetSecret()})
 	}
 	globalEnvItems, err := b.configDB.ListGlobalEnv(ctx)
 	if err != nil {
@@ -185,7 +185,7 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	tags = append(tags, capabilityTags...)
 
-	var workspaceSnapshot *domain.SessionWorkspace
+	var workspaceSnapshot *domain.SandboxWorkspace
 	workspaceID := strings.TrimSpace(req.Msg.GetWorkspaceId())
 	if workspaceID != "" {
 		workspaceConfig, err := b.configDB.GetWorkspaceConfig(ctx, workspaceID)
@@ -224,7 +224,7 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	if b.dashboard != nil {
 		b.dashboard.Notify("session_updated")
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.created",
 		Level:     "info",
@@ -237,13 +237,13 @@ func (b *SessionRPCBridge) createSession(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	domain.RestoreSessionTransientFields(loaded, session)
+	domain.RestoreSandboxTransientFields(loaded, session)
 	b.publishLoaderTopic("agent-compose.session.created", loaders.SessionTopicPayload(loaded, source))
 	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(loaded)}), nil
 }
 
 func (b *SessionRPCBridge) ResumeSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	return b.resumeSession(ctx, req, domain.SessionTypeManual)
+	return b.resumeSession(ctx, req, domain.SandboxTypeManual)
 }
 
 func (b *SessionRPCBridge) resumeSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest], source string) (*connect.Response[agentcomposev1.SessionResponse], error) {
@@ -259,12 +259,12 @@ func (b *SessionRPCBridge) resumeSession(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(&agentcomposev1.SessionResponse{Session: api.SessionDetailToProto(loaded)}), nil
 }
 
-func (b *SessionRPCBridge) ReconcileRuntimeState(ctx context.Context, session *domain.Session) (*domain.Session, error) {
+func (b *SessionRPCBridge) ReconcileRuntimeState(ctx context.Context, session *domain.Sandbox) (*domain.Sandbox, error) {
 	return b.sessionLifecycle().ReconcileRuntimeState(ctx, session)
 }
 
 func (b *SessionRPCBridge) StopSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest]) (*connect.Response[agentcomposev1.SessionResponse], error) {
-	return b.stopSession(ctx, req, domain.SessionTypeManual)
+	return b.stopSession(ctx, req, domain.SandboxTypeManual)
 }
 
 func (b *SessionRPCBridge) stopSession(ctx context.Context, req *connect.Request[agentcomposev1.SessionIDRequest], source string) (*connect.Response[agentcomposev1.SessionResponse], error) {
@@ -317,7 +317,7 @@ func (b *SessionRPCBridge) ListSessions(ctx context.Context, req *connect.Reques
 		HasMore:    result.HasMore,
 		NextOffset: uint32(result.NextOffset),
 	}
-	for _, session := range result.Sessions {
+	for _, session := range result.Sandboxes {
 		if reconciled, recErr := b.ReconcileRuntimeState(ctx, session); recErr != nil {
 			slog.Warn("failed to reconcile session runtime state during list", "session_id", session.Summary.ID, "error", recErr)
 		} else {
@@ -366,7 +366,7 @@ func (b *SessionRPCBridge) sessionLifecycle() sessions.Lifecycle {
 			streams:   b.streams,
 			dashboard: b.dashboard,
 		},
-		GuideWriter: func(ctx context.Context, session *domain.Session, capsetIDs []string) {
+		GuideWriter: func(ctx context.Context, session *domain.Sandbox, capsetIDs []string) {
 			writeCapabilityGuide(ctx, b.cap, b.store, b.streams, session, capsetIDs)
 		},
 	}
@@ -376,7 +376,7 @@ type sessionRuntimeLiveness struct {
 	runtimes RuntimeProvider
 }
 
-func (p sessionRuntimeLiveness) IsSessionAlive(ctx context.Context, driver string, session *domain.Session, vmState domain.VMState) (bool, bool, error) {
+func (p sessionRuntimeLiveness) IsSessionAlive(ctx context.Context, driver string, session *domain.Sandbox, vmState domain.VMState) (bool, bool, error) {
 	if p.runtimes == nil {
 		return false, false, nil
 	}
@@ -385,7 +385,7 @@ func (p sessionRuntimeLiveness) IsSessionAlive(ctx context.Context, driver strin
 		return false, false, err
 	}
 	aliveRuntime, ok := runtime.(interface {
-		IsSessionAlive(context.Context, *domain.Session, domain.VMState) (bool, error)
+		IsSessionAlive(context.Context, *domain.Sandbox, domain.VMState) (bool, error)
 	})
 	if !ok {
 		return false, false, nil
@@ -399,13 +399,13 @@ type sessionLifecycleNotifier struct {
 	dashboard *dashboard.Hub
 }
 
-func (n sessionLifecycleNotifier) PublishSessionUpdated(summary *domain.SessionSummary) {
+func (n sessionLifecycleNotifier) PublishSessionUpdated(summary *domain.SandboxSummary) {
 	if n.streams != nil {
 		n.streams.PublishSessionUpdated(summary)
 	}
 }
 
-func (n sessionLifecycleNotifier) PublishEventAdded(sessionID string, event domain.SessionEvent) {
+func (n sessionLifecycleNotifier) PublishEventAdded(sessionID string, event domain.SandboxEvent) {
 	if n.streams != nil {
 		n.streams.PublishEventAdded(sessionID, event)
 	}
@@ -417,7 +417,7 @@ func (n sessionLifecycleNotifier) NotifyDashboard(reason string) {
 	}
 }
 
-func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store *sessionstore.Store, streams *sessions.StreamBroker, session *domain.Session, capsetIDs []string) {
+func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store *sessionstore.Store, streams *sessions.StreamBroker, session *domain.Sandbox, capsetIDs []string) {
 	ids := capabilities.NormalizeCapsetIDs(capsetIDs)
 	if len(ids) == 0 || provider == nil || session == nil {
 		return
@@ -463,7 +463,7 @@ func recordCapabilityGuideWarning(ctx context.Context, store *sessionstore.Store
 	if store == nil || strings.TrimSpace(sessionID) == "" {
 		return
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "capability.guide.warning",
 		Level:     "warning",
@@ -479,8 +479,8 @@ func recordCapabilityGuideWarning(ctx context.Context, store *sessionstore.Store
 	}
 }
 
-func toSessionWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SessionWorkspace {
-	return &domain.SessionWorkspace{
+func toSessionWorkspaceSnapshot(item domain.WorkspaceConfig) *domain.SandboxWorkspace {
+	return &domain.SandboxWorkspace{
 		ID:         item.ID,
 		Name:       item.Name,
 		Type:       item.Type,

@@ -74,7 +74,7 @@ func TestAdapterHelperCoverage(t *testing.T) {
 		if got, err := provider.ForDriver("docker-engine"); err != nil || got != runtime {
 			t.Fatalf("ForDriver docker-engine = %T/%v", got, err)
 		}
-		if got, err := provider.ForSession(&domain.Session{Summary: domain.SessionSummary{Driver: ""}}); err != nil || got != runtime {
+		if got, err := provider.ForSession(&domain.Sandbox{Summary: domain.SandboxSummary{Driver: ""}}); err != nil || got != runtime {
 			t.Fatalf("ForSession default driver = %T/%v", got, err)
 		}
 		if _, err := provider.ForDriver("bad-driver"); err == nil {
@@ -98,7 +98,7 @@ func TestAdapterHelperCoverage(t *testing.T) {
 			},
 		}
 		adapter := driverRuntimeAdapter{runtime: driverRuntime}
-		session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1", WorkspacePath: "/tmp/workspace"}}
+		session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1", WorkspacePath: "/tmp/workspace"}}
 		result, err := adapter.Exec(context.Background(), session, domain.VMState{BoxID: "sandbox-1"}, domain.ExecSpec{Command: "echo"})
 		if err != nil || result.Stdout != "out" || driverRuntime.execSpec.Command != "echo" {
 			t.Fatalf("Exec result=%#v spec=%#v err=%v", result, driverRuntime.execSpec, err)
@@ -176,28 +176,28 @@ func float64PtrForAdapter(value float64) *float64 {
 
 func TestCapabilitySessionResolverCoverage(t *testing.T) {
 	ctx := context.Background()
-	running := &domain.Session{
-		Summary: domain.SessionSummary{
+	running := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:       "session-running",
 			VMStatus: domain.VMStatusRunning,
-			Tags: []domain.SessionTag{
+			Tags: []domain.SandboxTag{
 				{Name: capabilities.CapsetTagName, Value: "dev"},
 				{Name: capabilities.CapsetTagName, Value: " dev "},
 			},
 		},
-		EnvItems: []domain.SessionEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-2", Secret: true}},
+		EnvItems: []domain.SandboxEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-2", Secret: true}},
 	}
-	stopped := &domain.Session{
-		Summary:  domain.SessionSummary{ID: "session-stopped", VMStatus: domain.VMStatusStopped, Tags: []domain.SessionTag{{Name: capabilities.CapsetTagName, Value: "dev"}}},
-		EnvItems: []domain.SessionEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-stopped", Secret: true}},
+	stopped := &domain.Sandbox{
+		Summary:  domain.SandboxSummary{ID: "session-stopped", VMStatus: domain.VMStatusStopped, Tags: []domain.SandboxTag{{Name: capabilities.CapsetTagName, Value: "dev"}}},
+		EnvItems: []domain.SandboxEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-stopped", Secret: true}},
 	}
-	noCapset := &domain.Session{
-		Summary:  domain.SessionSummary{ID: "session-no-capset", VMStatus: domain.VMStatusRunning},
-		EnvItems: []domain.SessionEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-no-capset", Secret: true}},
+	noCapset := &domain.Sandbox{
+		Summary:  domain.SandboxSummary{ID: "session-no-capset", VMStatus: domain.VMStatusRunning},
+		EnvItems: []domain.SandboxEnvVar{{Name: capabilities.SessionTokenEnvName, Value: "token-no-capset", Secret: true}},
 	}
-	store := &fakeCapabilitySessionStore{pages: []domain.SessionListResult{
-		{Sessions: []*domain.Session{{Summary: domain.SessionSummary{ID: "session-other", VMStatus: domain.VMStatusRunning}}}, HasMore: true, NextOffset: 200},
-		{Sessions: []*domain.Session{nil, running, stopped, noCapset}},
+	store := &fakeCapabilitySessionStore{pages: []domain.SandboxListResult{
+		{Sandboxes: []*domain.Sandbox{{Summary: domain.SandboxSummary{ID: "session-other", VMStatus: domain.VMStatusRunning}}}, HasMore: true, NextOffset: 200},
+		{Sandboxes: []*domain.Sandbox{nil, running, stopped, noCapset}},
 	}}
 	resolver := NewCapabilitySessionResolver(store)
 	binding, err := resolver.ResolveCapabilitySession(ctx, " token-2 ")
@@ -239,19 +239,19 @@ func TestCapabilitySessionResolverCoverage(t *testing.T) {
 }
 
 type fakeCapabilitySessionStore struct {
-	pages   []domain.SessionListResult
+	pages   []domain.SandboxListResult
 	offsets []int
 	err     error
 }
 
-func (s *fakeCapabilitySessionStore) ListSandboxes(_ context.Context, opts domain.SessionListOptions) (domain.SessionListResult, error) {
+func (s *fakeCapabilitySessionStore) ListSandboxes(_ context.Context, opts domain.SandboxListOptions) (domain.SandboxListResult, error) {
 	s.offsets = append(s.offsets, opts.Offset)
 	if s.err != nil {
-		return domain.SessionListResult{}, s.err
+		return domain.SandboxListResult{}, s.err
 	}
 	index := opts.Offset / 200
 	if index >= len(s.pages) {
-		return domain.SessionListResult{}, nil
+		return domain.SandboxListResult{}, nil
 	}
 	return s.pages[index], nil
 }

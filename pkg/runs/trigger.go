@@ -156,7 +156,7 @@ func (h *manualTriggerCaptureHost) CallSessionRPC(context.Context, string, strin
 	return "", fmt.Errorf("scheduler.session is unavailable during manual trigger resolution")
 }
 
-func envVarSpecsFromSessionEnv(items []domain.SessionEnvVar) []*agentcomposev2.EnvVarSpec {
+func envVarSpecsFromSessionEnv(items []domain.SandboxEnvVar) []*agentcomposev2.EnvVarSpec {
 	result := make([]*agentcomposev2.EnvVarSpec, 0, len(items))
 	for _, item := range items {
 		name := strings.TrimSpace(item.Name)

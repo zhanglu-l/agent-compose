@@ -33,11 +33,11 @@ type AgentDefinitionConfigStore interface {
 }
 
 type AgentDefinitionSessionStore interface {
-	ListSandboxes(context.Context, domain.SessionListOptions) (domain.SessionListResult, error)
+	ListSandboxes(context.Context, domain.SandboxListOptions) (domain.SandboxListResult, error)
 	GetVMState(string) (domain.VMState, error)
 	SaveVMState(string, domain.VMState) error
-	UpdateSandbox(context.Context, *domain.Session) error
-	AddEvent(context.Context, string, domain.SessionEvent) error
+	UpdateSandbox(context.Context, *domain.Sandbox) error
+	AddEvent(context.Context, string, domain.SandboxEvent) error
 }
 
 type AgentDefinitionHandler struct {
@@ -334,7 +334,7 @@ func (h *AgentDefinitionHandler) agentDefinitionToProto(ctx context.Context, ite
 	return h.agentDefinitionToProtoWith(ctx, item, sessions), nil
 }
 
-func (h *AgentDefinitionHandler) agentDefinitionToProtoWith(ctx context.Context, item domain.AgentDefinition, sessions []*domain.Session) *agentcomposev1.AgentDefinition {
+func (h *AgentDefinitionHandler) agentDefinitionToProtoWith(ctx context.Context, item domain.AgentDefinition, sessions []*domain.Sandbox) *agentcomposev1.AgentDefinition {
 	workspace, workspaceErr := h.agentWorkspace(ctx, item.WorkspaceID)
 	validation := h.validateAgentDefinitionWithWorkspace(item, "", workspace, workspaceErr)
 	current, latest := domain.AgentRunSummaries(item.ID, sessions)
@@ -361,12 +361,12 @@ func (h *AgentDefinitionHandler) agentWorkspace(ctx context.Context, workspaceID
 	return &workspace, nil
 }
 
-func (h *AgentDefinitionHandler) listAllSessions(ctx context.Context) ([]*domain.Session, error) {
-	result, err := h.store.ListSandboxes(ctx, domain.SessionListOptions{Limit: AgentSessionScanLimit})
+func (h *AgentDefinitionHandler) listAllSessions(ctx context.Context) ([]*domain.Sandbox, error) {
+	result, err := h.store.ListSandboxes(ctx, domain.SandboxListOptions{Limit: AgentSessionScanLimit})
 	if err != nil {
 		return nil, err
 	}
-	return result.Sessions, nil
+	return result.Sandboxes, nil
 }
 
 func (h *AgentDefinitionHandler) stopAgentSessions(ctx context.Context, agentID string) error {
@@ -375,7 +375,7 @@ func (h *AgentDefinitionHandler) stopAgentSessions(ctx context.Context, agentID 
 		return connect.NewError(connect.CodeInternal, err)
 	}
 	for _, session := range sessions {
-		if !domain.SessionHasAgentTag(session, agentID) {
+		if !domain.SandboxHasAgentTag(session, agentID) {
 			continue
 		}
 		switch session.Summary.VMStatus {
@@ -392,7 +392,7 @@ func (h *AgentDefinitionHandler) stopAgentSessions(ctx context.Context, agentID 
 	return nil
 }
 
-func (h *AgentDefinitionHandler) markAgentSessionStopped(ctx context.Context, session *domain.Session) error {
+func (h *AgentDefinitionHandler) markAgentSessionStopped(ctx context.Context, session *domain.Sandbox) error {
 	if session == nil {
 		return nil
 	}
@@ -413,7 +413,7 @@ func (h *AgentDefinitionHandler) markAgentSessionStopped(ctx context.Context, se
 	if h.streams != nil {
 		h.streams.PublishSessionUpdated(&session.Summary)
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.stopped",
 		Level:     "info",

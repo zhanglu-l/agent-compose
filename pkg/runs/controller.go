@@ -34,18 +34,18 @@ var (
 )
 
 type AgentExecutor interface {
-	ExecuteAgentRequest(context.Context, *domain.Session, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SessionEvent, domain.SessionEvent, error)
+	ExecuteAgentRequest(context.Context, *domain.Sandbox, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SandboxEvent, domain.SandboxEvent, error)
 }
 
 type Runtime interface {
-	ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
+	ExecStream(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
 }
 
-type RuntimeProvider func(*domain.Session) (Runtime, error)
+type RuntimeProvider func(*domain.Sandbox) (Runtime, error)
 
 type SessionDriver interface {
-	StartSessionVM(context.Context, *domain.Session) error
-	StopSessionVM(context.Context, *domain.Session) error
+	StartSessionVM(context.Context, *domain.Sandbox) error
+	StopSessionVM(context.Context, *domain.Sandbox) error
 }
 
 type TopicPublisher interface {
@@ -57,7 +57,7 @@ type DashboardNotifier interface {
 }
 
 type VolumeResolver interface {
-	ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SessionVolumeMount, []string, error)
+	ResolveMounts(ctx context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SandboxVolumeMount, []string, error)
 }
 
 type ControllerStore interface {
@@ -379,7 +379,7 @@ func markProjectRunTerminalError(ctx context.Context, coordinator *Coordinator, 
 	return coordinator.MarkFailed(ctx, transition)
 }
 
-func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Session, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
+func (c *Controller) executeProjectRunCommand(ctx context.Context, run domain.ProjectRunRecord, session *domain.Sandbox, req RunAgentRequest, commandText string, sink *StreamSink) (TransitionRequest, error) {
 	artifactsDir := projectRunCommandArtifactsDir(run, session)
 	logsPath := filepath.Join(artifactsDir, "transcript.txt")
 	transition := TransitionRequest{
@@ -499,7 +499,7 @@ func (c *Controller) projectRunAgentConfig(ctx context.Context, run domain.Proje
 	return config, nil
 }
 
-func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, session *domain.Session, sink *StreamSink) execution.AgentExecutionStream {
+func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, session *domain.Sandbox, sink *StreamSink) execution.AgentExecutionStream {
 	return execution.AgentExecutionStream{
 		OnStart: func(cell domain.NotebookCell) error {
 			if coordinator != nil {
@@ -531,7 +531,7 @@ func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinato
 	}
 }
 
-func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Session, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
+func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Sandbox, commandText string, result domain.ExecResult, execErr error) TransitionRequest {
 	artifactsDir := projectRunCommandArtifactsDir(run, session)
 	req := TransitionRequest{
 		RunID:        run.RunID,
@@ -565,11 +565,11 @@ func transitionFromCommandResult(run domain.ProjectRunRecord, session *domain.Se
 	return req
 }
 
-func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Session) string {
+func projectRunCommandArtifactsDir(run domain.ProjectRunRecord, session *domain.Sandbox) string {
 	return filepath.Join(execution.HostSandboxDir(session), "state", "runs", run.RunID)
 }
 
-func projectRunAgentCellOutputPath(session *domain.Session, cellID string) string {
+func projectRunAgentCellOutputPath(session *domain.Sandbox, cellID string) string {
 	cellID = strings.TrimSpace(cellID)
 	if session == nil || cellID == "" {
 		return ""
@@ -711,7 +711,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 		driver,
 		guestImage,
 		workspaceID,
-		domain.SessionTypeManual,
+		domain.SandboxTypeManual,
 		prepared.Workspace,
 		domain.MergeEnvItems(prepared.EnvItems, capabilityVars),
 		tags,
@@ -727,7 +727,7 @@ func (c *Controller) ensureProjectRunSession(ctx context.Context, run domain.Pro
 	return SessionResult{Session: session, Created: true, Warnings: volumeWarnings}, nil
 }
 
-func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared Preparation, req RunAgentRequest) ([]domain.SessionVolumeMount, []string, error) {
+func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared Preparation, req RunAgentRequest) ([]domain.SandboxVolumeMount, []string, error) {
 	specs := prepared.Volumes
 	if len(req.Volumes) > 0 {
 		specs = req.Volumes
@@ -778,7 +778,7 @@ func (c *Controller) applyJupyterOptionsToSession(sessionID string, options sess
 	return c.store.SaveProxyState(sessionID, proxyState)
 }
 
-func (c *Controller) startProjectRunSession(ctx context.Context, session *domain.Session, eventType, eventMessage string) error {
+func (c *Controller) startProjectRunSession(ctx context.Context, session *domain.Sandbox, eventType, eventMessage string) error {
 	if session == nil {
 		return fmt.Errorf("session is required")
 	}
@@ -804,19 +804,19 @@ func (c *Controller) startProjectRunSession(ctx context.Context, session *domain
 	if err != nil {
 		return err
 	}
-	domain.RestoreSessionTransientFields(loaded, session)
+	domain.RestoreSandboxTransientFields(loaded, session)
 	*session = *loaded
 	return nil
 }
 
-func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, session *domain.Session, eventType, message string) {
+func (c *Controller) publishProjectRunSessionStarted(ctx context.Context, session *domain.Sandbox, eventType, message string) {
 	if c.streams != nil {
 		c.streams.PublishSessionUpdated(&session.Summary)
 	}
 	if c.dashboard != nil {
 		c.dashboard.Notify("session_updated")
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      eventType,
 		Level:     "info",
@@ -881,7 +881,7 @@ func (c *Controller) cleanupProjectRunSessionByPolicy(ctx context.Context, sessi
 	return c.stopProjectRunSession(ctx, session)
 }
 
-func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.Session) error {
+func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.Sandbox) error {
 	if c.store == nil {
 		return fmt.Errorf("session store is required")
 	}
@@ -902,7 +902,7 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 	if err := c.store.UpdateSandbox(ctx, loaded); err != nil {
 		return err
 	}
-	event := domain.SessionEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}
+	event := domain.SandboxEvent{ID: uuid.NewString(), Type: "session.stopped", Level: "info", Message: "session stopped", CreatedAt: time.Now().UTC()}
 	_ = c.store.AddEvent(ctx, loaded.Summary.ID, event)
 	if c.streams != nil {
 		c.streams.PublishSessionUpdated(&loaded.Summary)
@@ -911,7 +911,7 @@ func (c *Controller) stopProjectRunSession(ctx context.Context, session *domain.
 	return nil
 }
 
-func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store SessionRuntimeStore, streams *sessions.StreamBroker, session *domain.Session, capsetIDs []string) {
+func writeCapabilityGuide(ctx context.Context, provider capabilities.Provider, store SessionRuntimeStore, streams *sessions.StreamBroker, session *domain.Sandbox, capsetIDs []string) {
 	ids := capabilities.NormalizeCapsetIDs(capsetIDs)
 	if len(ids) == 0 || provider == nil || session == nil {
 		return
@@ -957,7 +957,7 @@ func recordCapabilityGuideWarning(ctx context.Context, store SessionRuntimeStore
 	if store == nil || strings.TrimSpace(sessionID) == "" {
 		return
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "capability.guide.warning",
 		Level:     "warning",

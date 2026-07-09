@@ -77,7 +77,7 @@ type Controller struct {
 	images    images.Backend
 	loaders   LoaderValidator
 	volumes   VolumeManager
-	stop      func(context.Context, *domain.Session) error
+	stop      func(context.Context, *domain.Sandbox) error
 	defaultDR string
 }
 
@@ -88,7 +88,7 @@ type ControllerDependencies struct {
 	Images      images.Backend
 	Loaders     LoaderValidator
 	Volumes     VolumeManager
-	StopSession func(context.Context, *domain.Session) error
+	StopSession func(context.Context, *domain.Sandbox) error
 }
 
 func NewController(deps ControllerDependencies) *Controller {

@@ -28,10 +28,10 @@ func WriteAgentSessionArtifact(path string, info *domain.AgentResumeInfo) error 
 }
 
 type storedAgentSessionState struct {
-	SessionID string `json:"sessionId"`
+	ThreadID string `json:"sessionId"`
 }
 
-func LoadStoredAgentSessionID(path string) string {
+func LoadStoredAgentThreadID(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
@@ -40,26 +40,26 @@ func LoadStoredAgentSessionID(path string) string {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(state.SessionID)
+	return strings.TrimSpace(state.ThreadID)
 }
 
-func CollectAgentResumeInfo(session *domain.Session, agent, agentSessionID, manifestPath string) *domain.AgentResumeInfo {
+func CollectAgentResumeInfo(session *domain.Sandbox, agent, agentSessionID, manifestPath string) *domain.AgentResumeInfo {
 	provider := domain.NormalizeAgentKind(agent)
 	info := &domain.AgentResumeInfo{
-		Provider:            provider,
-		SessionID:           strings.TrimSpace(agentSessionID),
-		SessionManifestPath: manifestPath,
-		UpdatedAt:           time.Now().UTC(),
+		Provider:           provider,
+		ThreadID:           strings.TrimSpace(agentSessionID),
+		ThreadManifestPath: manifestPath,
+		UpdatedAt:          time.Now().UTC(),
 	}
 	statePath := filepath.Join(HostSandboxDir(session), "state", "agents", "providers", provider+".json")
 	if stat, err := os.Stat(statePath); err == nil && !stat.IsDir() {
-		info.SessionStatePath = statePath
-		if info.SessionID == "" {
-			info.SessionID = LoadStoredAgentSessionID(statePath)
+		info.ThreadStatePath = statePath
+		if info.ThreadID == "" {
+			info.ThreadID = LoadStoredAgentThreadID(statePath)
 		}
 	}
-	info.SessionJSONLPaths = FindAgentSessionJSONLPaths(HostSessionHome(session), provider, info.SessionID)
-	if info.Provider == "" && info.SessionID == "" && info.SessionStatePath == "" && info.SessionManifestPath == "" && len(info.SessionJSONLPaths) == 0 {
+	info.ThreadJSONLPaths = FindAgentSessionJSONLPaths(HostSessionHome(session), provider, info.ThreadID)
+	if info.Provider == "" && info.ThreadID == "" && info.ThreadStatePath == "" && info.ThreadManifestPath == "" && len(info.ThreadJSONLPaths) == 0 {
 		return nil
 	}
 	return info
@@ -142,14 +142,14 @@ func ShouldIncludeAgentJSONL(path, provider, sessionID string) bool {
 	return true
 }
 
-func HostSandboxDir(session *domain.Session) string {
+func HostSandboxDir(session *domain.Sandbox) string {
 	return filepath.Dir(session.Summary.WorkspacePath)
 }
 
-func HostSessionDir(session *domain.Session) string {
+func HostSessionDir(session *domain.Sandbox) string {
 	return HostSandboxDir(session)
 }
 
-func HostSessionHome(session *domain.Session) string {
+func HostSessionHome(session *domain.Sandbox) string {
 	return filepath.Join(HostSandboxDir(session), "home")
 }

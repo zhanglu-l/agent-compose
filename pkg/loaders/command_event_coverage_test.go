@@ -36,7 +36,7 @@ func TestCommandAndEventHelperWorkflows(t *testing.T) {
 		t.Fatalf("new policy should require cleanup")
 	}
 	if !CommandRequestOverridesSession(domain.LoaderCommandRequest{Driver: "docker"}) ||
-		!CommandRequestOverridesSession(domain.LoaderCommandRequest{SessionEnv: []domain.SessionEnvVar{{Name: "A", Value: "B"}}}) {
+		!CommandRequestOverridesSession(domain.LoaderCommandRequest{SessionEnv: []domain.SandboxEnvVar{{Name: "A", Value: "B"}}}) {
 		t.Fatalf("expected session override detection")
 	}
 

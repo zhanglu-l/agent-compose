@@ -17,13 +17,13 @@ func TestDriverConversionWorkflows(t *testing.T) {
 		t.Fatalf("nil session should map to nil")
 	}
 	now := time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC)
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID: "session-1", Driver: "docker", GuestImage: "guest:latest", RuntimeRef: "runtime-1",
 			WorkspacePath: "/workspace", CreatedAt: now, UpdatedAt: now,
 		},
-		EnvItems:        []domain.SessionEnvVar{{Name: "A", Value: "B", Secret: true}},
-		RuntimeEnvItems: []domain.SessionEnvVar{{Name: "R", Value: "V"}},
+		EnvItems:        []domain.SandboxEnvVar{{Name: "A", Value: "B", Secret: true}},
+		RuntimeEnvItems: []domain.SandboxEnvVar{{Name: "R", Value: "V"}},
 	}
 	driverSession := ToDriverSession(session)
 	if driverSession.Summary.ID != "session-1" || len(driverSession.EnvItems) != 1 || !driverSession.EnvItems[0].Secret || len(driverSession.RuntimeEnvItems) != 1 {
@@ -77,8 +77,8 @@ func TestDriverConversionWorkflows(t *testing.T) {
 	if commandReq.Mode != "shell" || commandReq.Cwd != "/workspace" || commandReq.MaxOutputBytes != DefaultLoaderCommandMaxOutputBytes {
 		t.Fatalf("runtime command request = %#v", commandReq)
 	}
-	session.EnvItems = []domain.SessionEnvVar{{Name: "USER_VAR", Value: "ok"}, {Name: "LLM_API_KEY", Value: "secret"}}
-	session.RuntimeEnvItems = []domain.SessionEnvVar{{Name: "MANAGED", Value: "yes"}}
+	session.EnvItems = []domain.SandboxEnvVar{{Name: "USER_VAR", Value: "ok"}, {Name: "LLM_API_KEY", Value: "secret"}}
+	session.RuntimeEnvItems = []domain.SandboxEnvVar{{Name: "MANAGED", Value: "yes"}}
 	env := BuildSessionExecEnv(config, session, "/home/agent")
 	if env["USER_VAR"] != "ok" || env["LLM_API_KEY"] != "" || env["MANAGED"] != "yes" || env["SESSION_ID"] != "session-1" {
 		t.Fatalf("session exec env = %#v", env)

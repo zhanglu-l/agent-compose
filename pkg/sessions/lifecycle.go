@@ -15,21 +15,21 @@ import (
 )
 
 type LifecycleStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
-	UpdateSandbox(context.Context, *domain.Session) error
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
+	UpdateSandbox(context.Context, *domain.Sandbox) error
 	GetVMState(string) (domain.VMState, error)
 	SaveVMState(string, domain.VMState) error
 	GetProxyState(string) (domain.ProxyState, error)
-	AddEvent(context.Context, string, domain.SessionEvent) error
+	AddEvent(context.Context, string, domain.SandboxEvent) error
 }
 
 type SessionDriver interface {
-	StartSessionVM(context.Context, *domain.Session) error
-	StopSessionVM(context.Context, *domain.Session) error
+	StartSessionVM(context.Context, *domain.Sandbox) error
+	StopSessionVM(context.Context, *domain.Sandbox) error
 }
 
 type RuntimeLivenessProvider interface {
-	IsSessionAlive(context.Context, string, *domain.Session, domain.VMState) (bool, bool, error)
+	IsSessionAlive(context.Context, string, *domain.Sandbox, domain.VMState) (bool, bool, error)
 }
 
 type FacadeTokenRevoker interface {
@@ -37,12 +37,12 @@ type FacadeTokenRevoker interface {
 }
 
 type LifecycleNotifier interface {
-	PublishSessionUpdated(*domain.SessionSummary)
-	PublishEventAdded(string, domain.SessionEvent)
+	PublishSessionUpdated(*domain.SandboxSummary)
+	PublishEventAdded(string, domain.SandboxEvent)
 	NotifyDashboard(string)
 }
 
-type CapabilityGuideWriter func(context.Context, *domain.Session, []string)
+type CapabilityGuideWriter func(context.Context, *domain.Sandbox, []string)
 
 type Lifecycle struct {
 	Config       *appconfig.Config
@@ -55,7 +55,7 @@ type Lifecycle struct {
 	GuideWriter  CapabilityGuideWriter
 }
 
-func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Session) (*domain.Session, error) {
+func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Sandbox) (*domain.Sandbox, error) {
 	if session == nil || session.Summary.VMStatus != domain.VMStatusRunning {
 		return session, nil
 	}
@@ -101,7 +101,7 @@ func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Se
 	if l.TokenRevoker != nil {
 		_ = l.TokenRevoker.RevokeLLMFacadeTokensForSession(ctx, session.Summary.ID)
 	}
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.runtime_lost",
 		Level:     "warn",
@@ -117,7 +117,7 @@ func (l Lifecycle) ReconcileRuntimeState(ctx context.Context, session *domain.Se
 	return l.Store.GetSandbox(ctx, session.Summary.ID)
 }
 
-func (l Lifecycle) EnsureProxyReady(ctx context.Context, sessionID string) (*domain.Session, domain.ProxyState, error) {
+func (l Lifecycle) EnsureProxyReady(ctx context.Context, sessionID string) (*domain.Sandbox, domain.ProxyState, error) {
 	session, err := l.Store.GetSandbox(ctx, sessionID)
 	if err != nil {
 		return nil, domain.ProxyState{}, err
@@ -159,7 +159,7 @@ func (l Lifecycle) EnsureProxyReady(ctx context.Context, sessionID string) (*dom
 	return loaded, proxyState, nil
 }
 
-func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Session, capsetIDs []string) (*domain.Session, error) {
+func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Sandbox, capsetIDs []string) (*domain.Sandbox, error) {
 	if err := workspaces.PrepareSessionWorkspace(ctx, l.Config, l.Workspace, session); err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Session, ca
 		return nil, err
 	}
 	l.publishSessionUpdated(&session.Summary)
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.resumed",
 		Level:     "info",
@@ -187,11 +187,11 @@ func (l Lifecycle) ResumeLoaded(ctx context.Context, session *domain.Session, ca
 	if err != nil {
 		return nil, err
 	}
-	domain.RestoreSessionTransientFields(loaded, session)
+	domain.RestoreSandboxTransientFields(loaded, session)
 	return loaded, nil
 }
 
-func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Session) (*domain.Session, bool, error) {
+func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Sandbox) (*domain.Sandbox, bool, error) {
 	if session.Summary.VMStatus != domain.VMStatusRunning {
 		return session, false, nil
 	}
@@ -203,7 +203,7 @@ func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Session) (*do
 		return nil, false, err
 	}
 	l.publishSessionUpdated(&session.Summary)
-	event := domain.SessionEvent{
+	event := domain.SandboxEvent{
 		ID:        uuid.NewString(),
 		Type:      "session.stopped",
 		Level:     "info",
@@ -219,7 +219,7 @@ func (l Lifecycle) StopLoaded(ctx context.Context, session *domain.Session) (*do
 	return loaded, true, nil
 }
 
-func (l Lifecycle) publishSessionUpdated(summary *domain.SessionSummary) {
+func (l Lifecycle) publishSessionUpdated(summary *domain.SandboxSummary) {
 	if l.Notifier == nil {
 		return
 	}
@@ -227,7 +227,7 @@ func (l Lifecycle) publishSessionUpdated(summary *domain.SessionSummary) {
 	l.Notifier.NotifyDashboard("session_updated")
 }
 
-func (l Lifecycle) publishEventAdded(sessionID string, event domain.SessionEvent) {
+func (l Lifecycle) publishEventAdded(sessionID string, event domain.SandboxEvent) {
 	if l.Notifier != nil {
 		l.Notifier.PublishEventAdded(sessionID, event)
 	}

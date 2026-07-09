@@ -15,25 +15,25 @@ type LoaderHostEvents struct {
 	Controller *loaders.Controller
 }
 
-func (e LoaderHostEvents) Add(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error {
+func (e LoaderHostEvents) Add(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error {
 	if e.Controller == nil {
 		return fmt.Errorf("loader controller is unavailable")
 	}
-	return e.Controller.AddLoaderEvent(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	return e.Controller.AddLoaderEvent(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 }
 
-func (e LoaderHostEvents) AddRecord(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) (domain.LoaderEvent, error) {
+func (e LoaderHostEvents) AddRecord(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) (domain.LoaderEvent, error) {
 	if e.Controller == nil {
 		return domain.LoaderEvent{}, fmt.Errorf("loader controller is unavailable")
 	}
-	return e.Controller.AddLoaderEventRecord(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	return e.Controller.AddLoaderEventRecord(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 }
 
 type LoaderHostAgentExecutor struct {
 	Executor *AgentExecutor
 }
 
-func (e LoaderHostAgentExecutor) ExecuteAgent(ctx context.Context, session *domain.Session, request loaders.HostAgentExecutionRequest) (domain.NotebookCell, error) {
+func (e LoaderHostAgentExecutor) ExecuteAgent(ctx context.Context, session *domain.Sandbox, request loaders.HostAgentExecutionRequest) (domain.NotebookCell, error) {
 	if e.Executor == nil {
 		return domain.NotebookCell{}, fmt.Errorf("agent executor is unavailable")
 	}
@@ -53,7 +53,7 @@ type LoaderHostCommandExecutor struct {
 	Executor *LoaderCommandExecutor
 }
 
-func (e LoaderHostCommandExecutor) ExecuteLoaderCommand(ctx context.Context, session *domain.Session, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error) {
+func (e LoaderHostCommandExecutor) ExecuteLoaderCommand(ctx context.Context, session *domain.Sandbox, request domain.LoaderCommandRequest) (domain.LoaderCommandResult, error) {
 	if e.Executor == nil {
 		return domain.LoaderCommandResult{}, fmt.Errorf("loader command executor is unavailable")
 	}

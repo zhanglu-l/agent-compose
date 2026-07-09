@@ -31,12 +31,12 @@ type fakeRPCSessionDriver struct {
 	stopCalls  []string
 }
 
-func (d *fakeRPCSessionDriver) StartSessionVM(_ context.Context, session *domain.Session) error {
+func (d *fakeRPCSessionDriver) StartSessionVM(_ context.Context, session *domain.Sandbox) error {
 	d.startCalls = append(d.startCalls, session.Summary.ID)
 	return nil
 }
 
-func (d *fakeRPCSessionDriver) StopSessionVM(_ context.Context, session *domain.Session) error {
+func (d *fakeRPCSessionDriver) StopSessionVM(_ context.Context, session *domain.Sandbox) error {
 	d.stopCalls = append(d.stopCalls, session.Summary.ID)
 	return nil
 }
@@ -264,7 +264,7 @@ func TestSessionRPCBridgeCapabilityGuideIsBestEffort(t *testing.T) {
 
 func TestSessionRuntimeLivenessAndNotifierBranches(t *testing.T) {
 	ctx := context.Background()
-	session := &domain.Session{Summary: domain.SessionSummary{ID: "session-1"}}
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "session-1"}}
 	if alive, checked, err := (sessionRuntimeLiveness{}).IsSessionAlive(ctx, "boxlite", session, domain.VMState{}); err != nil || alive || checked {
 		t.Fatalf("nil runtime liveness = alive %v checked %v err %v", alive, checked, err)
 	}
@@ -285,7 +285,7 @@ func TestSessionRuntimeLivenessAndNotifierBranches(t *testing.T) {
 	if got.EventType != sessions.WatchEventTypeSessionUpdated || got.Session.ID != "session-1" {
 		t.Fatalf("session update event = %#v", got)
 	}
-	notifier.PublishEventAdded("session-1", domain.SessionEvent{ID: "event-1", Type: "test.event"})
+	notifier.PublishEventAdded("session-1", domain.SandboxEvent{ID: "event-1", Type: "test.event"})
 	got = <-events
 	if got.EventType != sessions.WatchEventTypeEventAdded || got.Event.ID != "event-1" {
 		t.Fatalf("event added = %#v", got)

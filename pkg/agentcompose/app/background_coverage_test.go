@@ -55,11 +55,11 @@ func TestReconcilePendingSessionStateMarksStaleStartupFailed(t *testing.T) {
 		t.Fatalf("events=%#v err=%v", events, err)
 	}
 
-	running := &domain.Session{Summary: domain.SessionSummary{VMStatus: domain.VMStatusRunning}}
+	running := &domain.Sandbox{Summary: domain.SandboxSummary{VMStatus: domain.VMStatusRunning}}
 	if got, err := reconcilePendingSessionState(ctx, store, running, time.Now()); err != nil || got != running {
 		t.Fatalf("running session got=%#v err=%v", got, err)
 	}
-	fresh := &domain.Session{Summary: domain.SessionSummary{VMStatus: domain.VMStatusPending, CreatedAt: time.Now().Add(time.Hour)}}
+	fresh := &domain.Sandbox{Summary: domain.SandboxSummary{VMStatus: domain.VMStatusPending, CreatedAt: time.Now().Add(time.Hour)}}
 	if got, err := reconcilePendingSessionState(ctx, store, fresh, time.Now()); err != nil || got != fresh {
 		t.Fatalf("fresh session got=%#v err=%v", got, err)
 	}

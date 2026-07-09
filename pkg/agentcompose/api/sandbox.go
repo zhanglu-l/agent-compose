@@ -17,7 +17,7 @@ import (
 )
 
 type SandboxStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 	RemoveSandbox(context.Context, string) error
 }
 
@@ -27,10 +27,10 @@ type SandboxStatsStore interface {
 }
 
 type SandboxStatsRuntime interface {
-	Stats(context.Context, *domain.Session, domain.VMState) (domain.SandboxStats, error)
+	Stats(context.Context, *domain.Sandbox, domain.VMState) (domain.SandboxStats, error)
 }
 
-type SandboxStatsRuntimeResolver func(*domain.Session) (SandboxStatsRuntime, error)
+type SandboxStatsRuntimeResolver func(*domain.Sandbox) (SandboxStatsRuntime, error)
 
 type SandboxDashboardNotifier interface {
 	Notify(string)

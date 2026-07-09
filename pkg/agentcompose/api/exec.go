@@ -22,7 +22,7 @@ import (
 )
 
 type ExecSessionStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
 	GetVMState(string) (domain.VMState, error)
 }
 
@@ -34,10 +34,10 @@ type ExecProjectStore interface {
 }
 
 type ExecRuntime interface {
-	ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
+	ExecStream(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error)
 }
 
-type ExecRuntimeResolver func(*domain.Session) (ExecRuntime, error)
+type ExecRuntimeResolver func(*domain.Sandbox) (ExecRuntime, error)
 
 type ExecHandler struct {
 	config   *appconfig.Config
@@ -188,7 +188,7 @@ func (h *ExecHandler) executeProjectCommand(ctx context.Context, req *agentcompo
 	return ExecResultToProto(execID, session.Summary.ID, runID, req, cwd, execution.RuntimeCommandResultToExecResult(commandResult), nil), nil
 }
 
-func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentcomposev2.ExecRequest) (*domain.Session, string, error) {
+func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentcomposev2.ExecRequest) (*domain.Sandbox, string, error) {
 	if req == nil {
 		return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("exec request is required"))
 	}
@@ -241,15 +241,15 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 		return nil, "", connect.NewError(connect.CodeInternal, err)
 	}
 	type candidate struct {
-		session *domain.Session
+		session *domain.Sandbox
 		run     domain.ProjectRunRecord
 	}
 	var candidates []candidate
 	for _, status := range statuses {
-		if status.Session == nil || status.Session.Summary.VMStatus != domain.VMStatusRunning {
+		if status.Sandbox == nil || status.Sandbox.Summary.VMStatus != domain.VMStatusRunning {
 			continue
 		}
-		candidates = append(candidates, candidate{session: status.Session, run: status.Run})
+		candidates = append(candidates, candidate{session: status.Sandbox, run: status.Run})
 	}
 	contextParts := []string{fmt.Sprintf("project %s", project.Name)}
 	if agentName := strings.TrimSpace(selector.GetAgentName()); agentName != "" {
@@ -270,7 +270,7 @@ func (h *ExecHandler) resolveExecTargetSession(ctx context.Context, req *agentco
 	return candidates[0].session, candidates[0].run.RunID, nil
 }
 
-func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.ProjectRunRecord) (*domain.Session, error) {
+func (h *ExecHandler) sessionForProjectRun(ctx context.Context, run domain.ProjectRunRecord) (*domain.Sandbox, error) {
 	sessionID := strings.TrimSpace(run.SandboxID)
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(run.SessionID)

@@ -47,7 +47,7 @@ type RunExecutorDependencies struct {
 	WriteArtifact              func(dir, name, content string) error
 	EnterRun                   func(loader domain.Loader) bool
 	LeaveRun                   func(loaderID string)
-	AddLoaderEvent             func(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error
+	AddLoaderEvent             func(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error
 	UpdateTriggerEventDelivery func(ctx context.Context, run domain.LoaderRunSummary)
 	Notify                     func(reason string)
 	Refresh                    func(ctx context.Context) error
@@ -242,11 +242,11 @@ func (e *RunExecutor) leaveRun(loaderID string) {
 	}
 }
 
-func (e *RunExecutor) addLoaderEvent(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentSessionID string) error {
+func (e *RunExecutor) addLoaderEvent(ctx context.Context, loaderID, runID, triggerID, eventType, level, message string, payload any, linkedSessionID, linkedCellID, linkedAgentThreadID string) error {
 	if e.deps.AddLoaderEvent == nil {
 		return nil
 	}
-	return e.deps.AddLoaderEvent(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentSessionID)
+	return e.deps.AddLoaderEvent(ctx, loaderID, runID, triggerID, eventType, level, message, payload, linkedSessionID, linkedCellID, linkedAgentThreadID)
 }
 
 func (e *RunExecutor) updateTriggerEventDelivery(ctx context.Context, run domain.LoaderRunSummary) {

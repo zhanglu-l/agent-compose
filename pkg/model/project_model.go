@@ -136,6 +136,6 @@ type ProjectSessionRelationFilter struct {
 
 type ProjectSessionStatus struct {
 	Run            ProjectRunRecord `json:"run"`
-	Session        *Session         `json:"session,omitempty"`
+	Sandbox        *Sandbox         `json:"session,omitempty"`
 	SessionMissing bool             `json:"session_missing,omitempty"`
 }

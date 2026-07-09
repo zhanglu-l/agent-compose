@@ -15,8 +15,8 @@ import (
 )
 
 type AgentSessionStore interface {
-	GetSandbox(context.Context, string) (*domain.Session, error)
-	ListEvents(context.Context, string) ([]domain.SessionEvent, error)
+	GetSandbox(context.Context, string) (*domain.Sandbox, error)
+	ListEvents(context.Context, string) ([]domain.SandboxEvent, error)
 }
 
 type AgentDefinitionStore interface {
@@ -24,7 +24,7 @@ type AgentDefinitionStore interface {
 }
 
 type AgentExecutor interface {
-	ExecuteAgentRequest(context.Context, *domain.Session, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SessionEvent, domain.SessionEvent, error)
+	ExecuteAgentRequest(context.Context, *domain.Sandbox, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SandboxEvent, domain.SandboxEvent, error)
 }
 
 type AgentHandler struct {
@@ -142,14 +142,14 @@ func (h *AgentHandler) ListSessionEvents(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(resp), nil
 }
 
-func (h *AgentHandler) resolveSessionAgentConfig(ctx context.Context, session *domain.Session, requested string) execution.AgentConfig {
+func (h *AgentHandler) resolveSessionAgentConfig(ctx context.Context, session *domain.Sandbox, requested string) execution.AgentConfig {
 	provider := domain.NormalizeAgentKind(requested)
 	config := execution.AgentConfig{Provider: provider}
 	if session == nil || h.configDB == nil {
 		return config
 	}
-	agentID := execution.SessionTagValue(session.Summary.Tags, domain.AgentSessionTagID)
-	if agentID == "" || !domain.SessionHasAgentTag(session, agentID) {
+	agentID := execution.SessionTagValue(session.Summary.Tags, domain.AgentSandboxTagID)
+	if agentID == "" || !domain.SandboxHasAgentTag(session, agentID) {
 		return config
 	}
 	agent, err := h.configDB.GetAgentDefinition(ctx, agentID)

@@ -35,8 +35,8 @@ func TestEnsureSessionLLMFacadeConfigCreatesCodexEnvAndToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:            "session-runtimefacade",
 			Driver:        driverpkg.RuntimeDriverDocker,
 			WorkspacePath: filepath.Join(root, "sessions", "session-runtimefacade", "workspace"),
@@ -83,13 +83,13 @@ func TestEnsureSessionAgentRuntimeConfigClaudeAndOpenCodeWorkflows(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session := &domain.Session{
-		Summary: domain.SessionSummary{
+	session := &domain.Sandbox{
+		Summary: domain.SandboxSummary{
 			ID:            "session-claude",
 			Driver:        driverpkg.RuntimeDriverDocker,
 			WorkspacePath: filepath.Join(root, "sessions", "session-claude", "workspace"),
 		},
-		ProviderEnvItems: []domain.SessionEnvVar{
+		ProviderEnvItems: []domain.SandboxEnvVar{
 			{Name: "ANTHROPIC_BASE_URL", Value: "https://anthropic.example.test"},
 			{Name: "ANTHROPIC_API_KEY", Value: "anthropic-key"},
 			{Name: "ANTHROPIC_MODEL", Value: "claude-test"},

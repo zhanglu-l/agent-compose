@@ -61,7 +61,7 @@ type Loader struct {
 	Summary  LoaderSummary     `json:"summary"`
 	Script   string            `json:"script"`
 	Triggers []LoaderTrigger   `json:"triggers,omitempty"`
-	EnvItems []SessionEnvVar   `json:"env_items,omitempty"`
+	EnvItems []SandboxEnvVar   `json:"env_items,omitempty"`
 	Volumes  []VolumeMountSpec `json:"volumes,omitempty"`
 }
 
@@ -96,18 +96,18 @@ type LoaderRunSummary struct {
 }
 
 type LoaderEvent struct {
-	ID                   string    `json:"id"`
-	LoaderID             string    `json:"loader_id"`
-	RunID                string    `json:"run_id,omitempty"`
-	TriggerID            string    `json:"trigger_id,omitempty"`
-	Type                 string    `json:"type"`
-	Level                string    `json:"level"`
-	Message              string    `json:"message"`
-	PayloadJSON          string    `json:"payload_json,omitempty"`
-	LinkedSessionID      string    `json:"linked_session_id,omitempty"`
-	LinkedCellID         string    `json:"linked_cell_id,omitempty"`
-	LinkedAgentSessionID string    `json:"linked_agent_session_id,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
+	ID                  string    `json:"id"`
+	LoaderID            string    `json:"loader_id"`
+	RunID               string    `json:"run_id,omitempty"`
+	TriggerID           string    `json:"trigger_id,omitempty"`
+	Type                string    `json:"type"`
+	Level               string    `json:"level"`
+	Message             string    `json:"message"`
+	PayloadJSON         string    `json:"payload_json,omitempty"`
+	LinkedSessionID     string    `json:"linked_session_id,omitempty"`
+	LinkedCellID        string    `json:"linked_cell_id,omitempty"`
+	LinkedAgentThreadID string    `json:"linked_agent_thread_id,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 type LoaderBinding struct {
@@ -127,23 +127,23 @@ type LoaderAgentRequest struct {
 	PullPolicy     string            `json:"pullPolicy,omitempty"`
 	WorkspaceID    string            `json:"workspaceId,omitempty"`
 	JupyterEnabled bool              `json:"jupyter,omitempty"`
-	SessionEnv     []SessionEnvVar   `json:"sessionEnv,omitempty"`
+	SessionEnv     []SandboxEnvVar   `json:"sessionEnv,omitempty"`
 	Volumes        []VolumeMountSpec `json:"volumes,omitempty"`
 	OutputSchema   string            `json:"outputSchema,omitempty"`
 }
 
 type LoaderAgentResult struct {
-	Text           string `json:"text,omitempty"`
-	Output         string `json:"output,omitempty"`
-	FinalText      string `json:"finalText,omitempty"`
-	JSON           any    `json:"json"`
-	SessionID      string `json:"sessionId,omitempty"`
-	CellID         string `json:"cellId,omitempty"`
-	Agent          string `json:"agent,omitempty"`
-	AgentSessionID string `json:"agentSessionId,omitempty"`
-	StopReason     string `json:"stopReason,omitempty"`
-	Success        bool   `json:"success"`
-	ExitCode       int    `json:"exitCode"`
+	Text          string `json:"text,omitempty"`
+	Output        string `json:"output,omitempty"`
+	FinalText     string `json:"finalText,omitempty"`
+	JSON          any    `json:"json"`
+	SandboxID     string `json:"sandboxId,omitempty"`
+	CellID        string `json:"cellId,omitempty"`
+	Agent         string `json:"agent,omitempty"`
+	AgentThreadID string `json:"agentThreadId,omitempty"`
+	StopReason    string `json:"stopReason,omitempty"`
+	Success       bool   `json:"success"`
+	ExitCode      int    `json:"exitCode"`
 }
 
 type LoaderCommandRequest struct {
@@ -162,7 +162,7 @@ type LoaderCommandRequest struct {
 	PullPolicy     string            `json:"pullPolicy,omitempty"`
 	WorkspaceID    string            `json:"workspaceId,omitempty"`
 	JupyterEnabled bool              `json:"jupyter,omitempty"`
-	SessionEnv     []SessionEnvVar   `json:"sessionEnv,omitempty"`
+	SessionEnv     []SandboxEnvVar   `json:"sessionEnv,omitempty"`
 	Volumes        []VolumeMountSpec `json:"volumes,omitempty"`
 }
 
@@ -175,7 +175,7 @@ type LoaderCommandResult struct {
 	StdoutTruncated bool              `json:"stdoutTruncated,omitempty"`
 	StderrTruncated bool              `json:"stderrTruncated,omitempty"`
 	OutputTruncated bool              `json:"outputTruncated,omitempty"`
-	SessionID       string            `json:"sessionId,omitempty"`
+	SandboxID       string            `json:"sandboxId,omitempty"`
 	CellID          string            `json:"cellId,omitempty"`
 	Artifacts       map[string]string `json:"artifacts,omitempty"`
 }

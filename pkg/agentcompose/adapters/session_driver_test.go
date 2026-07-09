@@ -18,26 +18,26 @@ import (
 )
 
 type fakeSessionRuntime struct {
-	info       domain.SessionVMInfo
-	ensureHook func(*domain.Session)
+	info       domain.SandboxVMInfo
+	ensureHook func(*domain.Sandbox)
 }
 
-func (r fakeSessionRuntime) EnsureSession(_ context.Context, session *domain.Session, _ domain.VMState, _ domain.ProxyState) (domain.SessionVMInfo, error) {
+func (r fakeSessionRuntime) EnsureSession(_ context.Context, session *domain.Sandbox, _ domain.VMState, _ domain.ProxyState) (domain.SandboxVMInfo, error) {
 	if r.ensureHook != nil {
 		r.ensureHook(session)
 	}
 	return r.info, nil
 }
 
-func (r fakeSessionRuntime) StopSession(context.Context, *domain.Session, domain.VMState) (bool, error) {
+func (r fakeSessionRuntime) StopSession(context.Context, *domain.Sandbox, domain.VMState) (bool, error) {
 	return false, nil
 }
 
-func (r fakeSessionRuntime) Exec(context.Context, *domain.Session, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
+func (r fakeSessionRuntime) Exec(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
 	return domain.ExecResult{}, nil
 }
 
-func (r fakeSessionRuntime) ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r fakeSessionRuntime) ExecStream(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error) {
 	return domain.ExecResult{}, nil
 }
 
@@ -45,11 +45,11 @@ type fakeStopDeadlineRuntime struct {
 	remaining time.Duration
 }
 
-func (r *fakeStopDeadlineRuntime) EnsureSession(context.Context, *domain.Session, domain.VMState, domain.ProxyState) (domain.SessionVMInfo, error) {
-	return domain.SessionVMInfo{}, nil
+func (r *fakeStopDeadlineRuntime) EnsureSession(context.Context, *domain.Sandbox, domain.VMState, domain.ProxyState) (domain.SandboxVMInfo, error) {
+	return domain.SandboxVMInfo{}, nil
 }
 
-func (r *fakeStopDeadlineRuntime) StopSession(ctx context.Context, _ *domain.Session, _ domain.VMState) (bool, error) {
+func (r *fakeStopDeadlineRuntime) StopSession(ctx context.Context, _ *domain.Sandbox, _ domain.VMState) (bool, error) {
 	deadline, ok := ctx.Deadline()
 	if ok {
 		r.remaining = time.Until(deadline)
@@ -57,11 +57,11 @@ func (r *fakeStopDeadlineRuntime) StopSession(ctx context.Context, _ *domain.Ses
 	return false, nil
 }
 
-func (r *fakeStopDeadlineRuntime) Exec(context.Context, *domain.Session, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
+func (r *fakeStopDeadlineRuntime) Exec(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec) (domain.ExecResult, error) {
 	return domain.ExecResult{}, nil
 }
 
-func (r *fakeStopDeadlineRuntime) ExecStream(context.Context, *domain.Session, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error) {
+func (r *fakeStopDeadlineRuntime) ExecStream(context.Context, *domain.Sandbox, domain.VMState, domain.ExecSpec, domain.ExecStreamWriter) (domain.ExecResult, error) {
 	return domain.ExecResult{}, nil
 }
 
@@ -97,7 +97,7 @@ func (p fakeRuntimeProvider) ForDriver(string) (BoxRuntime, error) {
 	return p.runtime, nil
 }
 
-func (p fakeRuntimeProvider) ForSession(*domain.Session) (BoxRuntime, error) {
+func (p fakeRuntimeProvider) ForSession(*domain.Sandbox) (BoxRuntime, error) {
 	return p.runtime, nil
 }
 
@@ -119,7 +119,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestSessionDriverStartSessionVMSavesRuntimeState(t *testing.T) {
 		JupyterURL: "http://127.0.0.1:39000/lab?token=secret",
 		Token:      "secret",
 	}
-	driver := NewSessionDriver(config, store, nil, fakeRuntimeProvider{runtime: fakeSessionRuntime{info: domain.SessionVMInfo{
+	driver := NewSessionDriver(config, store, nil, fakeRuntimeProvider{runtime: fakeSessionRuntime{info: domain.SandboxVMInfo{
 		BoxID:      "container-1",
 		JupyterURL: updatedProxyState.JupyterURL,
 		ProxyState: &updatedProxyState,
@@ -172,7 +172,7 @@ func TestSessionDriverStopSessionVMAddsDockerStopContextMargin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -220,11 +220,11 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
-	session.ProviderEnvItems = []domain.SessionEnvVar{
+	session.ProviderEnvItems = []domain.SandboxEnvVar{
 		{Name: "LLM_MODEL", Value: "gpt-test"},
 		{Name: "ANTHROPIC_BASE_URL", Value: "https://anthropic.example.test"},
 		{Name: "ANTHROPIC_AUTH_TOKEN", Value: "anthropic-secret"},
@@ -240,8 +240,8 @@ func TestSessionDriverStartSessionVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 	}
 	var runtimeEnv map[string]string
 	driver := NewSessionDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
-		info: domain.SessionVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
-		ensureHook: func(session *domain.Session) {
+		info: domain.SandboxVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
+		ensureHook: func(session *domain.Sandbox) {
 			runtimeEnv = map[string]string{}
 			for _, item := range session.RuntimeEnvItems {
 				runtimeEnv[item.Name] = item.Value
@@ -285,7 +285,7 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 	ctx := context.Background()
 	originalEnsure := ensureSessionLLMFacadeConfig
 	defer func() { ensureSessionLLMFacadeConfig = originalEnsure }()
-	ensureSessionLLMFacadeConfig = func(ctx context.Context, config *appconfig.Config, store runtimefacade.FacadeStore, session *domain.Session, agent, model, source, runID string) (map[string]string, error) {
+	ensureSessionLLMFacadeConfig = func(ctx context.Context, config *appconfig.Config, store runtimefacade.FacadeStore, session *domain.Sandbox, agent, model, source, runID string) (map[string]string, error) {
 		switch agent {
 		case "codex":
 			return map[string]string{
@@ -326,7 +326,7 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "adapter session", "", driverpkg.RuntimeDriverMicrosandbox, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -340,8 +340,8 @@ func TestSessionDriverStartSessionVMIgnoresOptionalClaudeConfigError(t *testing.
 	}
 	var runtimeEnv map[string]string
 	driver := NewSessionDriver(config, store, configDB, fakeRuntimeProvider{runtime: fakeSessionRuntime{
-		info: domain.SessionVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
-		ensureHook: func(session *domain.Session) {
+		info: domain.SandboxVMInfo{BoxID: "container-1", JupyterURL: updatedProxyState.JupyterURL, ProxyState: &updatedProxyState},
+		ensureHook: func(session *domain.Sandbox) {
 			runtimeEnv = map[string]string{}
 			for _, item := range session.RuntimeEnvItems {
 				runtimeEnv[item.Name] = item.Value

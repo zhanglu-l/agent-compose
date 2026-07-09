@@ -233,7 +233,7 @@ func testComposeProjectPureHelpers(t *testing.T) {
 		countProjectDownFailedSessionStops(changes) != 1 {
 		t.Fatalf("project change helpers returned unexpected values")
 	}
-	_ = domain.SessionSummary{ID: "compile-check"}
+	_ = domain.SandboxSummary{ID: "compile-check"}
 }
 
 func testComposeProjectOutputHelpers(t *testing.T) {

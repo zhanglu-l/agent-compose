@@ -34,7 +34,7 @@ func TestAgentExecutorExecuteAgentRequestPersistsCellAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "agent executor session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "agent executor session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestAgentExecutorExecuteAgentRequestPersistsCellAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteAgentRequest returned error: %v", err)
 	}
-	if !cell.Success || cell.Type != execution.CellTypeAgent || cell.AgentSessionID != "agent-session-1" {
+	if !cell.Success || cell.Type != execution.CellTypeAgent || cell.AgentThreadID != "agent-session-1" {
 		t.Fatalf("cell = %#v", cell)
 	}
 	if userEvent.Type != "agent.user" || assistantEvent.Type != "agent.assistant" {
@@ -94,7 +94,7 @@ func TestAgentExecutorStreamsOnlyHumanVisibleAgentOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "agent stream session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "agent stream session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestAgentExecutorPersistsFailedCellWhenStreamCallbackFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "agent failed stream session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SessionTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "agent failed stream session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
 	}

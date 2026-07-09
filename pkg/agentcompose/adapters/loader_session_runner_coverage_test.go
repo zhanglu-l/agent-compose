@@ -39,7 +39,7 @@ func TestLoaderSessionRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 		t.Fatalf("CreateSession stopped returned error: %v", err)
 	}
 	stopped.Summary.VMStatus = domain.VMStatusStopped
-	stopped.Summary.Tags = []domain.SessionTag{{Name: "capset", Value: "dev"}}
+	stopped.Summary.Tags = []domain.SandboxTag{{Name: "capset", Value: "dev"}}
 	if err := bridge.store.UpdateSandbox(ctx, stopped); err != nil {
 		t.Fatalf("UpdateSession stopped returned error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestLoaderSessionRunnerResolvesVolumeMounts(t *testing.T) {
 	bridge, driver := newTestSessionRPCBridge(t)
 	hostPath := t.TempDir()
 	resolver := &loaderVolumeResolverFake{
-		mounts: []domain.SessionVolumeMount{{
+		mounts: []domain.SandboxVolumeMount{{
 			ID:       "mount-cache",
 			Type:     domain.VolumeMountTypeVolume,
 			Source:   "request-cache",
@@ -186,16 +186,16 @@ var _ loaders.ControllerPublisher = (*loaderSessionPublisherFake)(nil)
 type loaderVolumeResolverFake struct {
 	specs    []domain.VolumeMountSpec
 	options  volumes.ResolveOptions
-	mounts   []domain.SessionVolumeMount
+	mounts   []domain.SandboxVolumeMount
 	warnings []string
 	err      error
 }
 
-func (r *loaderVolumeResolverFake) ResolveMounts(_ context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SessionVolumeMount, []string, error) {
+func (r *loaderVolumeResolverFake) ResolveMounts(_ context.Context, specs []domain.VolumeMountSpec, options volumes.ResolveOptions) ([]domain.SandboxVolumeMount, []string, error) {
 	r.specs = append([]domain.VolumeMountSpec(nil), specs...)
 	r.options = options
 	if r.err != nil {
 		return nil, nil, r.err
 	}
-	return append([]domain.SessionVolumeMount(nil), r.mounts...), append([]string(nil), r.warnings...), nil
+	return append([]domain.SandboxVolumeMount(nil), r.mounts...), append([]string(nil), r.warnings...), nil
 }

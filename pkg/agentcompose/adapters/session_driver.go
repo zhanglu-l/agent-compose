@@ -29,7 +29,7 @@ func NewSessionDriver(config *appconfig.Config, store *sessionstore.Store, confi
 	return &SessionDriver{Config: config, Store: store, ConfigDB: configDB, Runtimes: runtimes}
 }
 
-func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Session) error {
+func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Sandbox) error {
 	ctx, cancel := context.WithTimeout(ctx, d.Config.SandboxStartTimeout)
 	defer cancel()
 
@@ -71,7 +71,7 @@ func (d *SessionDriver) StartSessionVM(ctx context.Context, session *domain.Sess
 	return d.saveSessionStartInfo(session, vmState, proxyState, info)
 }
 
-func (d *SessionDriver) saveSessionStartInfo(session *domain.Session, vmState domain.VMState, proxyState domain.ProxyState, info domain.SessionVMInfo) error {
+func (d *SessionDriver) saveSessionStartInfo(session *domain.Sandbox, vmState domain.VMState, proxyState domain.ProxyState, info domain.SandboxVMInfo) error {
 	vmState, proxyState = sessions.ApplySessionStartInfo(vmState, proxyState, info, time.Now())
 	if err := d.Store.SaveVMState(session.Summary.ID, vmState); err != nil {
 		return err
@@ -79,7 +79,7 @@ func (d *SessionDriver) saveSessionStartInfo(session *domain.Session, vmState do
 	return d.Store.SaveProxyState(session.Summary.ID, proxyState)
 }
 
-func (d *SessionDriver) StopSessionVM(ctx context.Context, session *domain.Session) error {
+func (d *SessionDriver) StopSessionVM(ctx context.Context, session *domain.Sandbox) error {
 	driver, err := driverpkg.ResolveSessionRuntimeDriver(session.Summary.Driver, d.Config.RuntimeDriver)
 	if err != nil {
 		return err
@@ -116,7 +116,7 @@ func (d *SessionDriver) StopSessionVM(ctx context.Context, session *domain.Sessi
 	return d.Store.SaveVMState(session.Summary.ID, vmState)
 }
 
-func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, session *domain.Session, vmState *domain.VMState) error {
+func (d *SessionDriver) prepareSessionStart(ctx context.Context, driver string, session *domain.Sandbox, vmState *domain.VMState) error {
 	prepared, err := driverpkg.PrepareSessionStart(ctx, d.Config, driver, execution.ToDriverSession(session), execution.ToDriverVMState(*vmState))
 	if err != nil {
 		return err
