@@ -404,15 +404,15 @@
       - `RevokeLLMFacadeTokensForSandbox` 已迁移到 sandbox 命名；session lifecycle 包仍以 sandbox ID 调用该接口。
     - 下一目标：5.2。
 
-- [ ] 5.2 实现旧 SQLite schema 拒绝和 runtimecache 命名收敛
+- [x] 5.2 实现旧 SQLite schema 拒绝和 runtimecache 命名收敛
   - 依赖：5.1。
   - 工作内容：
     - 初始化或 migration 检查中检测旧列和旧表：`loader_binding.session_id`、`loader_event.linked_session_id`、`loader_event.linked_agent_session_id`、`event_session_link`、`llm_facade_token.session_id`。
     - 发现旧 schema 时返回可诊断错误，不自动迁移。
     - 将 `pkg/runtimecache` 的 domain/type/filter/id/reference 命名改为 sandbox ephemeral state。
   - 可并行子任务：
-    - [ ] 可并行：编写旧 SQLite schema fixture 和拒绝路径 tests。
-    - [ ] 可并行：迁移 runtimecache model/id/API tests。
+    - [x] 可并行：编写旧 SQLite schema fixture 和拒绝路径 tests。
+    - [x] 可并行：迁移 runtimecache model/id/API tests。
   - 测试方案：
     - `go test ./pkg/storage/configstore ./pkg/runtimecache ./pkg/agentcompose/api`
     - `task test:integration`
@@ -420,10 +420,29 @@
     - 旧 schema 错误信息能定位具体旧表或旧列。
     - runtimecache v2 API 不再暴露 session ephemeral state。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成。
+    - 变更：
+      - `ConfigStore.initSchema` 在创建任何新 schema 前调用 legacy SQLite schema 拒绝检查，检测 `loader_binding.session_id`、`loader_event.linked_session_id`、`loader_event.linked_agent_session_id`、`event_session_link`、`llm_facade_token.session_id`。
+      - legacy schema 错误信息包含具体旧表或旧列、`legacy SQLite schema detected`、不支持自动迁移说明，以及使用全新 `DATA_ROOT/data.db` 或备份移除旧数据库的操作指引。
+      - configstore coverage 增加旧 schema fixture，逐项验证拒绝错误，并断言拒绝发生在 `global_env` 等新 schema 创建前。
+      - `pkg/runtimecache` 将 `DomainSessionEphemeralState`/`CacheTypeSession`/`Item.SessionID` 收敛为 `DomainSandboxEphemeralState`/`CacheTypeSandbox`/`Item.SandboxID`，cache ID identity fallback 不再读取 `SessionID`。
+      - runtimecache API mapping、CLI cache output/filter、Microsandbox ephemeral cache inventory/remover/reference state、lock file和相关测试改为 sandbox ephemeral state；CLI `--type sandbox` 现在向 v2 cache filter 发送 `sandbox`，不再发送 `session`。
+      - v2 cache response mapping 不再填充 `CacheItem.session_id`；cache text/JSON output 仅使用 `sandbox_id`。
+    - 验证：
+      - `go test ./pkg/storage/configstore ./pkg/runtimecache ./pkg/agentcompose/api`
+      - `go test ./pkg/driver ./cmd/agent-compose`
+      - `task test:integration`
+      - `git diff --check`
+      - `git diff -- proto/agentcompose/v1 proto/agentcompose/v1/agentcomposev1connect`
+      - `rg -n "DomainSessionEphemeralState|CacheTypeSession|SessionEphemeral|session-ephemeral|ActiveSessions|ReferencedSessions|session cache|session references|session reference|cacheRefSessionText|SessionID|session_id" pkg/runtimecache pkg/agentcompose/api/cache.go pkg/agentcompose/api/cache_test.go pkg/driver/microsandbox_cache.go pkg/driver/runtime_cache_sources_microsandbox.go pkg/driver/microsandbox_runtime_test.go cmd/agent-compose/main.go cmd/agent-compose/main_test.go cmd/agent-compose/coverage_shape_workflows_test.go`
+      - `rg -n "CREATE TABLE IF NOT EXISTS event_session_link|session_id TEXT NOT NULL|linked_session_id TEXT|linked_agent_session_id TEXT|session_policy TEXT|idx_llm_facade_token_session" pkg/storage/configstore`
+    - 审计与例外：
+      - v1 proto、v1 generated Go 和 v1 Connect generated code 无 diff。
+      - schema audit 仅命中本任务新增的旧 schema rejection fixtures；生产 configstore schema 不再创建旧表、旧列或旧 index。
+      - runtimecache/cache API audit 未发现 old session ephemeral domain/type/model field 残留；CLI/v1 residual `SessionID`、`GetSessionId` 和 `session_id` 命中属于 v1 compatibility、existing sandbox command plumbing 或非 runtimecache cache API 面。
+      - `agentcomposev2.CacheDomain_CACHE_DOMAIN_SESSION_EPHEMERAL_STATE` 仍作为 generated v2 enum compatibility 边界保留，并在 mapping 层转换到 internal sandbox domain；v2 proto/generated/client enum rename 按计划留给 6.1。
+      - 本任务没有实现旧 SQLite schema 自动迁移；发现旧 schema 时直接拒绝。
+      - subagent 并行尝试因 `agent thread limit reached` 未执行；本任务由主 agent 完成实现、测试和审计。
     - 下一目标：6.1。
 
 ## 6. 阶段 6：v2 proto、Go generated code 和 TypeScript client

@@ -125,6 +125,9 @@ func (s *ConfigStore) initSchema(ctx context.Context) error {
 	if s == nil {
 		return fmt.Errorf("config store is required")
 	}
+	if err := s.rejectLegacySQLiteSchema(ctx); err != nil {
+		return err
+	}
 	if err := s.InitCoreSchema(ctx); err != nil {
 		return err
 	}
@@ -151,6 +154,41 @@ func (s *ConfigStore) initSchema(ctx context.Context) error {
 
 func (s *ConfigStore) InitSchema(ctx context.Context) error {
 	return s.initSchema(ctx)
+}
+
+func (s *ConfigStore) rejectLegacySQLiteSchema(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("config store is required")
+	}
+	legacyFindings := make([]string, 0, 5)
+	for _, item := range []struct {
+		table  string
+		column string
+	}{
+		{table: "loader_binding", column: "session_id"},
+		{table: "loader_event", column: "linked_session_id"},
+		{table: "loader_event", column: "linked_agent_session_id"},
+		{table: "llm_facade_token", column: "session_id"},
+	} {
+		columns, err := s.tableColumnTypes(ctx, item.table)
+		if err != nil {
+			return err
+		}
+		if _, ok := columns[item.column]; ok {
+			legacyFindings = append(legacyFindings, item.table+"."+item.column)
+		}
+	}
+	exists, err := s.tableExists(ctx, "event_session_link")
+	if err != nil {
+		return err
+	}
+	if exists {
+		legacyFindings = append(legacyFindings, "event_session_link")
+	}
+	if len(legacyFindings) == 0 {
+		return nil
+	}
+	return fmt.Errorf("legacy SQLite schema detected: %s; automatic migration from the old session schema to the sandbox schema is not supported in this release; start with a new DATA_ROOT/data.db or back up and remove the old database", strings.Join(legacyFindings, ", "))
 }
 
 func (s *coreStore) ensureGlobalEnvSchema(ctx context.Context) error {
@@ -268,6 +306,18 @@ func (s *coreStore) tableColumnTypes(ctx context.Context, tableName string) (map
 
 func (s *coreStore) TableColumnTypes(ctx context.Context, tableName string) (map[string]string, error) {
 	return s.tableColumnTypes(ctx, tableName)
+}
+
+func (s *coreStore) tableExists(ctx context.Context, tableName string) (bool, error) {
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		return false, fmt.Errorf("schema table name is required")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tableName).Scan(&count); err != nil {
+		return false, fmt.Errorf("query schema table %s: %w", tableName, err)
+	}
+	return count > 0, nil
 }
 
 func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {

@@ -4185,7 +4185,6 @@ type composeCacheOutput struct {
 	ImageID        string                        `json:"image_id,omitempty"`
 	ImageRef       string                        `json:"image_ref,omitempty"`
 	ResolvedRef    string                        `json:"resolved_ref,omitempty"`
-	SessionID      string                        `json:"-"`
 	SandboxID      string                        `json:"sandbox_id,omitempty"`
 	Status         string                        `json:"status"`
 	Removable      bool                          `json:"removable"`
@@ -5419,7 +5418,6 @@ func composeCacheOutputFromProto(cache *agentcomposev2.CacheItem) composeCacheOu
 		ImageID:        displayOpaqueID(cache.GetImageId()),
 		ImageRef:       cache.GetImageRef(),
 		ResolvedRef:    cache.GetResolvedRef(),
-		SessionID:      displayOpaqueID(cache.GetSessionId()),
 		SandboxID:      displayOpaqueID(cache.GetSandboxId()),
 		Status:         cacheStatusText(cache.GetStatus()),
 		Removable:      cache.GetRemovable(),
@@ -5606,7 +5604,7 @@ func writeCacheListText(out io.Writer, output composeCacheListOutput) error {
 			firstNonEmptyString(cache.Status, "-"),
 			strconv.FormatBool(cache.Removable),
 			cache.SizeBytes,
-			cacheRefSessionText(cache),
+			cacheRefText(cache),
 			firstNonEmptyString(cache.Path, "-"),
 		); err != nil {
 			return err
@@ -5642,9 +5640,9 @@ func writeCacheInspectText(out io.Writer, output composeCacheInspectOutput) erro
 			return err
 		}
 	}
-	if cache.SessionID != "" || cache.SandboxID != "" {
+	if cache.SandboxID != "" {
 		if _, err := fmt.Fprintf(out, "Sandbox: %s\n",
-			firstNonEmptyString(cache.SandboxID, cache.SessionID, "-"),
+			cache.SandboxID,
 		); err != nil {
 			return err
 		}
@@ -6861,10 +6859,8 @@ func cacheTypeFilterValue(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
 		return "", nil
-	case "oci", "materialized", "runtime", "session":
+	case "oci", "materialized", "runtime", "sandbox":
 		return strings.ToLower(strings.TrimSpace(value)), nil
-	case "sandbox":
-		return "session", nil
 	default:
 		return "", fmt.Errorf("invalid --type %q: expected oci, materialized, runtime, or sandbox", value)
 	}
@@ -6951,8 +6947,8 @@ func cacheStatusText(status agentcomposev2.CacheStatus) string {
 	}
 }
 
-func cacheRefSessionText(cache composeCacheOutput) string {
-	if ref := firstNonEmptyString(cache.SandboxID, cache.SessionID); ref != "" {
+func cacheRefText(cache composeCacheOutput) string {
+	if ref := cache.SandboxID; ref != "" {
 		return shortOpaqueID(ref)
 	}
 	if cache.ImageRef != "" || cache.ResolvedRef != "" {

@@ -735,12 +735,11 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		Domain:         agentcomposev2.CacheDomain_CACHE_DOMAIN_SESSION_EPHEMERAL_STATE,
 		Driver:         "docker",
 		Kind:           "sandbox-dir",
-		Path:           "/tmp/session",
+		Path:           "/tmp/sandbox",
 		SizeBytes:      789,
 		ImageId:        "sha256:image",
 		ImageRef:       "guest:latest",
 		ResolvedRef:    "guest@sha256:abc",
-		SessionId:      "session-1",
 		SandboxId:      "sandbox-1",
 		Status:         agentcomposev2.CacheStatus_CACHE_STATUS_REFERENCED,
 		Removable:      false,
@@ -748,10 +747,10 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		LastUsedAt:     "used",
 		LastUsedSource: "metadata",
 		References: []*agentcomposev2.CacheReference{{
-			Type:        "session",
-			Id:          "session-1",
-			Name:        "Session",
-			Path:        "/tmp/session",
+			Type:        "sandbox",
+			Id:          "sandbox-1",
+			Name:        "Sandbox",
+			Path:        "/tmp/sandbox",
 			Status:      "running",
 			Description: "active sandbox",
 		}},
@@ -809,7 +808,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 	if !strings.Contains(out.String(), `"removed"`) || !strings.Contains(out.String(), "cache-1") {
 		t.Fatalf("cache remove json = %q", out.String())
 	}
-	if cacheRefSessionText(composeCacheOutput{ImageID: "image-only"}) != "image-only" ||
+	if cacheRefText(composeCacheOutput{ImageID: "image-only"}) != "image-only" ||
 		cacheDomainText(agentcomposev2.CacheDomain_CACHE_DOMAIN_OCI_IMAGE_STORE) != "oci-image-store" ||
 		cacheDomainText(agentcomposev2.CacheDomain_CACHE_DOMAIN_MATERIALIZED_IMAGE_CACHE) != "materialized-image-cache" ||
 		cacheDomainText(agentcomposev2.CacheDomain_CACHE_DOMAIN_RUNTIME_DERIVED_CACHE) != "runtime-derived-cache" ||
@@ -842,8 +841,8 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		imageAvailabilityStatusText(agentcomposev2.ImageAvailabilityStatus_IMAGE_AVAILABILITY_STATUS_UNSPECIFIED) != "unspecified" ||
 		imageOperationStatusText(agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_SUCCEEDED) != "succeeded" ||
 		imageOperationStatusText(agentcomposev2.ImageOperationStatus_IMAGE_OPERATION_STATUS_UNSPECIFIED) != "unspecified" ||
-		cacheRefSessionText(composeCacheOutput{SandboxID: "sandbox-only"}) != "sandbox-only" ||
-		cacheRefSessionText(composeCacheOutput{ResolvedRef: "resolved-only"}) != "resolved-only" ||
+		cacheRefText(composeCacheOutput{SandboxID: "sandbox-only"}) != "sandbox-only" ||
+		cacheRefText(composeCacheOutput{ResolvedRef: "resolved-only"}) != "resolved-only" ||
 		firstNonEmptyString("", " ", "fallback") != "fallback" ||
 		runStatusText(agentcomposev2.RunStatus_RUN_STATUS_CANCELED) != "canceled" ||
 		runStatusText(agentcomposev2.RunStatus_RUN_STATUS_UNSPECIFIED) != "unspecified" ||

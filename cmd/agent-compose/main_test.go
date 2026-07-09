@@ -4707,15 +4707,11 @@ func TestIntegrationCLICacheListFilterValuesAndUsageErrors(t *testing.T) {
 		{
 			name:   "type",
 			flag:   "--type",
-			values: []string{"oci", "materialized", "runtime", "sandbox", "session"},
+			values: []string{"oci", "materialized", "runtime", "sandbox"},
 			assert: func(t *testing.T, filter *agentcomposev2.CacheFilter, value string) {
 				t.Helper()
-				want := value
-				if value == "sandbox" {
-					want = "session"
-				}
-				if filter.GetType() != want {
-					t.Fatalf("type filter = %q, want %q", filter.GetType(), want)
+				if filter.GetType() != value {
+					t.Fatalf("type filter = %q, want %q", filter.GetType(), value)
 				}
 			},
 		},
@@ -5090,7 +5086,7 @@ func TestIntegrationCLICachePruneFilterMappings(t *testing.T) {
 			assert: func(t *testing.T, req *agentcomposev2.PruneCachesRequest) {
 				t.Helper()
 				filter := req.GetFilter()
-				if filter.GetDriver() != "microsandbox" || filter.GetType() != "session" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_UNKNOWN {
+				if filter.GetDriver() != "microsandbox" || filter.GetType() != "sandbox" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_UNKNOWN {
 					t.Fatalf("filter = %#v", filter)
 				}
 			},
@@ -6386,8 +6382,7 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	}
 
 	cache := composeCacheOutputFromProto(testCLICache("cache-full"))
-	cache.SessionID = "session-1"
-	if cache.ID != "cache-full" || cache.Domain == "" || cache.Type == "" || cacheRefSessionText(cache) == "-" {
+	if cache.ID != "cache-full" || cache.Domain == "" || cache.Type == "" || cacheRefText(cache) == "-" {
 		t.Fatalf("cache output = %#v", cache)
 	}
 	emptyCache := composeCacheOutputFromProto(nil)
@@ -6436,7 +6431,7 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	if err := writeCacheInspectText(&text, composeCacheInspectOutput{Cache: cache, Warnings: []string{"top warning"}}); err != nil {
 		t.Fatalf("writeCacheInspectText returned error: %v", err)
 	}
-	for _, want := range []string{"Cache ID", "Image:", "Sandbox:", "Last used:", "References:", "Warnings:"} {
+	for _, want := range []string{"Cache ID", "Image:", "Last used:", "References:", "Warnings:"} {
 		if !strings.Contains(text.String(), want) {
 			t.Fatalf("cache inspect text %q missing %q", text.String(), want)
 		}
@@ -6518,7 +6513,7 @@ func TestCLIImageCacheAndFilterHelpersCoverEdgeBranches(t *testing.T) {
 	if filter, err := cacheFilterFromOptions(composeCacheFilterOptions{}); err != nil || filter != nil {
 		t.Fatalf("empty cache filter = %#v err=%v", filter, err)
 	}
-	if filter, err := cacheFilterFromOptions(composeCacheFilterOptions{Driver: "all", Type: "sandbox", Status: "referenced"}); err != nil || filter.GetDriver() != "all" || filter.GetType() != "session" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_REFERENCED {
+	if filter, err := cacheFilterFromOptions(composeCacheFilterOptions{Driver: "all", Type: "sandbox", Status: "referenced"}); err != nil || filter.GetDriver() != "all" || filter.GetType() != "sandbox" || filter.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_REFERENCED {
 		t.Fatalf("cache filter = %#v err=%v", filter, err)
 	}
 	if filter, err := cacheFilterFromPruneOptions(composeCachePruneOptions{OlderThan: "2h"}); err != nil || filter.GetOlderThanSeconds() != 7200 {

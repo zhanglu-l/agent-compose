@@ -44,6 +44,10 @@ func TestConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	testConfigStoreProjectCRUDCoverageWorkflows(t)
 }
 
+func TestConfigStoreRejectsLegacySQLiteSessionSchema(t *testing.T) {
+	testConfigStoreRejectsLegacySQLiteSessionSchema(t)
+}
+
 func TestIntegrationConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
 	testConfigStoreProjectSchemaMigrationWorkflows(t)
 }
@@ -74,6 +78,62 @@ func TestIntegrationConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 
 func TestE2EConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	testConfigStoreProjectCRUDCoverageWorkflows(t)
+}
+
+func testConfigStoreRejectsLegacySQLiteSessionSchema(t *testing.T) {
+	t.Helper()
+	cases := []struct {
+		name    string
+		setup   string
+		finding string
+	}{
+		{
+			name:    "loader binding session id",
+			setup:   `CREATE TABLE loader_binding(loader_id TEXT PRIMARY KEY, session_id TEXT NOT NULL);`,
+			finding: "loader_binding.session_id",
+		},
+		{
+			name:    "loader event linked session id",
+			setup:   `CREATE TABLE loader_event(event_id TEXT PRIMARY KEY, linked_session_id TEXT NOT NULL DEFAULT '');`,
+			finding: "loader_event.linked_session_id",
+		},
+		{
+			name:    "loader event linked agent session id",
+			setup:   `CREATE TABLE loader_event(event_id TEXT PRIMARY KEY, linked_agent_session_id TEXT NOT NULL DEFAULT '');`,
+			finding: "loader_event.linked_agent_session_id",
+		},
+		{
+			name:    "event session link table",
+			setup:   `CREATE TABLE event_session_link(event_id TEXT NOT NULL, session_id TEXT NOT NULL);`,
+			finding: "event_session_link",
+		},
+		{
+			name:    "llm facade token session id",
+			setup:   `CREATE TABLE llm_facade_token(token_hash TEXT PRIMARY KEY, session_id TEXT NOT NULL);`,
+			finding: "llm_facade_token.session_id",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db := newMemoryDB(t)
+			if _, err := db.ExecContext(ctx, tc.setup); err != nil {
+				t.Fatalf("create legacy fixture: %v", err)
+			}
+			store := FromDB(db)
+			err := store.initSchema(ctx)
+			if err == nil {
+				t.Fatalf("initSchema returned nil error for legacy fixture")
+			}
+			message := err.Error()
+			for _, want := range []string{tc.finding, "legacy SQLite schema detected", "automatic migration", "sandbox schema"} {
+				if !strings.Contains(message, want) {
+					t.Fatalf("legacy error %q does not contain %q", message, want)
+				}
+			}
+			assertTableDoesNotExist(t, store, "global_env")
+		})
+	}
 }
 
 func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
