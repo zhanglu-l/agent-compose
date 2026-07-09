@@ -145,10 +145,17 @@ func testComposeProjectPureHelpers(t *testing.T) {
 	}
 	changes := []*agentcomposev2.ProjectChange{
 		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED, ResourceType: "agent", ResourceId: "agent-1", Name: "worker"},
-		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED, ResourceType: "scheduler", ResourceId: "scheduler-1", Name: "timer"},
+		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED, ResourceType: "project_scheduler", ResourceId: "scheduler-1", Name: "worker"},
+		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED, ResourceType: "loader", ResourceId: "loader-1", Name: "worker scheduler"},
 		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_REMOVED, ResourceType: "session", ResourceId: "session-1", Name: "old"},
 		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UNCHANGED, ResourceType: "session", ResourceId: "session-2", Message: "stop failed"},
 	}
+	displaySpec := &compose.NormalizedProjectSpec{Agents: []compose.NormalizedAgentSpec{{
+		Name: "worker",
+		Scheduler: &compose.NormalizedSchedulerSpec{Triggers: []compose.NormalizedTriggerSpec{{
+			Name: "timer",
+		}}},
+	}}}
 	upResp := &agentcomposev2.ApplyProjectResponse{
 		Project: &agentcomposev2.Project{Summary: projectSummary},
 		Revision: &agentcomposev2.ProjectRevision{
@@ -163,36 +170,60 @@ func testComposeProjectPureHelpers(t *testing.T) {
 		t.Fatalf("composeUpOutputFromResponse = %#v", upOutput)
 	}
 	out.Reset()
-	if err := writeComposeUpText(&out, upResp); err != nil {
+	if err := writeComposeUpText(&out, composeDisplayChangesFromProjectChanges(upResp.GetChanges(), displaySpec)); err != nil {
 		t.Fatalf("writeComposeUpText returned error: %v", err)
 	}
-	if !strings.Contains(out.String(), "ACTION") || !strings.Contains(out.String(), "created") {
+	if !strings.Contains(out.String(), "ACTION") || !strings.Contains(out.String(), "timer") || strings.Contains(out.String(), "loader") {
 		t.Fatalf("compose up text = %q", out.String())
 	}
 	out.Reset()
 	upResp.Applied = false
-	if err := writeComposeUpText(&out, upResp); err != nil || !strings.Contains(out.String(), "ACTION") {
+	if err := writeComposeUpText(&out, composeDisplayChangesFromProjectChanges(upResp.GetChanges(), displaySpec)); err != nil || !strings.Contains(out.String(), "ACTION") {
 		t.Fatalf("compose up not-applied text = %q err=%v", out.String(), err)
 	}
 	out.Reset()
 	upResp.Unchanged = true
-	if err := writeComposeUpText(&out, upResp); err != nil || !strings.Contains(out.String(), "ACTION") {
+	if err := writeComposeUpText(&out, composeDisplayChangesFromProjectChanges(upResp.GetChanges(), displaySpec)); err != nil || !strings.Contains(out.String(), "ACTION") {
 		t.Fatalf("compose up unchanged text = %q err=%v", out.String(), err)
 	}
 
-	downOutput := composeDownOutputFromResponse(&agentcomposev2.RemoveProjectResponse{
+	downResp := &agentcomposev2.RemoveProjectResponse{
 		Project: &agentcomposev2.Project{Summary: projectSummary},
 		Changes: changes,
-	})
+	}
+	downOutput := composeDownOutputFromResponse(downResp)
 	if downOutput.Status != "partial-failure" || downOutput.FailedSessionStops != 1 || len(composeChangeOutputs(changes)) != len(changes) {
 		t.Fatalf("composeDownOutputFromResponse = %#v", downOutput)
 	}
 	out.Reset()
-	if err := writeComposeDownText(&out, downOutput); err != nil {
+	if err := writeComposeDownText(&out, composeDownDisplayChanges(downResp, displaySpec)); err != nil {
 		t.Fatalf("writeComposeDownText returned error: %v", err)
 	}
-	if !strings.Contains(out.String(), "partial-failure") || !strings.Contains(out.String(), "stop failed") {
+	if !strings.Contains(out.String(), "MESSAGE") || !strings.Contains(out.String(), "timer") || !strings.Contains(out.String(), "stop failed") || strings.Contains(out.String(), "loader") {
 		t.Fatalf("compose down text = %q", out.String())
+	}
+	sharedTriggerSpec := &compose.NormalizedProjectSpec{Agents: []compose.NormalizedAgentSpec{
+		{
+			Name:      "worker-a",
+			Scheduler: &compose.NormalizedSchedulerSpec{Triggers: []compose.NormalizedTriggerSpec{{Name: "hourly"}}},
+		},
+		{
+			Name:      "worker-b",
+			Scheduler: &compose.NormalizedSchedulerSpec{Triggers: []compose.NormalizedTriggerSpec{{Name: "hourly"}}},
+		},
+	}}
+	sharedTriggerChanges := composeDisplayChangesFromProjectChanges([]*agentcomposev2.ProjectChange{
+		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED, ResourceType: "project_scheduler", ResourceId: "scheduler-a", Name: "worker-a"},
+		{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED, ResourceType: "project_scheduler", ResourceId: "scheduler-b", Name: "worker-b"},
+	}, sharedTriggerSpec)
+	sharedTriggerCount := 0
+	for _, change := range sharedTriggerChanges {
+		if change.ResourceType == "trigger" && change.Name == "hourly" {
+			sharedTriggerCount++
+		}
+	}
+	if sharedTriggerCount != 2 {
+		t.Fatalf("shared trigger display changes = %#v, want 2 hourly triggers", sharedTriggerChanges)
 	}
 	unchangedDown := composeDownOutputFromResponse(&agentcomposev2.RemoveProjectResponse{Project: &agentcomposev2.Project{Summary: projectSummary}})
 	if unchangedDown.Status != "unchanged" {

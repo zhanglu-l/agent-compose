@@ -943,7 +943,7 @@ func TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON(t *testing.T) {
 	if firstErr != "" {
 		t.Fatalf("up inline first stderr = %q, want empty", firstErr)
 	}
-	for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "project_scheduler"} {
+	for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "trigger"} {
 		if !strings.Contains(firstOut, want) {
 			t.Fatalf("up inline first stdout %q does not contain %q", firstOut, want)
 		}
@@ -1021,9 +1021,14 @@ agents:
 	if runCount != 0 {
 		t.Fatalf("daemon runner called %d times, want 0", runCount)
 	}
-	for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "created", "project_agent", "project_scheduler"} {
+	for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "created", "agent", "trigger", "hourly"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("up first stdout %q does not contain %q", stdout, want)
+		}
+	}
+	for _, unwanted := range []string{"project_agent", "agent_definition", "project_scheduler", "loader"} {
+		if strings.Contains(stdout, unwanted) {
+			t.Fatalf("up first stdout %q unexpectedly contains %q", stdout, unwanted)
 		}
 	}
 
@@ -1121,6 +1126,7 @@ agents:
 						return connect.NewResponse(&agentcomposev2.RemoveProjectResponse{
 							Project: project,
 							Changes: []*agentcomposev2.ProjectChange{
+								{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_REMOVED, ResourceType: "project", ResourceId: "project-down", Name: "cli-down-demo", Message: "removed by project down"},
 								{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED, ResourceType: "project_scheduler", ResourceId: "scheduler-reviewer", Name: "reviewer", Message: "disabled by project down"},
 								{Action: agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_UPDATED, ResourceType: "session", ResourceId: "session-1", Name: "reviewer run", Message: "stopped by project down"},
 							},
@@ -1136,9 +1142,14 @@ agents:
 		if exitCode != 0 || stderr != "" {
 			t.Fatalf("down first code/stderr = %d / %q", exitCode, stderr)
 		}
-		for _, want := range []string{"Project: cli-down-demo", "Status: down", "updated", "project_scheduler", "session-1", "stopped by project down"} {
+		for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "MESSAGE", "project-down", "cli-down-demo", "removed", "trigger", "hourly", "session-1", "stopped by project down"} {
 			if !strings.Contains(stdout, want) {
 				t.Fatalf("down first stdout %q does not contain %q", stdout, want)
+			}
+		}
+		for _, unwanted := range []string{"Project:", "Status:", "Failed sandbox stops:", "project_scheduler", "loader"} {
+			if strings.Contains(stdout, unwanted) {
+				t.Fatalf("down first stdout %q unexpectedly contains %q", stdout, unwanted)
 			}
 		}
 
@@ -1146,7 +1157,7 @@ agents:
 		if repeatedCode != 0 || repeatedErr != "" {
 			t.Fatalf("down repeated code/stderr = %d / %q", repeatedCode, repeatedErr)
 		}
-		for _, want := range []string{"Project: cli-down-demo", "Status: unchanged", "Failed sandbox stops: 0"} {
+		for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "project-down", "cli-down-demo", "project", "unchanged"} {
 			if !strings.Contains(repeatedOut, want) {
 				t.Fatalf("down repeated stdout %q does not contain %q", repeatedOut, want)
 			}
@@ -1225,7 +1236,7 @@ agents:
 		if !strings.Contains(stderr, "completed with 1 sandbox stop failure") {
 			t.Fatalf("down partial stderr = %q", stderr)
 		}
-		for _, want := range []string{"Status: partial-failure", "Failed sandbox stops: 1", "session-failed", "forced stop failure"} {
+		for _, want := range []string{"ID", "NAME", "TYPE", "ACTION", "MESSAGE", "session-fail", "forced stop failure"} {
 			if !strings.Contains(stdout, want) {
 				t.Fatalf("down partial stdout %q does not contain %q", stdout, want)
 			}
@@ -6166,7 +6177,7 @@ func TestCLIOutputHelpersCoverEdgeBranches(t *testing.T) {
 		t.Fatalf("composeUpOutputFromResponse = %#v", output)
 	}
 	var text bytes.Buffer
-	if err := writeComposeUpText(&text, applyResp); err != nil {
+	if err := writeComposeUpText(&text, composeDisplayChangesFromProjectChanges(applyResp.GetChanges(), nil)); err != nil {
 		t.Fatalf("writeComposeUpText returned error: %v", err)
 	}
 	if !strings.Contains(text.String(), "ACTION") || !strings.Contains(text.String(), "reviewer") {
@@ -6188,10 +6199,10 @@ func TestCLIOutputHelpersCoverEdgeBranches(t *testing.T) {
 		t.Fatalf("composeDownOutputFromResponse = %#v", down)
 	}
 	text.Reset()
-	if err := writeComposeDownText(&text, down); err != nil {
+	if err := writeComposeDownText(&text, composeDownDisplayChanges(removeResp, nil)); err != nil {
 		t.Fatalf("writeComposeDownText returned error: %v", err)
 	}
-	if !strings.Contains(text.String(), "partial-failure") || !strings.Contains(text.String(), "stop failed") {
+	if !strings.Contains(text.String(), "MESSAGE") || !strings.Contains(text.String(), "stop failed") {
 		t.Fatalf("compose down text = %q", text.String())
 	}
 

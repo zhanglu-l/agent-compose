@@ -1321,7 +1321,7 @@ func runComposeUpCommand(cmd *cobra.Command, cli cliOptions) error {
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	return writeComposeUpText(cmd.OutOrStdout(), msg)
+	return writeComposeUpText(cmd.OutOrStdout(), composeDisplayChangesFromProjectChanges(msg.GetChanges(), normalized))
 }
 
 func runComposeDownCommand(cmd *cobra.Command, cli cliOptions) error {
@@ -1348,7 +1348,7 @@ func runComposeDownCommand(cmd *cobra.Command, cli cliOptions) error {
 		if err := writeCommandOutput(cmd.OutOrStdout(), append(data, '\n')); err != nil {
 			return err
 		}
-	} else if err := writeComposeDownText(cmd.OutOrStdout(), output); err != nil {
+	} else if err := writeComposeDownText(cmd.OutOrStdout(), composeDownDisplayChanges(resp.Msg, normalized)); err != nil {
 		return err
 	}
 	if output.FailedSessionStops > 0 {
@@ -3880,6 +3880,15 @@ type composeUpChangeOutput struct {
 	Message      string `json:"message,omitempty"`
 }
 
+type composeDisplayChangeOutput struct {
+	Action       string
+	ResourceType string
+	ID           string
+	Name         string
+	Owner        string
+	Message      string
+}
+
 type composeRunOutput struct {
 	ID             string   `json:"id"`
 	ShortID        string   `json:"short_id"`
@@ -4355,27 +4364,6 @@ func composeChangeOutputs(changes []*agentcomposev2.ProjectChange) []composeUpCh
 	return output
 }
 
-func writeComposeUpText(out io.Writer, resp *agentcomposev2.ApplyProjectResponse) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "ID\tNAME\tTYPE\tACTION"); err != nil {
-		return err
-	}
-	for _, change := range resp.GetChanges() {
-		if change.GetResourceType() == "project_revision" {
-			continue
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
-			shortOpaqueID(change.GetResourceId()),
-			change.GetName(),
-			change.GetResourceType(),
-			projectChangeActionText(change.GetAction()),
-		); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
-}
-
 func writeProjectListText(out io.Writer, projects []composeProjectListItem, verbose bool) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if verbose {
@@ -4432,31 +4420,238 @@ func projectListStatus(project composeProjectListItem) string {
 	return "active"
 }
 
-func writeComposeDownText(out io.Writer, output composeDownOutput) error {
-	if _, err := fmt.Fprintf(out, "Project: %s\nID: %s\nStatus: %s\nFailed sandbox stops: %d\n\n",
-		output.Project.Name,
-		output.Project.ID,
-		output.Status,
-		output.FailedSessionStops,
-	); err != nil {
-		return err
+func writeComposeUpText(out io.Writer, changes []composeDisplayChangeOutput) error {
+	return writeComposeChangeTable(out, changes)
+}
+
+func writeComposeDownText(out io.Writer, changes []composeDisplayChangeOutput) error {
+	return writeComposeChangeTable(out, changes)
+}
+
+func writeComposeChangeTable(out io.Writer, changes []composeDisplayChangeOutput) error {
+	hasMessage := false
+	for _, change := range changes {
+		if strings.TrimSpace(change.Message) != "" {
+			hasMessage = true
+			break
+		}
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "ACTION\tTYPE\tNAME\tID\tMESSAGE"); err != nil {
+	header := "ID\tNAME\tTYPE\tACTION"
+	if hasMessage {
+		header += "\tMESSAGE"
+	}
+	if _, err := fmt.Fprintln(tw, header); err != nil {
 		return err
 	}
-	for _, change := range output.Changes {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			change.Action,
-			change.ResourceType,
-			change.Name,
+	for _, change := range changes {
+		format := "%s\t%s\t%s\t%s\n"
+		args := []any{
 			change.ID,
-			change.Message,
-		); err != nil {
+			change.Name,
+			change.ResourceType,
+			change.Action,
+		}
+		if hasMessage {
+			format = "%s\t%s\t%s\t%s\t%s\n"
+			args = append(args, change.Message)
+		}
+		if _, err := fmt.Fprintf(tw, format, args...); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
+}
+
+func composeDisplayChangesFromProjectChanges(changes []*agentcomposev2.ProjectChange, spec *compose.NormalizedProjectSpec) []composeDisplayChangeOutput {
+	builder := newComposeDisplayChangeBuilder()
+	for _, change := range changes {
+		builder.addProjectChange(change, spec)
+	}
+	return builder.items
+}
+
+func composeDownDisplayChanges(resp *agentcomposev2.RemoveProjectResponse, spec *compose.NormalizedProjectSpec) []composeDisplayChangeOutput {
+	builder := newComposeDisplayChangeBuilder()
+	removed := false
+	for _, change := range resp.GetChanges() {
+		if change.GetResourceType() == "project" && change.GetAction() == agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_REMOVED {
+			removed = true
+		}
+		builder.addProjectChange(change, spec)
+	}
+	project := resp.GetProject()
+	summary := project.GetSummary()
+	if summary.GetRemovedAt() != "" {
+		removed = true
+	}
+	if len(builder.items) == 0 && summary.GetProjectId() != "" {
+		builder.add(composeDisplayChangeOutput{
+			Action:       "unchanged",
+			ResourceType: "project",
+			ID:           shortOpaqueID(summary.GetProjectId()),
+			Name:         summary.GetName(),
+		})
+	}
+	if removed {
+		for _, agent := range project.GetAgents() {
+			builder.add(composeDisplayChangeOutput{
+				Action:       "removed",
+				ResourceType: "agent",
+				ID:           shortOpaqueID(agent.GetManagedAgentId()),
+				Name:         agent.GetAgentName(),
+			})
+		}
+		for _, scheduler := range project.GetSchedulers() {
+			builder.addTriggerChanges("removed", shortOpaqueID(scheduler.GetSchedulerId()), scheduler.GetAgentName(), "", spec)
+		}
+	}
+	return builder.items
+}
+
+type composeDisplayChangeBuilder struct {
+	items   []composeDisplayChangeOutput
+	seenKey map[string]int
+}
+
+func newComposeDisplayChangeBuilder() *composeDisplayChangeBuilder {
+	return &composeDisplayChangeBuilder{
+		seenKey: make(map[string]int),
+	}
+}
+
+func (b *composeDisplayChangeBuilder) add(change composeDisplayChangeOutput) {
+	if change.ResourceType == "" || change.ResourceType == "project_revision" {
+		return
+	}
+	key := composeDisplayChangeKey(change)
+	if index, ok := b.seenKey[key]; ok {
+		b.items[index] = mergeComposeDisplayChange(b.items[index], change)
+		return
+	}
+	b.seenKey[key] = len(b.items)
+	b.items = append(b.items, change)
+}
+
+func (b *composeDisplayChangeBuilder) addProjectChange(change *agentcomposev2.ProjectChange, spec *compose.NormalizedProjectSpec) {
+	resourceType := composeDisplayResourceType(change.GetResourceType())
+	if resourceType == "trigger" {
+		b.addTriggerChanges(
+			projectChangeActionText(change.GetAction()),
+			shortOpaqueID(change.GetResourceId()),
+			change.GetName(),
+			change.GetMessage(),
+			spec,
+		)
+		return
+	}
+	b.add(composeDisplayChangeOutput{
+		Action:       projectChangeActionText(change.GetAction()),
+		ResourceType: resourceType,
+		ID:           shortOpaqueID(change.GetResourceId()),
+		Name:         change.GetName(),
+		Message:      change.GetMessage(),
+	})
+}
+
+func (b *composeDisplayChangeBuilder) addTriggerChanges(action, id, agentName, message string, spec *compose.NormalizedProjectSpec) {
+	triggerNames := composeTriggerNamesForAgent(spec, agentName)
+	if len(triggerNames) == 0 {
+		b.add(composeDisplayChangeOutput{
+			Action:       action,
+			ResourceType: "trigger",
+			ID:           id,
+			Name:         agentName,
+			Owner:        agentName,
+			Message:      message,
+		})
+		return
+	}
+	for _, triggerName := range triggerNames {
+		b.add(composeDisplayChangeOutput{
+			Action:       action,
+			ResourceType: "trigger",
+			ID:           id,
+			Name:         triggerName,
+			Owner:        agentName,
+			Message:      message,
+		})
+	}
+}
+
+func composeTriggerNamesForAgent(spec *compose.NormalizedProjectSpec, agentName string) []string {
+	if spec == nil {
+		return nil
+	}
+	for _, agent := range spec.Agents {
+		if agent.Name != agentName || agent.Scheduler == nil {
+			continue
+		}
+		names := make([]string, 0, len(agent.Scheduler.Triggers))
+		for _, trigger := range agent.Scheduler.Triggers {
+			if strings.TrimSpace(trigger.Name) == "" {
+				continue
+			}
+			names = append(names, trigger.Name)
+		}
+		return names
+	}
+	return nil
+}
+
+func composeDisplayChangeKey(change composeDisplayChangeOutput) string {
+	if change.ResourceType == "trigger" && change.Owner != "" && change.Name != "" {
+		return change.ResourceType + "\x00" + change.Owner + "\x00" + change.Name
+	}
+	if change.ResourceType == "agent" && change.Name != "" {
+		return change.ResourceType + "\x00" + change.Name
+	}
+	identity := change.ID
+	if identity == "" {
+		identity = change.Name
+	}
+	return change.ResourceType + "\x00" + identity
+}
+
+func mergeComposeDisplayChange(existing, next composeDisplayChangeOutput) composeDisplayChangeOutput {
+	if projectChangeActionRank(next.Action) > projectChangeActionRank(existing.Action) {
+		if strings.TrimSpace(next.Message) == "" {
+			next.Message = existing.Message
+		}
+		return next
+	}
+	if existing.Message == "" {
+		existing.Message = next.Message
+	}
+	return existing
+}
+
+func projectChangeActionRank(action string) int {
+	switch action {
+	case "removed":
+		return 4
+	case "updated":
+		return 3
+	case "created":
+		return 2
+	case "unchanged":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func composeDisplayResourceType(resourceType string) string {
+	switch resourceType {
+	case "agent_definition", "project_agent":
+		return "agent"
+	case "project_scheduler":
+		return "trigger"
+	case "loader":
+		return ""
+	default:
+		return resourceType
+	}
 }
 
 func countProjectDownFailedSessionStops(changes []*agentcomposev2.ProjectChange) int {
