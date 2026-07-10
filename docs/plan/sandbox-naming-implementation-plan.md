@@ -414,7 +414,7 @@
 4. 更新命令行文档：
    - `docs/command-line-manual.md`
    - `docs/zh-CN/command-line-manual.md`
-5. 更新 runtime SDK README、proto-client README、loader-script README 中的公开字段和示例。
+5. 更新 runtime SDK README、proto-client README、scheduler-script README 中的公开字段和示例。
 6. 执行残留审计：
 
    ```bash

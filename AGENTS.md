@@ -77,7 +77,7 @@ Global environment variables, workspace configs, loader definitions, loader trig
 Current Docker build behavior:
 - `Dockerfile` builds the `cmd/agent-compose` binary
 - `guest-images/Dockerfile.agent-compose-guest` builds the guest image used by BoxLite
-- `build_docker.sh` defaults to `IMAGE_NAME=agent-compose:latest` and `DOCKERFILE=Dockerfile`
+- `scripts/build-agent-compose.sh` defaults to `IMAGE_NAME=agent-compose:latest` and `DOCKERFILE=Dockerfile`
 
 Current compose behavior:
 - `docker-compose.yml` deploys the `agent-compose` service and the published `agent-compose-frontend` nginx image

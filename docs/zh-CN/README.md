@@ -223,7 +223,7 @@ task test
 - [OpenCode CLI Provider 支持](design/opencode_cli_support.md)
 - [Webhook design](design/webhook_design.md)
 - [Webhook queue design](design/webhook_queue_design.md)
-- [Loader script API](../../loader-script/README.md)
+- [Loader script API](../../examples/scheduler-script/README.md)
 
 ##  社区与支持
 欢迎加入技术社区，与更多开发者交流 Agent-copose 的使用、部署和开发经验。

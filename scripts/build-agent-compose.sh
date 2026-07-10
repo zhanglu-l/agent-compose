@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 IMAGE_NAME="${IMAGE_NAME:-agent-compose:latest}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile}"

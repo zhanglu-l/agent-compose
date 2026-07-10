@@ -848,7 +848,7 @@
     - 更新 `AGENTS.md` 的 overview、runtime layout、core services、proxy path、runtime defaults、persistence、Docker/Compose 说明。
     - 更新 `README.md`、`docs/zh-CN/README.md`、`.env.example`、`Dockerfile`、`docker-compose.yml`、`docker-compose.override.yml`。
     - 更新 `docs/command-line-manual.md`、`docs/zh-CN/command-line-manual.md`。
-    - 更新 runtime SDK README、proto-client README、loader-script README 中的公开字段和示例。
+    - 更新 runtime SDK README、proto-client README、scheduler-script README 中的公开字段和示例。
   - 可并行子任务：
     - [x] 可并行：更新部署和 env 文档。
     - [x] 可并行：更新 CLI 文档。
@@ -866,14 +866,14 @@
       - `docs/zh-CN/README.md` 更新部署/env 说明，使用 `SANDBOX_ROOT`、`DOCKER_HOST_SANDBOX_ROOT`、`AGENT_COMPOSE_SANDBOX_TOKEN`，移除旧 `DOCKER_HOST_SESSION_ROOT` 默认路径。
       - `docs/command-line-manual.md`、`docs/zh-CN/command-line-manual.md` 将 `sandbox prune` 文案收敛为删除 sandbox records。
       - `runtime/javascript/README.md` 改为 agent sandboxes 和 provider thread resume state。
-      - `loader-script/README.md`、`loader-script/03-event-to-agent.js`、`loader-script/04-cron-daily-summary.js`、`loader-script/05-router-with-multiple-triggers.js` 的公开示例改用 `sandboxPolicy`、`sandboxEnv`、`sandboxId`、`agentThreadId` 和 `scheduler.sandbox.*`；`scheduler.session.*`、`sessionPolicy`、`sessionEnv` 仅作为 deprecated compatibility aliases 说明。
+      - `examples/scheduler-script/README.md`、`examples/scheduler-script/03-event-to-agent.js`、`examples/scheduler-script/04-cron-daily-summary.js`、`examples/scheduler-script/05-router-with-multiple-triggers.js` 的公开示例改用 `sandboxPolicy`、`sandboxEnv`、`sandboxId`、`agentThreadId` 和 `scheduler.sandbox.*`；`scheduler.session.*`、`sessionPolicy`、`sessionEnv` 仅作为 deprecated compatibility aliases 说明。
       - 审计 `Dockerfile`、`docker-compose.yml`、`docker-compose.override.yml`、`.env.example`、runtime SDK README、proto-client README；无需代码变更。
     - 验证：
-      - `node --check loader-script/01-manual-main.js && node --check loader-script/02-interval-heartbeat.js && node --check loader-script/03-event-to-agent.js && node --check loader-script/04-cron-daily-summary.js && node --check loader-script/05-router-with-multiple-triggers.js && node --check loader-script/06-conditional-triggers.js`
-      - `rg -n 'AGENT_COMPOSE_SESSION_TOKEN|DOCKER_HOST_SESSION_ROOT|SESSION_ROOT|sessionPolicy|sessionEnv|sessionId|agentSessionId|sandbox/session|agent session' README.md docs/zh-CN/README.md docs/command-line-manual.md docs/zh-CN/command-line-manual.md runtime/javascript/README.md runtime/agent-compose-runtime-sdk/README.md proto-client/README.md loader-script -S`
+      - `node --check examples/scheduler-script/01-manual-main.js && node --check examples/scheduler-script/02-interval-heartbeat.js && node --check examples/scheduler-script/03-event-to-agent.js && node --check examples/scheduler-script/04-cron-daily-summary.js && node --check examples/scheduler-script/05-router-with-multiple-triggers.js && node --check examples/scheduler-script/06-conditional-triggers.js`
+      - `rg -n 'AGENT_COMPOSE_SESSION_TOKEN|DOCKER_HOST_SESSION_ROOT|SESSION_ROOT|sessionPolicy|sessionEnv|sessionId|agentSessionId|sandbox/session|agent session' README.md docs/zh-CN/README.md docs/command-line-manual.md docs/zh-CN/command-line-manual.md runtime/javascript/README.md runtime/agent-compose-runtime-sdk/README.md proto-client/README.md examples/scheduler-script -S`
       - `task build`
     - 审计与例外：
-      - targeted public-doc audit 仅剩 `loader-script/README.md` 的 deprecated alias 说明；这是明确 compatibility 文案。
+      - targeted public-doc audit 仅剩 `examples/scheduler-script/README.md` 的 deprecated alias 说明；这是明确 compatibility 文案。
       - broader 10.1 docs audit 剩余 `session` 命中属于 auth/browser session、v1 compatibility API/proxy、compatibility package/file names、loader lifecycle topic compatibility 或 deprecated alias 文案。
       - `.env.example` 仅在 breaking-change 注释中提及旧 env；未提供旧变量可复制默认值。
       - 本任务未修改 `proto/agentcompose/v1/*`、v2 proto、generated code、Dockerfile 或 Compose 行为。

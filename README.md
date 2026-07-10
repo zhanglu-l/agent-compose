@@ -61,7 +61,7 @@ proto/                         Connect API definitions and generated Go code
 proto-client/                  npm package config for the generated TypeScript client
 runtime/                       guest runtime SDKs and JavaScript scheduler runtime
 guest-images/                  guest image Dockerfiles
-loader-script/                 scheduler script examples and API notes
+examples/scheduler-script/      scheduler script examples and API notes
 docs/design/                   design notes
 ```
 
