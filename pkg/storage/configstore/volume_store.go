@@ -205,12 +205,23 @@ func (s *volumeStore) DeleteVolume(ctx context.Context, nameOrID string) error {
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM volumes WHERE id = ?`, item.ID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete volume %s: %w", item.Name, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM project_volumes WHERE volume_id = ?`, item.ID); err != nil {
+		return fmt.Errorf("delete project references for volume %s: %w", item.Name, err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM volumes WHERE id = ?`, item.ID)
 	if err != nil {
 		return fmt.Errorf("delete volume %s: %w", item.Name, err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return domain.ResourceError(domain.ErrNotFound, "volume", item.Name, fmt.Sprintf("volume %s not found", item.Name), nil)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete volume %s: %w", item.Name, err)
 	}
 	return nil
 }
