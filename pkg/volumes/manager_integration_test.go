@@ -95,3 +95,56 @@ func TestIntegrationManagerPersistsProjectVolumeLifecycle(t *testing.T) {
 		t.Fatalf("project volume path stat err = %v, want not exist", err)
 	}
 }
+
+func TestIntegrationManagerForceRemoveDeletesProjectLinksAndData(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+
+	store := configstore.FromDB(db)
+	if err := store.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	manager := volumes.NewManager(store, volumes.LocalDriver{DataRoot: t.TempDir()})
+	volume, err := manager.Create(ctx, domain.VolumeRecord{Name: "force-remove-cache"})
+	if err != nil {
+		t.Fatalf("Create volume: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(volume.Path, "value.txt"), []byte("preserve until removal\n"), 0o644); err != nil {
+		t.Fatalf("write volume data: %v", err)
+	}
+	if err := manager.ReplaceProjectVolumes(ctx, "project-1", map[string]domain.ProjectVolumeLink{
+		"cache": {VolumeID: volume.ID},
+	}); err != nil {
+		t.Fatalf("ReplaceProjectVolumes: %v", err)
+	}
+
+	if err := manager.Remove(ctx, volume.Name, false); !errors.Is(err, domain.ErrReferenced) {
+		t.Fatalf("Remove without force err = %v, want ErrReferenced", err)
+	}
+	if _, err := os.Stat(volume.Path); err != nil {
+		t.Fatalf("volume path after rejected removal: %v", err)
+	}
+
+	if err := manager.Remove(ctx, volume.Name, true); err != nil {
+		t.Fatalf("Remove with force: %v", err)
+	}
+	if _, err := store.GetVolume(ctx, volume.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GetVolume after force removal err = %v, want ErrNotFound", err)
+	}
+	projectVolumes, err := store.ListProjectVolumes(ctx, "project-1")
+	if err != nil {
+		t.Fatalf("ListProjectVolumes after force removal: %v", err)
+	}
+	if len(projectVolumes) != 0 {
+		t.Fatalf("project volumes after force removal = %#v, want none", projectVolumes)
+	}
+	if _, err := os.Stat(volume.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("volume path stat after force removal err = %v, want not exist", err)
+	}
+}
