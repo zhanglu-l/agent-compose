@@ -9037,6 +9037,20 @@ func (s sessionServiceStub) StopSession(ctx context.Context, req *connect.Reques
 	return s.stopSession(ctx, req)
 }
 
+func TestResolveComposeSandboxRefFromSessions(t *testing.T) {
+	const sandboxID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	client := sessionServiceStub{listSessions: func(context.Context, *connect.Request[agentcomposev1.ListSessionsRequest]) (*connect.Response[agentcomposev1.ListSessionsResponse], error) {
+		return connect.NewResponse(&agentcomposev1.ListSessionsResponse{Sessions: []*agentcomposev1.SessionSummary{{SessionId: sandboxID}}}), nil
+	}}
+	got, err := resolveComposeSandboxRefFromSessions(context.Background(), client, sandboxID[:12])
+	if err != nil {
+		t.Fatalf("resolve short sandbox id: %v", err)
+	}
+	if got != sandboxID {
+		t.Fatalf("resolved sandbox id = %q, want %q", got, sandboxID)
+	}
+}
+
 type loaderServiceStub struct {
 	getLoader func(context.Context, *connect.Request[agentcomposev1.LoaderIDRequest]) (*connect.Response[agentcomposev1.LoaderResponse], error)
 
