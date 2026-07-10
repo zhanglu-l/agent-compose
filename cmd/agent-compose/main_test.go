@@ -4189,14 +4189,11 @@ agents:
 			if stdout != "" {
 				t.Fatalf("%s missing project stdout = %q, want empty", tc.name, stdout)
 			}
-			for _, want := range []string{
-				`project "cli-ps-missing" has not been started on this daemon or was removed by ` + "`agent-compose down`",
-				"agent-compose up --file " + composePath,
-				"before `agent-compose " + tc.wantCommand + "`",
-			} {
-				if !strings.Contains(stderr, want) {
-					t.Fatalf("%s missing project stderr = %q, want %q", tc.name, stderr, want)
-				}
+			want := `project "cli-ps-missing" is not running: it has not been started on this daemon or was removed by ` +
+				"`agent-compose down`.\n" +
+				"To start it, run `agent-compose up --file " + composePath + "` before `agent-compose " + tc.wantCommand + "`"
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("%s missing project stderr = %q, want two-line message %q", tc.name, stderr, want)
 			}
 			for _, notWant := range []string{"not_found", "sql: no rows"} {
 				if strings.Contains(stderr, notWant) {

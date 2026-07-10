@@ -7971,7 +7971,7 @@ func commandExitErrorForComposeProject(err error, command, projectName, composeP
 		return commandExitError{
 			Code: exitCodeUsage,
 			Err: fmt.Errorf(
-				"project %q has not been started on this daemon or was removed by `agent-compose down`; run `agent-compose up --file %s` before `agent-compose %s`",
+				"project %q is not running: it has not been started on this daemon or was removed by `agent-compose down`.\nTo start it, run `agent-compose up --file %s` before `agent-compose %s`",
 				projectName,
 				composePath,
 				command,
