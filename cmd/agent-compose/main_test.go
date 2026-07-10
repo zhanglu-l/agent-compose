@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-compose/pkg/compose"
 	"agent-compose/pkg/config"
 	"agent-compose/pkg/identity"
 	"agent-compose/pkg/imagecache"
@@ -2525,9 +2526,57 @@ agents:
 	if err != nil {
 		t.Fatalf("StableManagedAgentID returned error: %v", err)
 	}
+	schedulerID, err := domain.StableProjectSchedulerID(projectID, "reviewer", "")
+	if err != nil {
+		t.Fatalf("StableProjectSchedulerID returned error: %v", err)
+	}
+	if !strings.Contains(stdout, shortOpaqueID(schedulerID)) || strings.Contains(stdout, displayOpaqueID(schedulerID)) {
+		t.Fatalf("scheduler ls should show only short scheduler id %q, stdout = %q", shortOpaqueID(schedulerID), stdout)
+	}
+	verboseOut, verboseErr, _, verboseCode := executeCLICommand("scheduler", "ls", "--verbose", "--host", server.URL, "--file", composePath)
+	if verboseCode != 0 || verboseErr != "" || !strings.Contains(verboseOut, displayOpaqueID(schedulerID)) || !strings.Contains(verboseOut, "TRIGGER ID") {
+		t.Fatalf("scheduler ls --verbose code/stdout/stderr = %d / %q / %q", verboseCode, verboseOut, verboseErr)
+	}
 	jsonOut, jsonErr, _, jsonCode := executeCLICommand("scheduler", "ls", identity.ShortID(agentID), "--json", "--host", server.URL, "--file", composePath)
-	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"agent_name": "reviewer"`) || !strings.Contains(jsonOut, `"source": "declarative"`) {
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"agent_name": "reviewer"`) || !strings.Contains(jsonOut, `"source": "declarative"`) ||
+		!strings.Contains(jsonOut, `"scheduler_id": "`+displayOpaqueID(schedulerID)+`"`) || !strings.Contains(jsonOut, `"scheduler_short_id": "`+shortOpaqueID(schedulerID)+`"`) ||
+		!strings.Contains(jsonOut, `"trigger_short_id": "`) {
 		t.Fatalf("scheduler ls --json code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+}
+
+func TestComposeUpUsesDistinctStableTriggerIDs(t *testing.T) {
+	projectID, err := domain.StableProjectID("trigger-ids", "/tmp/trigger-ids/agent-compose.yml")
+	if err != nil {
+		t.Fatalf("StableProjectID returned error: %v", err)
+	}
+	spec := &compose.NormalizedProjectSpec{Agents: []compose.NormalizedAgentSpec{{
+		Name: "reviewer",
+		Scheduler: &compose.NormalizedSchedulerSpec{Triggers: []compose.NormalizedTriggerSpec{
+			{Name: "hourly"},
+			{Name: "startup"},
+		}},
+	}}}
+	changes := composeDisplayChangesFromProjectChanges([]*agentcomposev2.ProjectChange{{
+		Action:       agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_CREATED,
+		ResourceType: "project_scheduler",
+		ResourceId:   "shared-scheduler-id",
+		Name:         "reviewer",
+	}}, spec, projectID)
+	if len(changes) != 2 {
+		t.Fatalf("trigger display changes = %#v, want 2", changes)
+	}
+	for index, name := range []string{"hourly", "startup"} {
+		wantID, err := domain.StableManagedTriggerID(projectID, "reviewer", "", name, index)
+		if err != nil {
+			t.Fatalf("StableManagedTriggerID(%q) returned error: %v", name, err)
+		}
+		if changes[index].Name != name || changes[index].ID != shortOpaqueID(wantID) {
+			t.Fatalf("trigger display change[%d] = %#v, want name %q id %q", index, changes[index], name, shortOpaqueID(wantID))
+		}
+	}
+	if changes[0].ID == changes[1].ID {
+		t.Fatalf("trigger IDs must be distinct: %#v", changes)
 	}
 }
 

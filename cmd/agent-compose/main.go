@@ -535,14 +535,16 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 			return cmd.Help()
 		},
 	}
+	schedulerListOptions := composeSchedulerListOptions{}
 	schedulerLSCmd := &cobra.Command{
 		Use:   "ls [agent]",
 		Short: "List project scheduler triggers",
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeSchedulerListCommand(cmd, options, args)
+			return runComposeSchedulerListCommand(cmd, options, schedulerListOptions, args)
 		},
 	}
+	schedulerLSCmd.Flags().BoolVar(&schedulerListOptions.Verbose, "verbose", false, "Show full scheduler and trigger IDs")
 	schedulerTriggerCmd := &cobra.Command{
 		Use:   "trigger <agent> <trigger>",
 		Short: "Manually run a scheduler trigger",
@@ -1002,6 +1004,10 @@ type composeSchedulerTriggerOptions struct {
 	Detach        bool
 }
 
+type composeSchedulerListOptions struct {
+	Verbose bool
+}
+
 type composeLogsOptions struct {
 	AgentName string
 	RunID     string
@@ -1342,7 +1348,7 @@ func runComposeUpCommand(cmd *cobra.Command, cli cliOptions) error {
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	return writeComposeUpText(cmd.OutOrStdout(), composeDisplayChangesFromProjectChanges(msg.GetChanges(), normalized))
+	return writeComposeUpText(cmd.OutOrStdout(), composeDisplayChangesFromProjectChanges(msg.GetChanges(), normalized, msg.GetProject().GetSummary().GetProjectId()))
 }
 
 func runComposeDownCommand(cmd *cobra.Command, cli cliOptions) error {
@@ -1871,7 +1877,7 @@ func executeComposeRunRequest(cmd *cobra.Command, cli cliOptions, projectName, p
 	return composeRunCompletionError(projectName, runReq.GetAgentName(), completed, detail)
 }
 
-func runComposeSchedulerListCommand(cmd *cobra.Command, cli cliOptions, args []string) error {
+func runComposeSchedulerListCommand(cmd *cobra.Command, cli cliOptions, options composeSchedulerListOptions, args []string) error {
 	_, normalized, projectID, err := resolveComposeProject(cli)
 	if err != nil {
 		return err
@@ -1902,7 +1908,7 @@ func runComposeSchedulerListCommand(cmd *cobra.Command, cli cliOptions, args []s
 		}
 		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
 	}
-	return writeSchedulerListText(cmd.OutOrStdout(), output)
+	return writeSchedulerListText(cmd.OutOrStdout(), output, options.Verbose)
 }
 
 func runComposeSchedulerTriggerCommand(cmd *cobra.Command, cli cliOptions, options composeSchedulerTriggerOptions, agentName, triggerRef string) error {
@@ -2079,10 +2085,12 @@ func schedulerTriggerItemFromDeclarative(agentName, schedulerID, managedLoaderID
 		AgentName:        agentName,
 		Name:             strings.TrimSpace(trigger.Name),
 		TriggerID:        displayOpaqueID(triggerID),
+		TriggerShortID:   shortOpaqueID(triggerID),
 		RawTriggerID:     triggerID,
 		Kind:             trigger.Kind,
 		Source:           "declarative",
 		SchedulerID:      displayOpaqueID(schedulerID),
+		SchedulerShortID: shortOpaqueID(schedulerID),
 		RawSchedulerID:   schedulerID,
 		ManagedLoaderID:  displayOpaqueID(managedLoaderID),
 		RawManagedLoader: managedLoaderID,
@@ -2096,10 +2104,12 @@ func schedulerTriggerItemFromRegistered(agentName, schedulerID, managedLoaderID 
 	return composeSchedulerTriggerItem{
 		AgentName:        agentName,
 		TriggerID:        displayOpaqueID(trigger.GetTriggerId()),
+		TriggerShortID:   shortOpaqueID(trigger.GetTriggerId()),
 		RawTriggerID:     trigger.GetTriggerId(),
 		Kind:             loaderTriggerKindText(trigger.GetKind()),
 		Source:           "script",
 		SchedulerID:      displayOpaqueID(schedulerID),
+		SchedulerShortID: shortOpaqueID(schedulerID),
 		RawSchedulerID:   schedulerID,
 		ManagedLoaderID:  displayOpaqueID(managedLoaderID),
 		RawManagedLoader: managedLoaderID,
@@ -2114,19 +2124,34 @@ func schedulerTriggerItemFromRegistered(agentName, schedulerID, managedLoaderID 
 	}
 }
 
-func writeSchedulerListText(out io.Writer, output composeSchedulerListOutput) error {
+func writeSchedulerListText(out io.Writer, output composeSchedulerListOutput, verbose bool) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "AGENT\tTRIGGER\tKIND\tSOURCE\tSCHEDULER\tENABLED"); err != nil {
+	header := "AGENT\tTRIGGER\tKIND\tSOURCE\tSCHEDULER\tENABLED"
+	if verbose {
+		header = "AGENT\tTRIGGER\tTRIGGER ID\tKIND\tSOURCE\tSCHEDULER\tENABLED"
+	}
+	if _, err := fmt.Fprintln(tw, header); err != nil {
 		return err
 	}
 	for _, trigger := range output.Triggers {
 		name := firstNonEmptyString(trigger.Name, trigger.TriggerID)
+		schedulerID := firstNonEmptyString(trigger.SchedulerShortID, shortOpaqueID(trigger.SchedulerID), "-")
+		if verbose {
+			schedulerID = firstNonEmptyString(trigger.SchedulerID, "-")
+			if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%t\n",
+				trigger.AgentName, name, firstNonEmptyString(trigger.TriggerID, "-"), trigger.Kind,
+				trigger.Source, schedulerID, trigger.TriggerEnabled,
+			); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%t\n",
 			trigger.AgentName,
 			name,
 			trigger.Kind,
 			trigger.Source,
-			firstNonEmptyString(trigger.SchedulerID, "-"),
+			schedulerID,
 			trigger.TriggerEnabled,
 		); err != nil {
 			return err
@@ -4742,10 +4767,12 @@ type composeSchedulerTriggerItem struct {
 	AgentName        string `json:"agent_name"`
 	Name             string `json:"name,omitempty"`
 	TriggerID        string `json:"trigger_id"`
+	TriggerShortID   string `json:"trigger_short_id"`
 	RawTriggerID     string `json:"-"`
 	Kind             string `json:"kind"`
 	Source           string `json:"source"`
 	SchedulerID      string `json:"scheduler_id,omitempty"`
+	SchedulerShortID string `json:"scheduler_short_id,omitempty"`
 	RawSchedulerID   string `json:"-"`
 	ManagedLoaderID  string `json:"managed_loader_id,omitempty"`
 	RawManagedLoader string `json:"-"`
@@ -5155,8 +5182,11 @@ func writeComposeChangeTable(out io.Writer, changes []composeDisplayChangeOutput
 	return tw.Flush()
 }
 
-func composeDisplayChangesFromProjectChanges(changes []*agentcomposev2.ProjectChange, spec *compose.NormalizedProjectSpec) []composeDisplayChangeOutput {
+func composeDisplayChangesFromProjectChanges(changes []*agentcomposev2.ProjectChange, spec *compose.NormalizedProjectSpec, projectIDs ...string) []composeDisplayChangeOutput {
 	builder := newComposeDisplayChangeBuilder()
+	if len(projectIDs) > 0 {
+		builder.projectID = projectIDs[0]
+	}
 	for _, change := range changes {
 		builder.addProjectChange(change, spec)
 	}
@@ -5165,6 +5195,9 @@ func composeDisplayChangesFromProjectChanges(changes []*agentcomposev2.ProjectCh
 
 func composeDownDisplayChanges(resp *agentcomposev2.RemoveProjectResponse, spec *compose.NormalizedProjectSpec) []composeDisplayChangeOutput {
 	builder := newComposeDisplayChangeBuilder()
+	project := resp.GetProject()
+	summary := project.GetSummary()
+	builder.projectID = summary.GetProjectId()
 	removed := false
 	for _, change := range resp.GetChanges() {
 		if change.GetResourceType() == "project" && change.GetAction() == agentcomposev2.ProjectChangeAction_PROJECT_CHANGE_ACTION_REMOVED {
@@ -5172,8 +5205,6 @@ func composeDownDisplayChanges(resp *agentcomposev2.RemoveProjectResponse, spec 
 		}
 		builder.addProjectChange(change, spec)
 	}
-	project := resp.GetProject()
-	summary := project.GetSummary()
 	if summary.GetRemovedAt() != "" {
 		removed = true
 	}
@@ -5202,8 +5233,9 @@ func composeDownDisplayChanges(resp *agentcomposev2.RemoveProjectResponse, spec 
 }
 
 type composeDisplayChangeBuilder struct {
-	items   []composeDisplayChangeOutput
-	seenKey map[string]int
+	items     []composeDisplayChangeOutput
+	seenKey   map[string]int
+	projectID string
 }
 
 func newComposeDisplayChangeBuilder() *composeDisplayChangeBuilder {
@@ -5247,8 +5279,8 @@ func (b *composeDisplayChangeBuilder) addProjectChange(change *agentcomposev2.Pr
 }
 
 func (b *composeDisplayChangeBuilder) addTriggerChanges(action, id, agentName, message string, spec *compose.NormalizedProjectSpec) {
-	triggerNames := composeTriggerNamesForAgent(spec, agentName)
-	if len(triggerNames) == 0 {
+	triggerRefs := composeTriggerRefsForAgent(spec, agentName)
+	if len(triggerRefs) == 0 {
 		b.add(composeDisplayChangeOutput{
 			Action:       action,
 			ResourceType: "trigger",
@@ -5259,19 +5291,28 @@ func (b *composeDisplayChangeBuilder) addTriggerChanges(action, id, agentName, m
 		})
 		return
 	}
-	for _, triggerName := range triggerNames {
+	for _, triggerRef := range triggerRefs {
+		triggerID := id
+		if stableID, err := domain.StableManagedTriggerID(b.projectID, agentName, "", triggerRef.name, triggerRef.index); err == nil {
+			triggerID = shortOpaqueID(stableID)
+		}
 		b.add(composeDisplayChangeOutput{
 			Action:       action,
 			ResourceType: "trigger",
-			ID:           id,
-			Name:         triggerName,
+			ID:           triggerID,
+			Name:         triggerRef.name,
 			Owner:        agentName,
 			Message:      message,
 		})
 	}
 }
 
-func composeTriggerNamesForAgent(spec *compose.NormalizedProjectSpec, agentName string) []string {
+type composeTriggerRef struct {
+	name  string
+	index int
+}
+
+func composeTriggerRefsForAgent(spec *compose.NormalizedProjectSpec, agentName string) []composeTriggerRef {
 	if spec == nil {
 		return nil
 	}
@@ -5279,14 +5320,14 @@ func composeTriggerNamesForAgent(spec *compose.NormalizedProjectSpec, agentName 
 		if agent.Name != agentName || agent.Scheduler == nil {
 			continue
 		}
-		names := make([]string, 0, len(agent.Scheduler.Triggers))
-		for _, trigger := range agent.Scheduler.Triggers {
+		refs := make([]composeTriggerRef, 0, len(agent.Scheduler.Triggers))
+		for index, trigger := range agent.Scheduler.Triggers {
 			if strings.TrimSpace(trigger.Name) == "" {
 				continue
 			}
-			names = append(names, trigger.Name)
+			refs = append(refs, composeTriggerRef{name: trigger.Name, index: index})
 		}
-		return names
+		return refs
 	}
 	return nil
 }
