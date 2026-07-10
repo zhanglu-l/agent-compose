@@ -450,15 +450,16 @@ func (r *cgoSandboxRuntime) StopSandbox(ctx context.Context, sandbox *Sandbox, v
 		return false, err
 	}
 	defer box.free()
-	if err := r.stopBox(ctx, box); err != nil && !isStoppedBox(err) && !isBoxNotFound(err) {
+	missing, err := classifyBoxliteStopError(r.stopBox(ctx, box))
+	if err != nil {
 		return false, err
 	}
 	if sandbox != nil {
 		if err := CleanupBoxliteVolumeBridgeMounts(hostSandboxDir(sandbox)); err != nil {
-			return false, err
+			return missing, err
 		}
 	}
-	return false, nil
+	return missing, nil
 }
 
 func (r *cgoSandboxRuntime) RemoveSandbox(ctx context.Context, sandbox *Sandbox, vmState VMState) error {
@@ -1332,16 +1333,32 @@ type boxliteCallError struct {
 	message string
 }
 
+const (
+	boxliteStatusNotFound = int(C.NotFound)
+	boxliteStatusStopped  = int(C.Stopped)
+)
+
 func (e *boxliteCallError) Error() string {
 	return e.message
 }
 
 func isBoxNotFound(err error) bool {
 	var callErr *boxliteCallError
-	return errors.As(err, &callErr) && callErr.code == int(C.NotFound)
+	return errors.As(err, &callErr) && callErr.code == boxliteStatusNotFound
 }
 
 func isStoppedBox(err error) bool {
 	var callErr *boxliteCallError
-	return errors.As(err, &callErr) && callErr.code == int(C.Stopped)
+	return errors.As(err, &callErr) && callErr.code == boxliteStatusStopped
+}
+
+func classifyBoxliteStopError(err error) (bool, error) {
+	switch {
+	case err == nil, isStoppedBox(err):
+		return false, nil
+	case isBoxNotFound(err):
+		return true, nil
+	default:
+		return false, err
+	}
 }

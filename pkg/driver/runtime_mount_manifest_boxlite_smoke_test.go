@@ -4,9 +4,33 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestClassifyBoxliteStopError(t *testing.T) {
+	otherErr := errors.New("stop failed")
+	tests := []struct {
+		name        string
+		err         error
+		wantMissing bool
+		wantErr     error
+	}{
+		{name: "success"},
+		{name: "already stopped", err: &boxliteCallError{code: boxliteStatusStopped}},
+		{name: "not found", err: &boxliteCallError{code: boxliteStatusNotFound}, wantMissing: true},
+		{name: "other error", err: otherErr, wantErr: otherErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			missing, err := classifyBoxliteStopError(tt.err)
+			if missing != tt.wantMissing || !errors.Is(err, tt.wantErr) {
+				t.Fatalf("classifyBoxliteStopError() = (%v, %v), want (%v, %v)", missing, err, tt.wantMissing, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestBoxLiteStoppedStatusIsResumable(t *testing.T) {
 	if shouldRecreateBoxForStatus("stopped") {
