@@ -221,6 +221,9 @@ func TestValidateGitURLSchemeRejectsUnsupportedSchemes(t *testing.T) {
 	}
 	for _, value := range []string{
 		"https://example.invalid/repo.git",
+		"https://[2001:db8::1]/repo.git",
+		"ssh://user@[2001:db8::1]/repo.git",
+		"https://example.invalid/repo.git?note=a::b",
 		"ssh://git@example.invalid/repo.git",
 		"git@example.invalid:org/repo.git",
 		"/tmp/repo.git",

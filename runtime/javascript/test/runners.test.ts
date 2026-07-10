@@ -473,6 +473,23 @@ describe("OpenCodeRunner", () => {
     });
   });
 
+  it("does not throw when OpenCode skills cleanup fails", async () => {
+    await withTempSession(async (root) => {
+      const runner = new OpenCodeRunner({ ...runnerOptions(root, "", "opencode"), skills: ["pdf"] });
+      await runner.environment();
+      const rmSpy = vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("busy"));
+      const stdio = captureStdio();
+      try {
+        await expect(runner.cleanupSkillsConfig()).resolves.toBeUndefined();
+      } finally {
+        stdio.restore();
+        rmSpy.mockRestore();
+      }
+      expect(stdio.stderr).toContain("[opencode cleanup]");
+      expect(stdio.stderr).toContain("busy");
+    });
+  });
+
   it("merges OpenCode skills config with an existing config file", async () => {
     await withTempSession(async (root) => {
       const fs = await import("node:fs/promises");

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { formatError } from "../errors.js";
 import { readStoredThread, writeStoredThread } from "../session-state.js";
 import { extractText, jsonString } from "../text.js";
 import { TranscriptWriter } from "../transcript.js";
@@ -113,7 +114,11 @@ export class OpenCodeRunner {
     if (!dir) {
       return;
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch (error) {
+      this.writer.line(`[opencode cleanup] ${formatError(error)}`);
+    }
   }
 
   handleEvent(event: Record<string, unknown>, result: AgentResult): void {

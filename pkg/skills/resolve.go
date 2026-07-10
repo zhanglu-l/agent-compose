@@ -24,7 +24,10 @@ import (
 	"agent-compose/pkg/workspaces"
 )
 
-var credentialURLPattern = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*:)//[^@\s]+@`)
+var (
+	credentialURLPattern      = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*:)//[^@\s]+@`)
+	gitRemoteHelperURLPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*::`)
+)
 
 const (
 	DefaultDownloadLimitBytes = 64 << 20
@@ -762,7 +765,7 @@ func validateGitURLScheme(value string) error {
 	if trimmed == "" {
 		return nil
 	}
-	if strings.Contains(trimmed, "::") {
+	if gitRemoteHelperURLPattern.MatchString(trimmed) {
 		return fmt.Errorf("git remote helper URLs are not supported")
 	}
 	parsed, err := url.Parse(trimmed)
