@@ -7035,9 +7035,41 @@ func resolveComposeSandboxRefWithProject(ctx context.Context, clients cliService
 		Project: &agentcomposev2.ProjectRef{ProjectId: projectID},
 	}))
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return resolveComposeSandboxRefFromSessions(ctx, clients.session, ref)
+		}
 		return "", commandExitErrorForConnect(fmt.Errorf("resolve sandbox %s: %w", ref, err))
 	}
 	return resolveComposeSandboxRefFromProject(ctx, clients, project.Msg.GetProject(), ref)
+}
+
+func resolveComposeSandboxRefFromSessions(ctx context.Context, client agentcomposev1connect.SessionServiceClient, ref string) (string, error) {
+	sessions, err := listAllSessions(ctx, client)
+	if err != nil {
+		return "", commandExitErrorForConnect(fmt.Errorf("resolve sandbox %s from daemon sessions: %w", ref, err))
+	}
+	matches := map[string]struct{}{}
+	for _, session := range sessions {
+		id := strings.TrimSpace(session.GetSessionId())
+		if id != "" && resourceIDMatchesRef(id, shortOpaqueID(id), ref) {
+			matches[id] = struct{}{}
+		}
+	}
+	if len(matches) == 0 {
+		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox %q not found in daemon sessions", ref)}
+	}
+	if len(matches) > 1 {
+		ids := make([]string, 0, len(matches))
+		for id := range matches {
+			ids = append(ids, shortOpaqueID(id))
+		}
+		sort.Strings(ids)
+		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox ref %q is ambiguous; matches: %s", ref, strings.Join(ids, ", "))}
+	}
+	for id := range matches {
+		return id, nil
+	}
+	return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("sandbox %q not found in daemon sessions", ref)}
 }
 
 func resolveComposeSandboxRefFromProject(ctx context.Context, clients cliServiceClients, project *agentcomposev2.Project, ref string) (string, error) {
