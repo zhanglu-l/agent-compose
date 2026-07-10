@@ -1863,7 +1863,7 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 			warnings = append(warnings, fmt.Sprintf("sticky sandbox %s is unavailable; creating a replacement", sandboxID))
 		} else {
 			if sandbox.Summary.VMStatus != domain.VMStatusRunning {
-				if err := c.applyJupyterOptionsToSandbox(sandbox.Summary.ID, jupyterOptions); err != nil {
+				if err := c.applyJupyterOptionsToSandbox(sandbox, jupyterOptions); err != nil {
 					return SandboxResult{Sandbox: sandbox}, err
 				}
 				driver, err := driverpkg.ResolveSandboxRuntimeDriver(sandbox.Summary.Driver, c.config.RuntimeDriver)
@@ -1959,8 +1959,11 @@ func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared
 	})
 }
 
-func (c *Controller) applyJupyterOptionsToSandbox(sandboxID string, options sessionstore.CreateSandboxOptions) error {
-	proxyState, err := c.store.GetProxyState(sandboxID)
+func (c *Controller) applyJupyterOptionsToSandbox(sandbox *domain.Sandbox, options sessionstore.CreateSandboxOptions) error {
+	if sandbox == nil {
+		return fmt.Errorf("sandbox is required")
+	}
+	proxyState, err := c.store.GetProxyState(sandbox.Summary.ID)
 	if err != nil {
 		return err
 	}
@@ -1976,7 +1979,11 @@ func (c *Controller) applyJupyterOptionsToSandbox(sandboxID string, options sess
 		if proxyState.GuestPort == 0 {
 			proxyState.GuestPort = c.config.JupyterGuestPort
 		}
-		if proxyState.HostPort == 0 {
+		driver, err := driverpkg.ResolveSandboxRuntimeDriver(sandbox.Summary.Driver, c.config.RuntimeDriver)
+		if err != nil {
+			return err
+		}
+		if driver != driverpkg.RuntimeDriverDocker && proxyState.HostPort == 0 {
 			hostPort, err := c.store.AllocateHostPortForJupyter()
 			if err != nil {
 				return err
@@ -1990,7 +1997,7 @@ func (c *Controller) applyJupyterOptionsToSandbox(sandboxID string, options sess
 			proxyState.JupyterURL = proxyState.ProxyPath
 		}
 	}
-	return c.store.SaveProxyState(sandboxID, proxyState)
+	return c.store.SaveProxyState(sandbox.Summary.ID, proxyState)
 }
 
 func (c *Controller) startProjectRunSandbox(ctx context.Context, sandbox *domain.Sandbox, eventType, eventMessage string) error {
