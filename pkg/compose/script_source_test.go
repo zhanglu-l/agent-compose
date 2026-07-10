@@ -86,6 +86,30 @@ func TestDefaultScriptSourceResolverHTTPFailures(t *testing.T) {
 	})
 }
 
+func TestNormalizeResolvesUppercaseHTTPScriptURLScheme(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("scheduler.timeout('once', 1000, main);"))
+	}))
+	defer server.Close()
+
+	location := "HTTP" + strings.TrimPrefix(server.URL, "http")
+	spec := mustParseCompose(t, fmt.Sprintf(`
+name: uppercase-http-script
+agents:
+  reviewer:
+    scheduler:
+      script:
+        url: %s
+`, location))
+	normalized, err := Normalize(spec, NormalizeOptions{ResolveScriptURLs: true})
+	if err != nil {
+		t.Fatalf("Normalize returned error: %v", err)
+	}
+	if got := normalized.Agents[0].Scheduler.Script; got != "scheduler.timeout('once', 1000, main);" {
+		t.Fatalf("scheduler script = %q", got)
+	}
+}
+
 func TestDefaultScriptSourceResolverLimitsDecodedHTTPContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Encoding", "gzip")

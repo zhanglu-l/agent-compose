@@ -108,6 +108,7 @@ func normalizeScriptSourceURL(raw string, options NormalizeOptions) (string, err
 		if parsed.Host == "" || parsed.Hostname() == "" {
 			return "", errors.New("HTTP(S) script URL requires a valid host")
 		}
+		parsed.Scheme = strings.ToLower(parsed.Scheme)
 		return parsed.String(), nil
 	default:
 		return "", fmt.Errorf("script URL scheme %q is not supported", parsed.Scheme)
@@ -137,7 +138,7 @@ func (r *defaultScriptSourceResolver) Resolve(ctx context.Context, location stri
 	if err != nil {
 		return nil, errors.New("invalid script URL")
 	}
-	switch parsed.Scheme {
+	switch strings.ToLower(parsed.Scheme) {
 	case "":
 		return readScriptFileWithContext(ctx, location)
 	case "file":
@@ -147,6 +148,7 @@ func (r *defaultScriptSourceResolver) Resolve(ctx context.Context, location stri
 		}
 		return readScriptFileWithContext(ctx, path)
 	case "http", "https":
+		parsed.Scheme = strings.ToLower(parsed.Scheme)
 		return r.readHTTP(ctx, parsed)
 	default:
 		return nil, fmt.Errorf("script URL scheme %q is not supported", parsed.Scheme)
