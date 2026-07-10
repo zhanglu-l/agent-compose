@@ -405,9 +405,10 @@ func validateStringList(node *yaml.Node, path string) error {
 
 func validateScheduler(node *yaml.Node, path string) error {
 	return validateMapping(node, path, map[string]nodeValidator{
-		"enabled":  validateBool,
-		"triggers": validateTriggerList,
-		"script":   validateScalar,
+		"enabled":        validateBool,
+		"sandbox_policy": validateScalar,
+		"triggers":       validateTriggerList,
+		"script":         validateScalar,
 	})
 }
 
@@ -432,12 +433,13 @@ func validateTriggerList(node *yaml.Node, path string) error {
 
 func validateTrigger(node *yaml.Node, path string) error {
 	return validateMapping(node, path, map[string]nodeValidator{
-		"name":     validateScalar,
-		"cron":     validateScalar,
-		"interval": validateScalar,
-		"timeout":  validateScalar,
-		"event":    validateEventTrigger,
-		"prompt":   validateScalar,
+		"name":           validateScalar,
+		"cron":           validateScalar,
+		"interval":       validateScalar,
+		"timeout":        validateScalar,
+		"event":          validateEventTrigger,
+		"prompt":         validateScalar,
+		"sandbox_policy": validateScalar,
 	})
 }
 

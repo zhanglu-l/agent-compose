@@ -142,7 +142,7 @@ func testConfigStoreMigratesLegacySQLiteSessionSchema(t *testing.T) {
 	}
 	assertTableColumns(t, store, "loader", "sandbox_policy")
 	assertTableMissingColumns(t, store, "loader", "session_policy")
-	assertTableColumns(t, store, "loader_binding", "sandbox_id")
+	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id")
 	assertTableColumns(t, store, "loader_event", "linked_sandbox_id", "linked_agent_thread_id")
 	assertTableColumns(t, store, "llm_facade_token", "sandbox_id")
 	if binding, found, err := store.GetLoaderBinding(ctx, "loader-1", ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
@@ -783,6 +783,15 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	}
 	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
 		t.Fatalf("GetLoaderBinding binding=%#v found=%v err=%v", binding, found, err)
+	}
+	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-2"}); err != nil {
+		t.Fatalf("UpsertLoaderBinding trigger scope returned error: %v", err)
+	}
+	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, "trigger-1"); err != nil || !found || binding.SandboxID != "sandbox-2" {
+		t.Fatalf("GetLoaderBinding trigger binding=%#v found=%v err=%v", binding, found, err)
+	}
+	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
+		t.Fatalf("loader-level binding changed: binding=%#v found=%v err=%v", binding, found, err)
 	}
 	if binding, found, err := store.GetLoaderBinding(ctx, "missing", ""); err != nil || found || binding.LoaderID != "" {
 		t.Fatalf("GetLoaderBinding missing binding=%#v found=%v err=%v", binding, found, err)
