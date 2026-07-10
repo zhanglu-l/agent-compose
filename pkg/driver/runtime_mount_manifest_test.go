@@ -638,6 +638,16 @@ func TestBackgroundJupyterLaunchCommandStartsBeforeJupyterLabImportProbe(t *test
 	}
 }
 
+func TestBackgroundJupyterLaunchCommandScopesAmpersand(t *testing.T) {
+	config := testRuntimeMountConfig()
+	proxyState := ProxyState{Enabled: true, GuestPort: 8888, Token: "test-token"}
+
+	backgroundCommand := jupyterLaunchCommand(config, proxyState, true)
+	if !strings.Contains(backgroundCommand, " && (nohup python3 -m jupyterlab") || !strings.HasSuffix(backgroundCommand, "&)") {
+		t.Fatalf("background jupyter command should scope the ampersand to the launch: %s", backgroundCommand)
+	}
+}
+
 func TestPrepareRuntimeMountManifestRegeneratesForDriverSwitch(t *testing.T) {
 	root := t.TempDir()
 	session := testRuntimeMountSandbox(root)

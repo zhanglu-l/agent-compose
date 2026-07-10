@@ -187,7 +187,10 @@ func jupyterLaunchCommandWithBootstrap(config *appconfig.Config, proxyState Prox
 		" --ServerApp.password= --ServerApp.allow_origin='*' --ServerApp.disable_check_xsrf=True" +
 		" --allow-root --no-browser"
 	if background {
-		launch = "nohup " + launch + " > \"" + logPath + "\" 2>&1 < /dev/null &"
+		// Keep the trailing ampersand scoped to the Jupyter launch. Without
+		// grouping, the shell backgrounds the entire && chain and microsandbox
+		// tears Jupyter down when it closes the still-active exec session.
+		launch = "(nohup " + launch + " > \"" + logPath + "\" 2>&1 < /dev/null &)"
 	} else {
 		launch = "exec " + launch + " > \"" + logPath + "\" 2>&1"
 	}
