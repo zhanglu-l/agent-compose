@@ -9038,6 +9038,14 @@ func (s sessionServiceStub) StopSession(ctx context.Context, req *connect.Reques
 }
 
 func TestResolveComposeSandboxRefFromSessions(t *testing.T) {
+	testResolveComposeSandboxRefFromSessions(t)
+}
+
+func TestE2ECLIResolveSandboxRefAfterProjectDown(t *testing.T) {
+	testResolveComposeSandboxRefFromSessions(t)
+}
+
+func testResolveComposeSandboxRefFromSessions(t *testing.T) {
 	const (
 		sandboxID      = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		otherSandboxID = "0123456789abffff0123456789abcdef0123456789abcdef0123456789abcdef"
