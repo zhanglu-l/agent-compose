@@ -64,18 +64,20 @@ type VolumeMountSpec struct {
 }
 
 type SchedulerSpec struct {
-	Enabled  *bool         `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	Triggers []TriggerSpec `yaml:"triggers,omitempty" json:"triggers,omitempty"`
-	Script   string        `yaml:"script,omitempty" json:"script,omitempty"`
+	Enabled       *bool         `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	SandboxPolicy *string       `yaml:"sandbox_policy,omitempty" json:"sandbox_policy,omitempty"`
+	Triggers      []TriggerSpec `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Script        string        `yaml:"script,omitempty" json:"script,omitempty"`
 }
 
 type TriggerSpec struct {
-	Name     string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Cron     string            `yaml:"cron,omitempty" json:"cron,omitempty"`
-	Interval string            `yaml:"interval,omitempty" json:"interval,omitempty"`
-	Timeout  string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Event    *EventTriggerSpec `yaml:"event,omitempty" json:"event,omitempty"`
-	Prompt   string            `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Name          string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Cron          string            `yaml:"cron,omitempty" json:"cron,omitempty"`
+	Interval      string            `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout       string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Event         *EventTriggerSpec `yaml:"event,omitempty" json:"event,omitempty"`
+	Prompt        string            `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	SandboxPolicy *string           `yaml:"sandbox_policy,omitempty" json:"sandbox_policy,omitempty"`
 
 	cronSet     bool
 	intervalSet bool
