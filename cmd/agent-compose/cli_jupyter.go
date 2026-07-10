@@ -88,15 +88,19 @@ func waitForDetachedRunSandbox(ctx context.Context, client runDetailGetter, proj
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
 	var last *agentcomposev2.RunSummary
 	for {
+		if waitCtx.Err() != nil {
+			return last, fmt.Errorf("jupyter URL unavailable: timed out waiting for run %s to report a sandbox", runID)
+		}
 		detail, err := client.GetRun(waitCtx, connect.NewRequest(&agentcomposev2.GetRunRequest{
 			ProjectId: strings.TrimSpace(projectID),
 			RunId:     runID,
 		}))
 		if err != nil {
+			if waitCtx.Err() != nil {
+				return last, fmt.Errorf("jupyter URL unavailable: timed out waiting for run %s to report a sandbox", runID)
+			}
 			return nil, commandExitErrorForConnect(fmt.Errorf("wait for run %s sandbox for jupyter URL: %w", runID, err))
 		}
 		last = detail.Msg.GetRun().GetSummary()
@@ -106,10 +110,17 @@ func waitForDetachedRunSandbox(ctx context.Context, client runDetailGetter, proj
 		if runSummaryTerminal(last) {
 			return last, fmt.Errorf("jupyter URL unavailable: run %s completed before reporting a sandbox", runID)
 		}
+		timer := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-waitCtx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return last, fmt.Errorf("jupyter URL unavailable: timed out waiting for run %s to report a sandbox", runID)
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }

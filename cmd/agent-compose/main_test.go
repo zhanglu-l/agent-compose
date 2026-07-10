@@ -1825,6 +1825,30 @@ func TestWaitForDetachedRunSandboxStopsOnTerminalRun(t *testing.T) {
 	}
 }
 
+func TestWaitForDetachedRunSandboxSlowGetRunReturnsTimeoutMessage(t *testing.T) {
+	var calls int
+	client := runServiceStub{
+		getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+			calls++
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	run, err := waitForDetachedRunSandbox(context.Background(), client, "project-detached", "run-slow", 10*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for run run-slow to report a sandbox") {
+		t.Fatalf("waitForDetachedRunSandbox err = %v", err)
+	}
+	if strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("waitForDetachedRunSandbox leaked context error: %v", err)
+	}
+	if run != nil {
+		t.Fatalf("waitForDetachedRunSandbox run = %#v, want nil", run)
+	}
+	if calls != 1 {
+		t.Fatalf("GetRun calls = %d, want 1", calls)
+	}
+}
+
 func TestIntegrationCLIRunDetachJSON(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-run-detach-json
