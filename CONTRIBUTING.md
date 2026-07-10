@@ -7,12 +7,61 @@ changes clearly, and include tests for user-visible behavior.
 
 ## Development Setup
 
-Install Go, Node.js, npm, Docker when needed, and Task.
+### Prerequisites
+
+- **Go 1.26.2**, matching the `go` directive in [`go.mod`](go.mod). Install it
+  from the [official Go downloads](https://go.dev/dl/), or use an existing Go
+  installation with automatic toolchain downloads enabled (`GOTOOLCHAIN=auto`).
+  Distribution packages may be older than the version required by this
+  repository.
+- **Node.js 20 or newer** and npm, matching the `engines.node` requirement in
+  each npm package. Install a supported release from the
+  [Node.js download page](https://nodejs.org/en/download) or with a Node version
+  manager. In particular, Ubuntu 24.04's default Node.js 18 package is not
+  supported.
+- **Task v3** for the documented `task ...` commands. With the required Go
+  toolchain installed, install it with:
+
+  ```bash
+  go install github.com/go-task/task/v3/cmd/task@latest
+  export PATH="$(go env GOPATH)/bin:$PATH"
+  ```
+
+  Prebuilt packages and other installation methods are available in the
+  [Task installation guide](https://taskfile.dev/docs/installation).
+- **Docker Engine** only for Docker-backed workflows. Install it from the
+  [official Docker Engine documentation](https://docs.docker.com/engine/install/).
+  The playground also requires the
+  [Docker Compose plugin](https://docs.docker.com/compose/install/). A working
+  Docker daemon is required to:
+
+  - run sandboxes with the default `docker` runtime driver;
+  - build the guest image (`task image:agent-compose-guest`);
+  - build daemon images or start the playground (`task image:agent-compose`,
+    `task playground:up`, or `task all`); and
+  - export optional BoxLite/Microsandbox development artifacts used by their
+    image builds and runtime smoke tests.
+
+  Docker is not required for the ordinary `task lint`, `task build`, and
+  `task test` development loop. Direct BoxLite and Microsandbox runtime testing
+  additionally requires Linux/KVM and the platform-specific artifacts prepared
+  by the corresponding Task targets.
+
+Verify the required versions before installing dependencies:
 
 ```bash
-npm ci
-cd runtime/agent-compose-runtime-sdk && npm ci
-cd ../../runtime/javascript && npm ci
+go version       # go1.26.2
+node --version   # v20 or newer
+npm --version
+task --version   # Task v3
+```
+
+From the repository root, install the Go development tools and dependencies for
+all three npm packages (`proto-client`, `runtime/agent-compose-runtime-sdk`, and
+`runtime/javascript`):
+
+```bash
+task prepare
 ```
 
 Build and test from the repository root:
@@ -30,9 +79,6 @@ go test ./cmd/... ./pkg/...
 cd runtime/agent-compose-runtime-sdk && npm test
 cd runtime/javascript && npm run test:unit
 ```
-
-Some runtime smoke tests require Docker, BoxLite, Microsandbox, KVM, or platform
-specific runtime artifacts.
 
 ## Pull Requests
 
