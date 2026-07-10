@@ -1864,6 +1864,15 @@ func executeComposeRunRequest(cmd *cobra.Command, cli cliOptions, projectName, p
 	if cli.JSON {
 		output := composeRunOutputFromDetail(detail)
 		output.Warnings = appendUniqueStrings(output.Warnings, warnings...)
+		if runJupyterURLShouldBePrinted(runReq) {
+			jupyter, resolveErr := resolveRunJupyterOutput(cmd.Context(), cli, runSummarySandboxID(completed))
+			if resolveErr != nil {
+				warnings = appendUniqueStrings(warnings, resolveErr.Error())
+				output.Warnings = appendUniqueStrings(output.Warnings, resolveErr.Error())
+			}
+			output.JupyterURL = jupyter.URL
+			output.JupyterPath = jupyter.Path
+		}
 		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return err
@@ -1873,6 +1882,14 @@ func executeComposeRunRequest(cmd *cobra.Command, cli cliOptions, projectName, p
 		}
 	}
 	if !cli.JSON {
+		if runJupyterURLShouldBePrinted(runReq) {
+			jupyter, resolveErr := resolveRunJupyterOutput(cmd.Context(), cli, runSummarySandboxID(completed))
+			if resolveErr != nil {
+				warnings = appendUniqueStrings(warnings, resolveErr.Error())
+			} else if err := writeJupyterRunText(cmd.OutOrStdout(), jupyter); err != nil {
+				return err
+			}
+		}
 		if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
 			return err
 		}
@@ -2373,9 +2390,19 @@ func startDetachedRun(cmd *cobra.Command, cli cliOptions, projectName string, cl
 	}
 	warnings := appendUniqueStrings(append([]string(nil), resp.Msg.GetWarnings()...), run.GetWarnings()...)
 	logsCommand := detachedRunLogsCommand(cli, run.GetRunId())
+	jupyter := composeRunJupyterOutput{}
+	if runJupyterRequested(req) {
+		var resolveErr error
+		jupyter, run, resolveErr = resolveDetachedRunJupyterOutput(cmd.Context(), cli, client, run)
+		if resolveErr != nil {
+			warnings = appendUniqueStrings(warnings, resolveErr.Error())
+		}
+	}
 	if cli.JSON {
 		output := composeRunOutputFromSummary(run, projectName, logsCommand)
 		output.Warnings = warnings
+		output.JupyterURL = jupyter.URL
+		output.JupyterPath = jupyter.Path
 		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			return err
@@ -2385,7 +2412,7 @@ func startDetachedRun(cmd *cobra.Command, cli cliOptions, projectName string, cl
 	if err := writeRunWarnings(cmd.ErrOrStderr(), warnings); err != nil {
 		return err
 	}
-	return writeDetachedRunText(cmd.OutOrStdout(), run, logsCommand)
+	return writeDetachedRunText(cmd.OutOrStdout(), run, logsCommand, jupyter)
 }
 
 func runDetailCleanupError(detail *agentcomposev2.RunDetail) string {
@@ -2472,7 +2499,7 @@ func (w *terminalStreamWriter) Finish() error {
 	return err
 }
 
-func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCommand string) error {
+func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCommand string, jupyter composeRunJupyterOutput) error {
 	if _, err := fmt.Fprintf(out, "Run: %s\nSandbox: %s\nStatus: %s\nLogs: %s\n",
 		firstNonEmptyString(displayOpaqueID(run.GetRunId()), "-"),
 		firstNonEmptyString(displayOpaqueID(run.GetSandboxId()), "-"),
@@ -2481,7 +2508,7 @@ func writeDetachedRunText(out io.Writer, run *agentcomposev2.RunSummary, logsCom
 	); err != nil {
 		return err
 	}
-	return nil
+	return writeJupyterRunText(out, jupyter)
 }
 
 func normalizeComposeRunOptions(cmd *cobra.Command, options composeRunOptions) (composeRunOptions, error) {
@@ -4711,6 +4738,8 @@ type composeRunOutput struct {
 	ImageRef       string   `json:"image_ref,omitempty"`
 	Warnings       []string `json:"warnings,omitempty"`
 	LogsCommand    string   `json:"logs_command,omitempty"`
+	JupyterURL     string   `json:"jupyter_url,omitempty"`
+	JupyterPath    string   `json:"jupyter_path,omitempty"`
 }
 
 type composeLogsOutput struct {
@@ -4735,6 +4764,7 @@ type cliServiceClients struct {
 	volume  agentcomposev2connect.VolumeServiceClient
 	sandbox agentcomposev2connect.SandboxServiceClient
 	session agentcomposev1connect.SessionServiceClient
+	config  agentcomposev1connect.ConfigServiceClient
 	loader  agentcomposev1connect.LoaderServiceClient
 }
 
@@ -5521,6 +5551,7 @@ func newCLIServiceClients(cli cliOptions) (cliServiceClients, error) {
 		volume:  agentcomposev2connect.NewVolumeServiceClient(httpClient, clientConfig.BaseURL),
 		sandbox: agentcomposev2connect.NewSandboxServiceClient(httpClient, clientConfig.BaseURL),
 		session: agentcomposev1connect.NewSessionServiceClient(httpClient, clientConfig.BaseURL),
+		config:  agentcomposev1connect.NewConfigServiceClient(httpClient, clientConfig.BaseURL),
 		loader:  agentcomposev1connect.NewLoaderServiceClient(httpClient, clientConfig.BaseURL),
 	}, nil
 }
