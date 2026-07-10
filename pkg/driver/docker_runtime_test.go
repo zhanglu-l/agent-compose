@@ -30,6 +30,13 @@ func TestDockerRuntimeBindRuntimeMountSourceUsesHostSandboxRoot(t *testing.T) {
 	}
 }
 
+func TestDockerSandboxLookupIncludesLegacySessionLabel(t *testing.T) {
+	labels := dockerSandboxLookupLabelIDs()
+	if len(labels) != 2 || labels[0] != "agent-compose.sandbox_id" || labels[1] != "agent-compose.session_id" {
+		t.Fatalf("docker lookup labels = %#v", labels)
+	}
+}
+
 func TestDockerExecCollectorMapsStdioStreams(t *testing.T) {
 	var streamed []ExecChunk
 	collector := &dockerExecCollector{stream: func(chunk ExecChunk) {

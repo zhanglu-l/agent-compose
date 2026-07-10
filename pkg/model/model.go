@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -198,6 +199,22 @@ type NotebookCell struct {
 	AgentResume   *AgentResumeInfo `json:"agent_resume,omitempty"`
 }
 
+func (c *NotebookCell) UnmarshalJSON(data []byte) error {
+	type notebookCellAlias NotebookCell
+	var decoded struct {
+		notebookCellAlias
+		LegacyAgentSessionID string `json:"agent_session_id"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*c = NotebookCell(decoded.notebookCellAlias)
+	if c.AgentThreadID == "" {
+		c.AgentThreadID = decoded.LegacyAgentSessionID
+	}
+	return nil
+}
+
 type AgentResumeInfo struct {
 	Provider           string    `json:"provider,omitempty"`
 	ThreadID           string    `json:"thread_id,omitempty"`
@@ -205,6 +222,34 @@ type AgentResumeInfo struct {
 	ThreadManifestPath string    `json:"thread_manifest_path,omitempty"`
 	ProviderLogPaths   []string  `json:"provider_log_paths,omitempty"`
 	UpdatedAt          time.Time `json:"updated_at,omitempty"`
+}
+
+func (i *AgentResumeInfo) UnmarshalJSON(data []byte) error {
+	type agentResumeInfoAlias AgentResumeInfo
+	var decoded struct {
+		agentResumeInfoAlias
+		LegacySessionID           string   `json:"session_id"`
+		LegacySessionStatePath    string   `json:"session_state_path"`
+		LegacySessionManifestPath string   `json:"session_manifest_path"`
+		LegacySessionJSONLPaths   []string `json:"session_jsonl_paths"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*i = AgentResumeInfo(decoded.agentResumeInfoAlias)
+	if i.ThreadID == "" {
+		i.ThreadID = decoded.LegacySessionID
+	}
+	if i.ThreadStatePath == "" {
+		i.ThreadStatePath = decoded.LegacySessionStatePath
+	}
+	if i.ThreadManifestPath == "" {
+		i.ThreadManifestPath = decoded.LegacySessionManifestPath
+	}
+	if len(i.ProviderLogPaths) == 0 && len(decoded.LegacySessionJSONLPaths) > 0 {
+		i.ProviderLogPaths = append([]string(nil), decoded.LegacySessionJSONLPaths...)
+	}
+	return nil
 }
 
 type StdioStream string
@@ -245,6 +290,22 @@ type AgentRun struct {
 	CreatedAt     time.Time `json:"created_at"`
 	AgentThreadID string    `json:"agent_thread_id,omitempty"`
 	StopReason    string    `json:"stop_reason,omitempty"`
+}
+
+func (r *AgentRun) UnmarshalJSON(data []byte) error {
+	type agentRunAlias AgentRun
+	var decoded struct {
+		agentRunAlias
+		LegacyAgentSessionID string `json:"agent_session_id"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = AgentRun(decoded.agentRunAlias)
+	if r.AgentThreadID == "" {
+		r.AgentThreadID = decoded.LegacyAgentSessionID
+	}
+	return nil
 }
 
 type ExecResult struct {

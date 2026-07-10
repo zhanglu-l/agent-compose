@@ -26,9 +26,10 @@ import (
 )
 
 const (
-	dockerSandboxLabelPrefix = "agent-compose"
-	dockerSandboxLabelID     = dockerSandboxLabelPrefix + ".sandbox_id"
-	dockerSandboxLabelDriver = dockerSandboxLabelPrefix + ".driver"
+	dockerSandboxLabelPrefix   = "agent-compose"
+	dockerSandboxLabelID       = dockerSandboxLabelPrefix + ".sandbox_id"
+	dockerLegacySessionLabelID = dockerSandboxLabelPrefix + ".session_id"
+	dockerSandboxLabelDriver   = dockerSandboxLabelPrefix + ".driver"
 
 	dockerStopAPIMargin             = 5 * time.Second
 	dockerStopFallbackActionTimeout = 5 * time.Second
@@ -602,12 +603,19 @@ func (r *dockerRuntime) findContainer(ctx context.Context, dockerClient *client.
 		}
 	}
 
-	args := filters.NewArgs()
-	args.Add("label", dockerSandboxLabelID+"="+session.Summary.ID)
-	args.Add("label", dockerSandboxLabelDriver+"="+RuntimeDriverDocker)
-	containers, err := dockerClient.ContainerList(ctx, containerapi.ListOptions{All: true, Filters: args})
-	if err != nil {
-		return containerapi.InspectResponse{}, false, fmt.Errorf("list docker containers for sandbox %s: %w", session.Summary.ID, err)
+	var containers []containerapi.Summary
+	var err error
+	for _, idLabel := range dockerSandboxLookupLabelIDs() {
+		args := filters.NewArgs()
+		args.Add("label", idLabel+"="+session.Summary.ID)
+		args.Add("label", dockerSandboxLabelDriver+"="+RuntimeDriverDocker)
+		containers, err = dockerClient.ContainerList(ctx, containerapi.ListOptions{All: true, Filters: args})
+		if err != nil {
+			return containerapi.InspectResponse{}, false, fmt.Errorf("list docker containers for sandbox %s: %w", session.Summary.ID, err)
+		}
+		if len(containers) > 0 {
+			break
+		}
 	}
 	if len(containers) == 0 {
 		return containerapi.InspectResponse{}, false, nil
@@ -620,6 +628,10 @@ func (r *dockerRuntime) findContainer(ctx context.Context, dockerClient *client.
 		return containerapi.InspectResponse{}, false, fmt.Errorf("inspect docker container %s: %w", containers[0].ID, err)
 	}
 	return containerInfo, true, nil
+}
+
+func dockerSandboxLookupLabelIDs() []string {
+	return []string{dockerSandboxLabelID, dockerLegacySessionLabelID}
 }
 
 func (r *dockerRuntime) dockerSandboxProxyState(session *Sandbox, vmState VMState, proxyState ProxyState) ProxyState {

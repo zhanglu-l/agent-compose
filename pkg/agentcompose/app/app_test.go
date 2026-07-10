@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -79,7 +78,7 @@ func TestSetupRegistersServiceGraph(t *testing.T) {
 	}
 }
 
-func TestRegisterRejectsLegacySessionsRootBeforeConfigStoreSchema(t *testing.T) {
+func TestRegisterUsesLegacySessionsRootAndInitializesConfigStoreSchema(t *testing.T) {
 	root := t.TempDir()
 	legacyRoot := filepath.Join(root, "sessions")
 	if err := os.MkdirAll(legacyRoot, 0o755); err != nil {
@@ -100,30 +99,13 @@ func TestRegisterRejectsLegacySessionsRootBeforeConfigStoreSchema(t *testing.T) 
 	do.ProvideValue(di, slog.Default())
 	do.ProvideValue(di, echo.New())
 
-	var panicValue any
-	func() {
-		defer func() {
-			panicValue = recover()
-		}()
-		Register(di)
-	}()
-	if panicValue == nil {
-		t.Fatalf("Register completed without rejecting legacy sessions root")
+	Register(di)
+	config := do.MustInvoke[*appconfig.Config](di)
+	if config.SandboxRoot != legacyRoot {
+		t.Fatalf("SandboxRoot = %q, want legacy root %q", config.SandboxRoot, legacyRoot)
 	}
-	message := fmt.Sprint(panicValue)
-	for _, want := range []string{
-		legacyRoot,
-		filepath.Join(root, "sandboxes"),
-		"automatic migration",
-		"clear the old data root",
-		"new data root",
-	} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("Register panic = %q, want substring %q", message, want)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(root, "data.db")); !os.IsNotExist(err) {
-		t.Fatalf("data.db stat error = %v, want not exist", err)
+	if info, err := os.Stat(filepath.Join(root, "data.db")); err != nil || info.IsDir() {
+		t.Fatalf("data.db stat = %v/%v, want database file", info, err)
 	}
 }
 

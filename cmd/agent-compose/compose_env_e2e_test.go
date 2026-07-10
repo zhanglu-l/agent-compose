@@ -38,12 +38,8 @@ func TestE2EDockerComposeSandboxEnvContract(t *testing.T) {
 	if !strings.Contains(service.Image, "AGENT_COMPOSE_IMAGE") || !strings.Contains(service.Image, "ghcr.io/chaitin/agent-compose:latest") {
 		t.Fatalf("agent-compose image should stay deployable from published image, got %q", service.Image)
 	}
-	hostRoot, ok := service.Environment["DOCKER_HOST_SANDBOX_ROOT"]
-	if !ok {
-		t.Fatalf("agent-compose compose environment missing DOCKER_HOST_SANDBOX_ROOT: %#v", service.Environment)
-	}
-	if !strings.Contains(hostRoot, "DOCKER_HOST_SANDBOX_ROOT") || !strings.Contains(hostRoot, "/data/sandboxes") {
-		t.Fatalf("DOCKER_HOST_SANDBOX_ROOT compose default = %q, want sandbox path", hostRoot)
+	if hostRoot, ok := service.Environment["DOCKER_HOST_SANDBOX_ROOT"]; ok {
+		t.Fatalf("compose must leave DOCKER_HOST_SANDBOX_ROOT unset for mount auto-detection, got %q", hostRoot)
 	}
 	for key := range service.Environment {
 		if strings.Contains(key, "SESSION_ROOT") {
@@ -60,7 +56,7 @@ func TestE2EDockerComposeSandboxEnvContract(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"SANDBOX_ROOT=/data/sandboxes",
+		"# SANDBOX_ROOT=/data/sandboxes",
 		"# DOCKER_HOST_SANDBOX_ROOT=/absolute/host/path/to/data/sandboxes",
 		"SESSION_ROOT, DOCKER_HOST_SESSION_ROOT, SESSION_START_TIMEOUT, and",
 	} {
@@ -77,8 +73,8 @@ func TestE2EDockerComposeSandboxEnvContract(t *testing.T) {
 			t.Fatalf("docker-compose.yml contains legacy env %s", legacy)
 		}
 	}
-	if !strings.Contains(dockerfile, "ENV SANDBOX_ROOT=/data/sandboxes") {
-		t.Fatalf("Dockerfile missing SANDBOX_ROOT image default")
+	if strings.Contains(dockerfile, "ENV SANDBOX_ROOT=") {
+		t.Fatalf("Dockerfile must leave SANDBOX_ROOT unset for legacy root detection")
 	}
 	if strings.Contains(dockerfile, "ENV SESSION_ROOT=") {
 		t.Fatalf("Dockerfile still defines legacy SESSION_ROOT")

@@ -125,7 +125,7 @@ func (s *ConfigStore) initSchema(ctx context.Context) error {
 	if s == nil {
 		return fmt.Errorf("config store is required")
 	}
-	if err := s.rejectLegacySQLiteSchema(ctx); err != nil {
+	if err := s.migrateLegacySQLiteSchema(ctx); err != nil {
 		return err
 	}
 	if err := s.InitCoreSchema(ctx); err != nil {
@@ -149,6 +149,9 @@ func (s *ConfigStore) initSchema(ctx context.Context) error {
 	if err := s.ensureEventSchema(ctx); err != nil {
 		return err
 	}
+	if err := s.copyLegacyEventSessionLinks(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -156,39 +159,61 @@ func (s *ConfigStore) InitSchema(ctx context.Context) error {
 	return s.initSchema(ctx)
 }
 
-func (s *ConfigStore) rejectLegacySQLiteSchema(ctx context.Context) error {
+func (s *ConfigStore) migrateLegacySQLiteSchema(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("config store is required")
 	}
-	legacyFindings := make([]string, 0, 5)
 	for _, item := range []struct {
-		table  string
-		column string
+		table   string
+		legacy  string
+		current string
 	}{
-		{table: "loader_binding", column: "session_id"},
-		{table: "loader_event", column: "linked_session_id"},
-		{table: "loader_event", column: "linked_agent_session_id"},
-		{table: "llm_facade_token", column: "session_id"},
+		{table: "loader", legacy: "session_policy", current: "sandbox_policy"},
+		{table: "loader_binding", legacy: "session_id", current: "sandbox_id"},
+		{table: "loader_event", legacy: "linked_session_id", current: "linked_sandbox_id"},
+		{table: "loader_event", legacy: "linked_agent_session_id", current: "linked_agent_thread_id"},
+		{table: "llm_facade_token", legacy: "session_id", current: "sandbox_id"},
 	} {
 		columns, err := s.tableColumnTypes(ctx, item.table)
 		if err != nil {
 			return err
 		}
-		if _, ok := columns[item.column]; ok {
-			legacyFindings = append(legacyFindings, item.table+"."+item.column)
+		if _, legacyExists := columns[item.legacy]; !legacyExists {
+			continue
+		}
+		if _, currentExists := columns[item.current]; currentExists {
+			if _, err := s.db.ExecContext(ctx, fmt.Sprintf(
+				`UPDATE %q SET %q = %q WHERE %q = ''`, item.table, item.current, item.legacy, item.current,
+			)); err != nil {
+				return fmt.Errorf("copy legacy SQLite column %s.%s to %s: %w", item.table, item.legacy, item.current, err)
+			}
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(
+			`ALTER TABLE %q RENAME COLUMN %q TO %q`, item.table, item.legacy, item.current,
+		)); err != nil {
+			return fmt.Errorf("migrate legacy SQLite column %s.%s to %s: %w", item.table, item.legacy, item.current, err)
 		}
 	}
+	return nil
+}
+
+func (s *ConfigStore) copyLegacyEventSessionLinks(ctx context.Context) error {
 	exists, err := s.tableExists(ctx, "event_session_link")
 	if err != nil {
 		return err
 	}
-	if exists {
-		legacyFindings = append(legacyFindings, "event_session_link")
-	}
-	if len(legacyFindings) == 0 {
+	if !exists {
 		return nil
 	}
-	return fmt.Errorf("legacy SQLite schema detected: %s; automatic migration from the old session schema to the sandbox schema is not supported in this release; start with a new DATA_ROOT/data.db or back up and remove the old database", strings.Join(legacyFindings, ", "))
+	_, err = s.db.ExecContext(ctx, `INSERT OR IGNORE INTO event_sandbox_link(
+		event_id, sandbox_id, relation, loader_id, run_id, trigger_id, loader_event_id, created_at
+	) SELECT event_id, session_id, relation, loader_id, run_id, trigger_id, loader_event_id, created_at
+	FROM event_session_link`)
+	if err != nil {
+		return fmt.Errorf("copy legacy event_session_link rows: %w", err)
+	}
+	return nil
 }
 
 func (s *coreStore) ensureGlobalEnvSchema(ctx context.Context) error {

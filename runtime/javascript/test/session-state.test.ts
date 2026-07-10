@@ -59,6 +59,21 @@ describe("provider thread state", () => {
     });
   });
 
+  it("reads legacy session id state", async () => {
+    await withTempSession(async (root) => {
+      const stateRoot = path.join(root, "state");
+      const target = providerStatePath(stateRoot, "codex");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, '{"provider":"codex","sessionId":"legacy-thread"}', "utf8");
+
+      await expect(readStoredThread(stateRoot, "codex")).resolves.toEqual({
+        provider: "codex",
+        sessionId: "legacy-thread",
+        threadId: "legacy-thread",
+      });
+    });
+  });
+
   it("does not create state for an empty thread id", async () => {
     await withTempSession(async (root) => {
       const stateRoot = path.join(root, "state");

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -112,13 +113,21 @@ func NewConfig(di do.Injector) (*Config, error) {
 		}
 	}
 
-	sandboxRootExplicit := strings.TrimSpace(os.Getenv("SANDBOX_ROOT")) != ""
+	sandboxRootExplicit := strings.TrimSpace(os.Getenv("SANDBOX_ROOT")) != "" || strings.TrimSpace(os.Getenv("SESSION_ROOT")) != ""
 	sandboxRoot, err := envWithLegacy(logger, "SANDBOX_ROOT", "SESSION_ROOT")
 	if err != nil {
 		return nil, err
 	}
 	if sandboxRoot == "" {
-		sandboxRoot = filepath.Join(dataRoot, "sandboxes")
+		legacyRoot := filepath.Join(dataRoot, "sessions")
+		if nonEmpty, inspectErr := pathHasEntries(legacyRoot); inspectErr != nil {
+			return nil, fmt.Errorf("inspect legacy sessions root %s: %w", legacyRoot, inspectErr)
+		} else if nonEmpty {
+			sandboxRoot = legacyRoot
+			logger.Warn("using deprecated sessions storage root", "path", legacyRoot, "replacement", filepath.Join(dataRoot, "sandboxes"))
+		} else {
+			sandboxRoot = filepath.Join(dataRoot, "sandboxes")
+		}
 	}
 
 	httpListen := strings.TrimSpace(os.Getenv("HTTP_LISTEN"))
@@ -648,9 +657,28 @@ func envWithLegacy(logger *slog.Logger, newName, oldName string) (string, error)
 		return newValue, nil
 	}
 	if oldValue != "" {
-		return "", fmt.Errorf("%s is no longer supported; use %s instead; silent fallback from legacy session environment variables is not supported", oldName, newName)
+		logger.Warn("using deprecated environment variable", "deprecated", oldName, "replacement", newName)
+		return oldValue, nil
 	}
 	return "", nil
+}
+
+func pathHasEntries(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return true, nil
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
 }
 
 func mustAbs(path string) string {

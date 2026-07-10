@@ -61,9 +61,6 @@ func NewStore(di do.Injector) (*Store, error) {
 }
 
 func NewWithConfig(config *appconfig.Config) (*Store, error) {
-	if err := rejectLegacySessionsRoot(config); err != nil {
-		return nil, err
-	}
 	if err := os.MkdirAll(config.SandboxRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create sandbox root: %w", err)
 	}
@@ -72,57 +69,6 @@ func NewWithConfig(config *appconfig.Config) (*Store, error) {
 
 func FromConfig(config *appconfig.Config) *Store {
 	return &Store{config: config}
-}
-
-func rejectLegacySessionsRoot(config *appconfig.Config) error {
-	if config == nil || strings.TrimSpace(config.DataRoot) == "" {
-		return nil
-	}
-	legacyRoot := filepath.Join(config.DataRoot, "sessions")
-	if config.SandboxRootExplicit && !samePath(config.SandboxRoot, legacyRoot) {
-		return nil
-	}
-	nonEmpty, err := pathExistsWithEntries(legacyRoot)
-	if err != nil {
-		return fmt.Errorf("inspect legacy sessions root %s: %w", legacyRoot, err)
-	}
-	if !nonEmpty {
-		return nil
-	}
-	return fmt.Errorf("legacy sessions data detected at %s; this version expects sandbox data under %s via SANDBOX_ROOT; automatic migration from <DATA_ROOT>/sessions is not supported in the first sandbox storage version; clear the old data root or start with a new data root before launching agent-compose", legacyRoot, config.SandboxRoot)
-}
-
-func pathExistsWithEntries(path string) (bool, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !info.IsDir() {
-		return true, nil
-	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return false, err
-	}
-	return len(entries) > 0, nil
-}
-
-func samePath(a, b string) bool {
-	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
-		return false
-	}
-	absA, errA := filepath.Abs(a)
-	absB, errB := filepath.Abs(b)
-	if errA == nil {
-		a = absA
-	}
-	if errB == nil {
-		b = absB
-	}
-	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func cloneSandboxWorkspace(item *SandboxWorkspace) *SandboxWorkspace {

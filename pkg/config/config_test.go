@@ -203,29 +203,53 @@ func testNewConfigAllowsDefaultRootsAndRequiresValidDriver(t *testing.T) {
 	}
 }
 
-func TestNewConfigRejectsLegacySessionEnvironment(t *testing.T) {
+func TestNewConfigAcceptsLegacySessionEnvironment(t *testing.T) {
 	tests := []struct {
-		name     string
-		legacy   string
-		value    string
-		replaced string
+		name   string
+		legacy string
+		value  string
+		check  func(*Config) bool
 	}{
-		{name: "root", legacy: "SESSION_ROOT", value: filepath.Join("legacy", "sessions"), replaced: "SANDBOX_ROOT"},
-		{name: "docker host root", legacy: "DOCKER_HOST_SESSION_ROOT", value: filepath.Join("legacy", "host-sessions"), replaced: "DOCKER_HOST_SANDBOX_ROOT"},
-		{name: "start timeout", legacy: "SESSION_START_TIMEOUT", value: "1s", replaced: "SANDBOX_START_TIMEOUT"},
-		{name: "stop timeout", legacy: "SESSION_STOP_TIMEOUT", value: "1s", replaced: "SANDBOX_STOP_TIMEOUT"},
+		{name: "root", legacy: "SESSION_ROOT", value: filepath.Join("legacy", "sessions"), check: func(c *Config) bool { return strings.HasSuffix(c.SandboxRoot, filepath.Join("legacy", "sessions")) }},
+		{name: "docker host root", legacy: "DOCKER_HOST_SESSION_ROOT", value: filepath.Join("legacy", "host-sessions"), check: func(c *Config) bool {
+			return strings.HasSuffix(c.DockerHostSandboxRoot, filepath.Join("legacy", "host-sessions"))
+		}},
+		{name: "start timeout", legacy: "SESSION_START_TIMEOUT", value: "1s", check: func(c *Config) bool { return c.SandboxStartTimeout == time.Second }},
+		{name: "stop timeout", legacy: "SESSION_STOP_TIMEOUT", value: "1s", check: func(c *Config) bool { return c.SandboxStopTimeout == time.Second }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DATA_ROOT", filepath.Join(t.TempDir(), "data"))
 			t.Setenv(tc.legacy, tc.value)
+			var logs strings.Builder
 			di := do.New()
-			do.ProvideValue(di, slog.Default())
-			_, err := NewConfig(di)
-			if err == nil || !strings.Contains(err.Error(), tc.legacy) || !strings.Contains(err.Error(), tc.replaced) {
-				t.Fatalf("NewConfig error = %v, want legacy %s replacement %s", err, tc.legacy, tc.replaced)
+			do.ProvideValue(di, slog.New(slog.NewTextHandler(&logs, nil)))
+			config, err := NewConfig(di)
+			if err != nil || !tc.check(config) {
+				t.Fatalf("NewConfig config=%#v error=%v for legacy %s", config, err, tc.legacy)
+			}
+			if !strings.Contains(logs.String(), "using deprecated environment variable") || !strings.Contains(logs.String(), tc.legacy) {
+				t.Fatalf("logs = %q, want deprecation warning for %s", logs.String(), tc.legacy)
 			}
 		})
+	}
+}
+
+func TestNewConfigUsesNonEmptyLegacySessionsRootByDefault(t *testing.T) {
+	dataRoot := filepath.Join(t.TempDir(), "data")
+	legacyRoot := filepath.Join(dataRoot, "sessions")
+	if err := os.MkdirAll(filepath.Join(legacyRoot, "legacy-id"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATA_ROOT", dataRoot)
+	di := do.New()
+	do.ProvideValue(di, slog.Default())
+	config, err := NewConfig(di)
+	if err != nil {
+		t.Fatalf("NewConfig returned error: %v", err)
+	}
+	if config.SandboxRoot != legacyRoot || config.SandboxRootExplicit {
+		t.Fatalf("legacy root config = %#v", config)
 	}
 }
 

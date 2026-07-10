@@ -44,8 +44,8 @@ func TestConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	testConfigStoreProjectCRUDCoverageWorkflows(t)
 }
 
-func TestConfigStoreRejectsLegacySQLiteSessionSchema(t *testing.T) {
-	testConfigStoreRejectsLegacySQLiteSessionSchema(t)
+func TestConfigStoreMigratesLegacySQLiteSessionSchema(t *testing.T) {
+	testConfigStoreMigratesLegacySQLiteSessionSchema(t)
 }
 
 func TestIntegrationConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
@@ -80,60 +80,84 @@ func TestE2EConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {
 	testConfigStoreProjectCRUDCoverageWorkflows(t)
 }
 
-func testConfigStoreRejectsLegacySQLiteSessionSchema(t *testing.T) {
+func testConfigStoreMigratesLegacySQLiteSessionSchema(t *testing.T) {
 	t.Helper()
-	cases := []struct {
-		name    string
-		setup   string
-		finding string
+	ctx := context.Background()
+	db := newMemoryDB(t)
+	legacySchema := []string{
+		`CREATE TABLE loader (
+			id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', runtime TEXT NOT NULL DEFAULT 'scheduler',
+			script TEXT NOT NULL, workspace_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL DEFAULT '', driver TEXT NOT NULL DEFAULT '',
+			guest_image TEXT NOT NULL DEFAULT '', default_agent TEXT NOT NULL DEFAULT 'codex', session_policy TEXT NOT NULL DEFAULT 'sticky',
+			concurrency_policy TEXT NOT NULL DEFAULT 'skip', capset_ids TEXT NOT NULL DEFAULT '[]', env_json TEXT NOT NULL DEFAULT '[]',
+			volumes_json TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 1, last_error TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE loader_binding(loader_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+		`CREATE TABLE loader_event(
+			loader_id TEXT NOT NULL, event_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '', trigger_id TEXT NOT NULL DEFAULT '',
+			type TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info', message TEXT NOT NULL DEFAULT '', payload_json TEXT NOT NULL DEFAULT '',
+			linked_session_id TEXT NOT NULL DEFAULT '', linked_cell_id TEXT NOT NULL DEFAULT '', linked_agent_session_id TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL, PRIMARY KEY(loader_id, event_id)
+		)`,
+		`CREATE TABLE llm_facade_token(
+			token_hash TEXT PRIMARY KEY, session_id TEXT NOT NULL, token_fingerprint TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
+			provider_id TEXT NOT NULL DEFAULT '', wire_api TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', run_id TEXT NOT NULL DEFAULT '',
+			issued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE event_session_link(
+			event_id TEXT NOT NULL, session_id TEXT NOT NULL, relation TEXT NOT NULL, loader_id TEXT NOT NULL DEFAULT '',
+			run_id TEXT NOT NULL DEFAULT '', trigger_id TEXT NOT NULL DEFAULT '', loader_event_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+			PRIMARY KEY(event_id, session_id, relation, run_id)
+		)`,
+	}
+	for _, stmt := range legacySchema {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("create legacy fixture: %v", err)
+		}
+	}
+	rawToken := "legacy-raw-token"
+	hash, fingerprint := llms.HashFacadeToken(rawToken)
+	fixtures := []struct {
+		query string
+		args  []any
 	}{
-		{
-			name:    "loader binding session id",
-			setup:   `CREATE TABLE loader_binding(loader_id TEXT PRIMARY KEY, session_id TEXT NOT NULL);`,
-			finding: "loader_binding.session_id",
-		},
-		{
-			name:    "loader event linked session id",
-			setup:   `CREATE TABLE loader_event(event_id TEXT PRIMARY KEY, linked_session_id TEXT NOT NULL DEFAULT '');`,
-			finding: "loader_event.linked_session_id",
-		},
-		{
-			name:    "loader event linked agent session id",
-			setup:   `CREATE TABLE loader_event(event_id TEXT PRIMARY KEY, linked_agent_session_id TEXT NOT NULL DEFAULT '');`,
-			finding: "loader_event.linked_agent_session_id",
-		},
-		{
-			name:    "event session link table",
-			setup:   `CREATE TABLE event_session_link(event_id TEXT NOT NULL, session_id TEXT NOT NULL);`,
-			finding: "event_session_link",
-		},
-		{
-			name:    "llm facade token session id",
-			setup:   `CREATE TABLE llm_facade_token(token_hash TEXT PRIMARY KEY, session_id TEXT NOT NULL);`,
-			finding: "llm_facade_token.session_id",
-		},
+		{`INSERT INTO loader(id, name, script, session_policy, created_at, updated_at) VALUES('loader-1', 'legacy', 'return 1', 'ephemeral', 1, 1)`, nil},
+		{`INSERT INTO loader_binding(loader_id, session_id, created_at, updated_at) VALUES('loader-1', 'sandbox-1', 1, 1)`, nil},
+		{`INSERT INTO loader_event(loader_id, event_id, type, linked_session_id, linked_agent_session_id, created_at) VALUES('loader-1', 'event-1', 'legacy', 'sandbox-1', 'thread-1', 1)`, nil},
+		{`INSERT INTO llm_facade_token(token_hash, session_id, token_fingerprint, issued_at, expires_at) VALUES(?, 'sandbox-1', ?, 1, 0)`, []any{hash, fingerprint}},
+		{`INSERT INTO event_session_link(event_id, session_id, relation, created_at) VALUES('topic-event-1', 'sandbox-1', 'created', 1)`, nil},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			db := newMemoryDB(t)
-			if _, err := db.ExecContext(ctx, tc.setup); err != nil {
-				t.Fatalf("create legacy fixture: %v", err)
-			}
-			store := FromDB(db)
-			err := store.initSchema(ctx)
-			if err == nil {
-				t.Fatalf("initSchema returned nil error for legacy fixture")
-			}
-			message := err.Error()
-			for _, want := range []string{tc.finding, "legacy SQLite schema detected", "automatic migration", "sandbox schema"} {
-				if !strings.Contains(message, want) {
-					t.Fatalf("legacy error %q does not contain %q", message, want)
-				}
-			}
-			assertTableDoesNotExist(t, store, "global_env")
-		})
+	for _, fixture := range fixtures {
+		if _, err := db.ExecContext(ctx, fixture.query, fixture.args...); err != nil {
+			t.Fatalf("insert legacy fixture: %v", err)
+		}
 	}
+	store := FromDB(db)
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("initSchema legacy migration returned error: %v", err)
+	}
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("second initSchema legacy migration returned error: %v", err)
+	}
+	assertTableColumns(t, store, "loader", "sandbox_policy")
+	assertTableMissingColumns(t, store, "loader", "session_policy")
+	assertTableColumns(t, store, "loader_binding", "sandbox_id")
+	assertTableColumns(t, store, "loader_event", "linked_sandbox_id", "linked_agent_thread_id")
+	assertTableColumns(t, store, "llm_facade_token", "sandbox_id")
+	if binding, found, err := store.GetLoaderBinding(ctx, "loader-1"); err != nil || !found || binding.SandboxID != "sandbox-1" {
+		t.Fatalf("migrated binding=%#v found=%v err=%v", binding, found, err)
+	}
+	if events, err := store.ListLoaderEvents(ctx, "loader-1", 10); err != nil || len(events) != 1 || events[0].LinkedSandboxID != "sandbox-1" || events[0].LinkedAgentThreadID != "thread-1" {
+		t.Fatalf("migrated loader events=%#v err=%v", events, err)
+	}
+	if token, err := store.GetLLMFacadeToken(ctx, rawToken); err != nil || token.SandboxID != "sandbox-1" {
+		t.Fatalf("migrated token=%#v err=%v", token, err)
+	}
+	if links, err := store.ListEventSandboxLinks(ctx, []string{"topic-event-1"}); err != nil || len(links) != 1 || links[0].SandboxID != "sandbox-1" {
+		t.Fatalf("migrated event links=%#v err=%v", links, err)
+	}
+	assertTableColumns(t, store, "event_session_link", "session_id")
 }
 
 func testConfigStoreProjectCRUDCoverageWorkflows(t *testing.T) {

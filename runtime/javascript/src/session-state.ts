@@ -11,7 +11,13 @@ export async function readStoredThread(stateRoot: string, provider: Provider): P
   try {
     const raw = await readText(providerStatePath(stateRoot, provider));
     const payload = JSON.parse(raw);
-    return typeof payload?.threadId === "string" ? payload : null;
+    if (typeof payload?.threadId === "string") {
+      return payload;
+    }
+    if (typeof payload?.sessionId === "string") {
+      return { ...payload, threadId: payload.sessionId };
+    }
+    return null;
   } catch {
     return null;
   }

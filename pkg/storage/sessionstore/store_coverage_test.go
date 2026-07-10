@@ -3,7 +3,6 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -362,7 +361,7 @@ func TestE2EStoreCreateAndRemoveWorkflows(t *testing.T) {
 	TestIntegrationStoreCreateAndRemoveWorkflows(t)
 }
 
-func TestNewWithConfigRejectsNonEmptyLegacySessionsRoot(t *testing.T) {
+func TestNewWithConfigAllowsNonEmptyLegacySessionsRoot(t *testing.T) {
 	dataRoot := t.TempDir()
 	legacyRoot := filepath.Join(dataRoot, "sessions")
 	if err := os.MkdirAll(legacyRoot, 0o755); err != nil {
@@ -377,22 +376,11 @@ func TestNewWithConfigRejectsNonEmptyLegacySessionsRoot(t *testing.T) {
 		DataRoot:    dataRoot,
 		SandboxRoot: sandboxRoot,
 	})
-	if err == nil {
-		t.Fatalf("NewWithConfig returned nil error for non-empty legacy sessions root")
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	for _, want := range []string{
-		legacyRoot,
-		sandboxRoot,
-		"automatic migration",
-		"clear the old data root",
-		"new data root",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("NewWithConfig error = %q, want substring %q", err.Error(), want)
-		}
-	}
-	if _, statErr := os.Stat(sandboxRoot); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("sandbox root stat error = %v, want not exist", statErr)
+	if info, statErr := os.Stat(sandboxRoot); statErr != nil || !info.IsDir() {
+		t.Fatalf("sandbox root stat = %v/%v, want directory", info, statErr)
 	}
 }
 
@@ -434,6 +422,53 @@ func TestNewWithConfigAllowsExplicitSandboxRootBesideLegacySessionsRoot(t *testi
 	}
 	if info, err := os.Stat(sandboxRoot); err != nil || !info.IsDir() {
 		t.Fatalf("sandbox root stat = %v/%v, want directory", info, err)
+	}
+}
+
+func TestStoreReadsAndRemovesSandboxFromLegacySessionsRoot(t *testing.T) {
+	ctx := context.Background()
+	legacyRoot := filepath.Join(t.TempDir(), "sessions")
+	store, err := NewWithConfig(&appconfig.Config{
+		SandboxRoot:   legacyRoot,
+		RuntimeDriver: driverpkg.RuntimeDriverDocker,
+		DefaultImage:  "debian:bookworm-slim",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyID := "legacy-session"
+	legacyDir := store.SandboxDir(legacyID)
+	if err := os.MkdirAll(filepath.Join(legacyDir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := json.Marshal(Sandbox{Summary: SandboxSummary{
+		ID: legacyID, Title: "Legacy sandbox", Driver: driverpkg.RuntimeDriverDocker,
+		VMStatus: VMStatusStopped, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "metadata.json"), metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyCells := []byte(`[{"id":"cell-1","source":"hello","agent_session_id":"thread-1","agent_resume":{"session_id":"thread-1","session_state_path":"/state.json"}}]`)
+	if err := os.WriteFile(filepath.Join(legacyDir, "state", "cells.json"), legacyCells, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if sandbox, err := store.GetSandbox(ctx, legacyID); err != nil || sandbox.Summary.ID != legacyID {
+		t.Fatalf("GetSandbox sandbox=%#v err=%v", sandbox, err)
+	}
+	if result, err := store.ListSandboxes(ctx, SandboxListOptions{}); err != nil || len(result.Sandboxes) != 1 || result.Sandboxes[0].Summary.ID != legacyID {
+		t.Fatalf("ListSandboxes result=%#v err=%v", result, err)
+	}
+	if cells, err := store.ListCells(ctx, legacyID); err != nil || len(cells) != 1 || cells[0].AgentThreadID != "thread-1" || cells[0].AgentResume == nil || cells[0].AgentResume.ThreadID != "thread-1" {
+		t.Fatalf("ListCells cells=%#v err=%v", cells, err)
+	}
+	if err := store.RemoveSandbox(ctx, legacyID); err != nil {
+		t.Fatalf("RemoveSandbox returned error: %v", err)
+	}
+	if _, err := os.Stat(legacyDir); !os.IsNotExist(err) {
+		t.Fatalf("legacy sandbox dir stat error = %v, want not exist", err)
 	}
 }
 
