@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { EventEmitter } from "node:events";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/cli.js";
 import { runExecCommand } from "../src/command.js";
 import { COMMAND_RESULT_PREFIX, RESULT_PREFIX } from "../src/constants.js";
+import { runStreamCommand } from "../src/stream.js";
 import { captureStdio, withTempSession } from "./helpers.js";
 
 const codexMockState = vi.hoisted(() => ({
@@ -121,6 +122,38 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 describe("runtime JavaScript E2E", () => {
+  it("preserves turn boundaries across interactive Codex messages", async () => {
+    await withTempSession(async (root) => {
+      let output = "";
+      const stdout = new Writable({
+        write(chunk, _encoding, callback) {
+          output += chunk.toString();
+          callback();
+        },
+      });
+      const frame = (seq: number, type: string, fields: Record<string, unknown> = {}) =>
+        JSON.stringify({ v: 1, seq, type, ...fields }) + "\n";
+
+      await runStreamCommand({
+        stdin: Readable.from([
+          frame(0, "start", { provider: "codex", stateRoot: path.join(root, "state") }),
+          frame(1, "human_message", { message: "first" }),
+          frame(2, "human_message", { message: "second" }),
+          frame(3, "eof"),
+        ]),
+        stdout,
+      });
+
+      const frames = output.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(frames.at(-1)).toMatchObject({
+        type: "result",
+        threadId: "e2e-codex-thread",
+        stopReason: "eof",
+        transcript: '{"input":"first"}\n{"input":"second"}',
+      });
+    });
+  });
+
   it("runs a production-like command workflow through request and artifact files", async () => {
     await withTempSession(async (root) => {
       const workspace = path.join(root, "workspace");

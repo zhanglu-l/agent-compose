@@ -28,7 +28,9 @@ export class UnsupportedProviderError extends Error {
 
 export class CodexInteractiveSession {
   private readonly runner: CodexRunner;
+  private readonly writer: BufferedTextWriter;
   private readonly result: AgentResult;
+  private turnCount = 0;
   private thread?: {
     id?: string | null;
     runStreamed(input: string, options?: unknown): Promise<{ events: AsyncIterable<unknown> }>;
@@ -38,7 +40,8 @@ export class CodexInteractiveSession {
     private readonly options: RunnerOptions,
     private readonly emit: EmitInteractiveFrame,
   ) {
-    this.runner = new CodexRunner(options, new BufferedTextWriter());
+    this.writer = new BufferedTextWriter();
+    this.runner = new CodexRunner(options, this.writer);
     this.result = {
       provider: "codex",
       threadId: "",
@@ -74,6 +77,10 @@ export class CodexInteractiveSession {
     if (!this.thread) {
       throw new Error("stream has not been started");
     }
+    if (this.turnCount > 0) {
+      this.writer.beginTurn();
+    }
+    this.turnCount++;
     const { events } = await this.thread.runStreamed(
       message,
       this.options.outputSchema ? { outputSchema: this.options.outputSchema } : undefined,
@@ -121,6 +128,16 @@ class BufferedTextWriter implements TextWriter {
 
   line(text = ""): void {
     this.write(text.endsWith("\n") ? text : `${text}\n`);
+  }
+
+  beginTurn(): void {
+    if (this.chunks.length === 0) {
+      return;
+    }
+    const last = this.chunks[this.chunks.length - 1] || "";
+    if (!last.endsWith("\n")) {
+      this.chunks.push("\n");
+    }
   }
 
   transcript(): string {

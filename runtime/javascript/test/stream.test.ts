@@ -104,6 +104,7 @@ describe("runStreamCommand", () => {
         threadId: "thread-1",
         stopReason: "eof",
         finalText: "answer 2",
+        transcript: "answer 1\nanswer 2",
       });
       expect(parseOutput(stdout.text)).toHaveLength(8);
     });
