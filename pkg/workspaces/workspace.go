@@ -15,15 +15,6 @@ type WorkspaceConfigStore interface {
 // Store is retained as a compatibility alias for workspace config readers.
 type Store = WorkspaceConfigStore
 
-// PrepareSessionWorkspace is retained only while existing lifecycle owners are
-// migrated to Provisioner.Ensure.
-//
-// Deprecated: lifecycle owners must use Provisioner.Ensure. New production
-// code must not call this compatibility wrapper.
-func PrepareSessionWorkspace(ctx context.Context, config *appconfig.Config, configDB WorkspaceConfigStore, session *domain.Sandbox) error {
-	return materializeSessionWorkspace(ctx, config, configDB, session)
-}
-
 func materializeSessionWorkspace(ctx context.Context, config *appconfig.Config, configDB WorkspaceConfigStore, session *domain.Sandbox) error {
 	workspaceID := strings.TrimSpace(session.WorkspaceID)
 	if session.Workspace != nil && strings.TrimSpace(session.Workspace.ID) != "" {

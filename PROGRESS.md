@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：8/20 完成。
-- 当前下一目标：3.4 审计双轨调用并完成生命周期阶段门禁。
+- 代码任务：9/20 完成。
+- 当前下一目标：4.1 建立 workspace manifest helper 和 Session/Jupyter integration。
 
 ## 执行规则
 
@@ -331,26 +331,39 @@
       - 无未运行的任务内门禁或其他例外。
     - 下一目标：3.4 审计双轨调用并完成生命周期阶段门禁。
 
-- [ ] 3.4 审计双轨调用并完成生命周期阶段门禁
+- [x] 3.4 审计双轨调用并完成生命周期阶段门禁
   - 依赖：3.2、3.3。
   - 工作内容：
     - 用 `rg` 审计 `PrepareSessionWorkspace`、`HostWorkspaceInitialized`、provider materializer 和全部 resume/start 调用点。
     - 删除 adapters、sessions、runs 的直接 materialization；测试中的 focused provider 调用需有明确用途。
     - 跑完整受影响 Go packages，修复构造器/fake/coverage shape 回归。
   - 可并行子任务：
-    - [ ] 可并行：生产调用点静态审计。
-    - [ ] 可并行：测试 fixture 和 coverage-shape 编译审计。
+    - [x] 可并行：生产调用点静态审计。
+    - [x] 可并行：测试 fixture 和 coverage-shape 编译审计。
   - 测试方案：
     - `rg -n 'PrepareSessionWorkspace\(|HostWorkspaceInitialized\(' pkg`
     - `./scripts/with-go-toolchain.sh go test ./pkg/sessions ./pkg/agentcompose/adapters ./pkg/runs ./pkg/agentcompose/app ./pkg/workspaces -count=1`
     - `./scripts/with-go-toolchain.sh go test ./pkg/... -count=1`
   - 验收标准：生产路径只有 Provisioner materialize；所有受影响 package 通过；不存在 ready 内容启发式或双轨 prepare。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：4.1。
+    - 状态：已完成。
+    - 变更：
+      - 删除 `pkg/workspaces` 中已完成生命周期迁移的 deprecated `PrepareSessionWorkspace` compatibility wrapper；保留 package-private `materializeSessionWorkspace` 作为默认 materializer 的实现细节。
+      - constructor、fake 和 coverage shape 编译审计无回归，不需要额外测试或 fixture 修改。
+    - 验证：
+      - `rg -n 'PrepareSessionWorkspace\(|HostWorkspaceInitialized\(' pkg`：零命中。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/sessions ./pkg/agentcompose/adapters ./pkg/runs ./pkg/agentcompose/app ./pkg/workspaces -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/... -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh golangci-lint fmt --no-config --diff ./pkg/sessions ./pkg/agentcompose/adapters ./pkg/runs ./pkg/agentcompose/app ./pkg/workspaces`：通过，无格式 diff。
+      - `./scripts/with-go-toolchain.sh golangci-lint run --no-config --allow-parallel-runners ./pkg/sessions ./pkg/agentcompose/adapters ./pkg/runs ./pkg/agentcompose/app ./pkg/workspaces`：通过，`0 issues`。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 独立生产调用图审计确认唯一 production `WorkspaceMaterializer.Materialize` 调用位于 Provisioner staging 流程；默认 materializer 是 private `materializeSessionWorkspace` 的唯一 production caller，ready 分支在 materializer 前返回。
+      - 六处 lifecycle driver start 均先经同一 `WorkspaceEnsurer`：v1 create、普通 resume、Jupyter 自动恢复、Loader create/resume 和 Project Run start helper；每处 Ensurer 错误均在 driver start 前返回。
+      - `PrepareFileWorkspace`、`PrepareGitWorkspace` 只有定义而无 production caller；`workspace_coverage_test.go` 中的直接调用分别覆盖 file/Git provider 行为，private helper 的直接调用覆盖 snapshot dispatch，不构成 lifecycle 双轨入口。
+      - Project local workspace preparation 只创建 `DATA_ROOT` 下的 provider source snapshot，不写 sandbox `WorkspacePath`，不绕过 Provisioner。
+      - 变更范围仅为 `pkg/workspaces/workspace.go` 和本账本；未修改 cmd、proto/generated client、SQLite schema、公开 CLI/API shape、环境变量、compose、runtime mount、Task/TESTING 或 CI。无未运行的任务内门禁或其他例外。
+    - 下一目标：4.1 建立 workspace manifest helper 和 Session/Jupyter integration。
 
 ## 4. 跨组件 Integration 回归
 
