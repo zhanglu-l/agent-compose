@@ -505,24 +505,25 @@ func TestDirectoryOnlyGuestSandboxBootstrapUsesDataMountRoot(t *testing.T) {
 	for _, required := range []string{
 		"test -d '/data/workspace'",
 		"test -d '/data/home'",
-		"ln -s '/data/workspace' '/workspace'",
+		"while [ \"$(readlink '/workspace' 2>/dev/null)\" != '/data/workspace' ]; do",
+		"ln -sfn '/data/workspace' '/workspace'",
 		"if mountpoint -q '/root'; then echo \"refusing to replace mounted home target /root\" >&2; exit 1; fi",
 		"if [ -L '/root' ]; then rm -f '/root'; mkdir -p '/root';",
 		"if [ ! -d '/root' ]; then echo \"refusing to replace non-directory /root\" >&2; exit 1; fi;",
 		"test -d '/root' || { echo \"directory-only home target is not a directory /root\" >&2; exit 1; }",
-		"rm -rf '/root/.codex'; ln -s '/data/home/.codex' '/root/.codex'",
-		"ln -s '/data/home/.codex' '/root/.codex'",
-		"ln -s '/data/home/.agents' '/root/.agents'",
-		"ln -s '/data/home/.claude' '/root/.claude'",
-		"ln -s '/data/home/.opencode' '/root/.opencode'",
-		"ln -s '/data/home/.claude.json' '/root/.claude.json'",
-		"ln -s '/data/home/.gitconfig' '/root/.gitconfig'",
-		"ln -s '/data/home/.gemini' '/root/.gemini'",
-		"ln -s '/data/home/.config/claude' '/root/.config/claude'",
-		"ln -s '/data/home/.config/Claude' '/root/.config/Claude'",
-		"ln -s '/data/home/.config/gemini' '/root/.config/gemini'",
-		"ln -s '/data/home/.config/opencode' '/root/.config/opencode'",
-		"ln -s '/data/home/.local/share/gemini' '/root/.local/share/gemini'",
+		"while [ \"$(readlink '/root/.codex' 2>/dev/null)\" != '/data/home/.codex' ]; do",
+		"ln -sfn '/data/home/.codex' '/root/.codex'",
+		"ln -sfn '/data/home/.agents' '/root/.agents'",
+		"ln -sfn '/data/home/.claude' '/root/.claude'",
+		"ln -sfn '/data/home/.opencode' '/root/.opencode'",
+		"ln -sfn '/data/home/.claude.json' '/root/.claude.json'",
+		"ln -sfn '/data/home/.gitconfig' '/root/.gitconfig'",
+		"ln -sfn '/data/home/.gemini' '/root/.gemini'",
+		"ln -sfn '/data/home/.config/claude' '/root/.config/claude'",
+		"ln -sfn '/data/home/.config/Claude' '/root/.config/Claude'",
+		"ln -sfn '/data/home/.config/gemini' '/root/.config/gemini'",
+		"ln -sfn '/data/home/.config/opencode' '/root/.config/opencode'",
+		"ln -sfn '/data/home/.local/share/gemini' '/root/.local/share/gemini'",
 		"test \"$(readlink '/root/.gitconfig')\" = '/data/home/.gitconfig'",
 		"test \"$(readlink '/root/.codex')\" = '/data/home/.codex'",
 	} {
@@ -543,8 +544,8 @@ func TestDirectoryOnlyGuestSandboxBootstrapUsesDataMountRoot(t *testing.T) {
 		}
 	}
 	assertSubstringOrder(t, command, "test -d '/data/home'", "rm -f '/root'")
-	assertSubstringOrder(t, command, "test -d '/data/home'", "ln -s '/data/home/.codex' '/root/.codex'")
-	assertSubstringOrder(t, command, "test -d '/root' ||", "ln -s '/data/home/.codex' '/root/.codex'")
+	assertSubstringOrder(t, command, "test -d '/data/home'", "ln -sfn '/data/home/.codex' '/root/.codex'")
+	assertSubstringOrder(t, command, "test -d '/root' ||", "ln -sfn '/data/home/.codex' '/root/.codex'")
 }
 
 func TestBoxliteDirectoryOnlyGuestSandboxBootstrapIncludesVolumeSymlinks(t *testing.T) {
@@ -559,7 +560,7 @@ func TestBoxliteDirectoryOnlyGuestSandboxBootstrapIncludesVolumeSymlinks(t *test
 	}}
 	command := directoryOnlyGuestSandboxBootstrapCommandForSandbox(testRuntimeMountConfig(), session)
 	for _, required := range []string{
-		"ln -s '/data/volumes/mount-a8f37c92e51b4d10' '/cache'",
+		"ln -sfn '/data/volumes/mount-a8f37c92e51b4d10' '/cache'",
 		"test \"$(readlink '/cache')\" = '/data/volumes/mount-a8f37c92e51b4d10'",
 	} {
 		if !strings.Contains(command, required) {
@@ -630,7 +631,7 @@ func TestJupyterLaunchCommandDoesNotRunDirectoryOnlyBootstrapByDefault(t *testin
 	if strings.Contains(directoryOnlyCommand, "mount --bind '/data/home' '/root'") {
 		t.Fatalf("directory-only jupyter command unexpectedly contains bind mount: %s", directoryOnlyCommand)
 	}
-	if !strings.Contains(directoryOnlyCommand, "ln -s '/data/home/.codex' '/root/.codex'") {
+	if !strings.Contains(directoryOnlyCommand, "ln -sfn '/data/home/.codex' '/root/.codex'") {
 		t.Fatalf("directory-only jupyter command missing home symlink bootstrap: %s", directoryOnlyCommand)
 	}
 }

@@ -87,7 +87,7 @@ func TestBoxLiteBootstrapExecSpecRunsFromRoot(t *testing.T) {
 	if strings.Contains(spec.Args[1], "ln -s '/data/home' '/root'") {
 		t.Fatalf("bootstrap script unexpectedly contains whole-root symlink: %s", spec.Args[1])
 	}
-	if !strings.Contains(spec.Args[1], "ln -s '/data/home/.codex' '/root/.codex'") {
+	if !strings.Contains(spec.Args[1], "ln -sfn '/data/home/.codex' '/root/.codex'") {
 		t.Fatalf("bootstrap script missing codex home symlink: %s", spec.Args[1])
 	}
 	if spec.Cwd != "/" {
@@ -133,7 +133,7 @@ func TestMicrosandboxBootstrapExecSpecRunsFromRoot(t *testing.T) {
 	if strings.Contains(spec.Args[1], "ln -s '/data/home' '/root'") {
 		t.Fatalf("bootstrap script unexpectedly contains whole-root symlink: %s", spec.Args[1])
 	}
-	if !strings.Contains(spec.Args[1], "ln -s '/data/home/.gitconfig' '/root/.gitconfig'") {
+	if !strings.Contains(spec.Args[1], "ln -sfn '/data/home/.gitconfig' '/root/.gitconfig'") {
 		t.Fatalf("bootstrap script missing gitconfig home symlink: %s", spec.Args[1])
 	}
 	if spec.Cwd != "/" {
