@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -239,10 +241,11 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sandboxes"),
-		RuntimeDriver: "boxlite",
-		DefaultImage:  "guest:latest",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sandboxes"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
@@ -251,10 +254,10 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{
 			ProjectID: "project-1",
@@ -343,8 +346,9 @@ func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
 	config := &appconfig.Config{
 		DataRoot:             root,
 		SandboxRoot:          filepath.Join(root, "sandboxes"),
-		RuntimeDriver:        "boxlite",
+		RuntimeDriver:        driverpkg.RuntimeDriverDocker,
 		DefaultImage:         "guest:latest",
+		DockerDefaultImage:   "guest:latest",
 		JupyterGuestPort:     8888,
 		JupyterProxyBasePath: "/jupyter",
 	}
@@ -355,10 +359,10 @@ func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{
 			ProjectID: "project-1",
@@ -392,7 +396,7 @@ func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProxyState returned error: %v", err)
 	}
-	if !proxyState.Enabled || !proxyState.Exposed || proxyState.GuestPort != 9999 || proxyState.HostPort == 0 || proxyState.Token == "" {
+	if !proxyState.Enabled || !proxyState.Exposed || proxyState.GuestPort != 9999 || proxyState.HostPort != 0 || proxyState.Token == "" {
 		t.Fatalf("proxy state = %+v, want YAML guest port with CLI expose", proxyState)
 	}
 }
@@ -449,7 +453,7 @@ func TestRunsControllerRunProjectAgentResolvesVolumeMounts(t *testing.T) {
 
 func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSandbox(t *testing.T) {
 	fixture := newControllerRunFixture(t)
-	session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
+	session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
@@ -472,21 +476,38 @@ func TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSandbox(t
 }
 
 func TestIntegrationRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
-	TestRunsControllerRunProjectAgentSuccessWorkflow(t)
+	testRunsControllerPersistenceBoundaryWorkflows(t)
 }
 
 func TestE2ERunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
-	TestRunsControllerRunProjectAgentSuccessWorkflow(t)
+	testRunsControllerPersistenceBoundaryWorkflows(t)
+}
+
+func testRunsControllerPersistenceBoundaryWorkflows(t *testing.T) {
+	t.Helper()
+	t.Run("success", TestRunsControllerRunProjectAgentSuccessWorkflow)
+	t.Run("jupyter config", TestRunsControllerRunProjectAgentResolvesJupyterConfig)
+	t.Run("volume mounts", TestRunsControllerRunProjectAgentResolvesVolumeMounts)
+	t.Run("existing sandbox volumes", TestRunsControllerRunProjectAgentRejectsRequestVolumesWithExistingSandbox)
+	t.Run("manual trigger resolution", TestRunsControllerRunProjectAgentManualTriggerResolution)
+	t.Run("manual trigger payload", TestRunsControllerRunProjectAgentManualTriggerPayload)
+	t.Run("manual trigger prompt", TestRunsControllerRunProjectAgentManualTriggerPromptOverride)
+	t.Run("manual trigger missing", TestRunsControllerRunProjectAgentManualTriggerMissingDoesNotCreateRun)
+	t.Run("sticky binding scope", TestRunsControllerStickyBindingsAreScopedByTrigger)
+	t.Run("unsupported persistence boundary", TestRunsControllerRejectsUncompiledScheduledSandboxBeforePersistence)
+	t.Run("apply jupyter", TestRunsControllerApplyJupyterOptionsToSandbox)
+	t.Run("docker host port", TestRunsControllerApplyJupyterOptionsLeavesDockerHostPortForRuntime)
 }
 
 func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sandboxes"),
-		RuntimeDriver: "boxlite",
-		DefaultImage:  "guest:latest",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sandboxes"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
@@ -495,10 +516,10 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
 		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
@@ -593,10 +614,11 @@ func TestRunsControllerRunProjectAgentCommandNonZeroExitPreservesOutput(t *testi
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sandboxes"),
-		RuntimeDriver: "boxlite",
-		DefaultImage:  "guest:latest",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sandboxes"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
@@ -605,10 +627,10 @@ func TestRunsControllerRunProjectAgentCommandNonZeroExitPreservesOutput(t *testi
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
 		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
@@ -1183,17 +1205,18 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:       root,
-		SandboxRoot:    filepath.Join(root, "sandboxes"),
-		RuntimeDriver:  "boxlite",
-		DefaultImage:   "guest:latest",
-		GuestStateRoot: "/guest/state",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sandboxes"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
+		GuestStateRoot:     "/guest/state",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
-	session, err := store.CreateSandbox(ctx, "command session", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
+	session, err := store.CreateSandbox(ctx, "command session", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
@@ -1225,7 +1248,7 @@ func TestRunsControllerExecuteProjectRunCommandEdgeBranches(t *testing.T) {
 	if err == nil || transition.ExitCode != 1 || !strings.Contains(transition.Error, "no such file") {
 		t.Fatalf("missing vm transition=%#v err=%v", transition, err)
 	}
-	if err := store.SaveVMState(session.Summary.ID, domain.VMState{Driver: "boxlite", BoxID: "box-1"}); err != nil {
+	if err := store.SaveVMState(session.Summary.ID, domain.VMState{Driver: driverpkg.RuntimeDriverDocker, BoxID: "box-1"}); err != nil {
 		t.Fatalf("SaveVMState returned error: %v", err)
 	}
 
@@ -1307,10 +1330,11 @@ func newControllerRunFixture(t *testing.T) *controllerRunFixture {
 	ctx := context.Background()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sandboxes"),
-		RuntimeDriver: "boxlite",
-		DefaultImage:  "guest:latest",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sandboxes"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
@@ -1319,10 +1343,10 @@ func newControllerRunFixture(t *testing.T) *controllerRunFixture {
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
 		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},
@@ -1426,7 +1450,7 @@ func TestRunsControllerRunProjectAgentRemoveOnCompletionCleanup(t *testing.T) {
 
 	t.Run("existing sandbox is stopped but not removed", func(t *testing.T) {
 		fixture := newControllerRunFixture(t)
-		session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
+		session, err := fixture.store.CreateSandbox(fixture.ctx, "existing", "", driverpkg.RuntimeDriverDocker, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("CreateSandbox returned error: %v", err)
 		}
@@ -1771,6 +1795,141 @@ func TestRunsControllerStickyBindingsAreScopedByTrigger(t *testing.T) {
 	}
 }
 
+func TestRunsControllerRejectsUncompiledScheduledSandboxBeforePersistence(t *testing.T) {
+	for _, runtimeDriver := range []string{driverpkg.RuntimeDriverBoxlite, driverpkg.RuntimeDriverMicrosandbox} {
+		t.Run(runtimeDriver, func(t *testing.T) {
+			rawErr := driverpkg.ValidateCompiledRuntimeDriver(runtimeDriver)
+			if rawErr == nil {
+				t.Skipf("runtime driver %s is compiled in this build", runtimeDriver)
+			}
+			t.Run("new sticky sandbox", func(t *testing.T) {
+				fixture := newControllerRunFixture(t)
+				volumeResolver := &fakeVolumeResolver{}
+				fixture.controller.volumes = volumeResolver
+				bindingKey := "loader-uncompiled/trigger-uncompiled"
+				originalBinding := domain.LoaderBinding{LoaderID: "loader-uncompiled", TriggerID: "trigger-uncompiled", SandboxID: "missing-original-sandbox"}
+				fixture.configDB.bindings = map[string]domain.LoaderBinding{bindingKey: originalBinding}
+				beforeSandboxes, err := fixture.store.ListSandboxes(fixture.ctx, domain.SandboxListOptions{})
+				if err != nil {
+					t.Fatalf("ListSandboxes before ensure returned error: %v", err)
+				}
+				beforeArtifacts := snapshotRunSandboxTree(t, fixture.config.SandboxRoot)
+
+				result, err := fixture.controller.ensureProjectRunSandbox(fixture.ctx, domain.ProjectRunRecord{
+					RunID: "run-uncompiled", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", Driver: runtimeDriver, ImageRef: "guest:latest",
+				}, Preparation{Volumes: []domain.VolumeMountSpec{{Type: domain.VolumeMountTypeBind, Source: t.TempDir(), Target: "/blocked"}}}, RunAgentRequest{
+					StickyBindingLoaderID: "loader-uncompiled", StickyBindingTriggerID: "trigger-uncompiled",
+				})
+				assertRunsRuntimeNotCompiled(t, err, runtimeDriver)
+				if result.Sandbox != nil || result.Created {
+					t.Fatalf("unsupported ensure result = %#v, want no sandbox", result)
+				}
+				afterSandboxes, listErr := fixture.store.ListSandboxes(fixture.ctx, domain.SandboxListOptions{})
+				if listErr != nil || len(afterSandboxes.Sandboxes) != len(beforeSandboxes.Sandboxes) {
+					t.Fatalf("sandboxes changed: before=%d after=%d err=%v", len(beforeSandboxes.Sandboxes), len(afterSandboxes.Sandboxes), listErr)
+				}
+				if got := fixture.configDB.bindings[bindingKey]; got != originalBinding {
+					t.Fatalf("binding changed: got=%#v want=%#v", got, originalBinding)
+				}
+				if len(volumeResolver.specs) != 0 || fixture.driver.started {
+					t.Fatalf("unsupported ensure reached volume/runtime work: volumes=%#v driver=%#v", volumeResolver.specs, fixture.driver)
+				}
+				if afterArtifacts := snapshotRunSandboxTree(t, fixture.config.SandboxRoot); !reflect.DeepEqual(afterArtifacts, beforeArtifacts) {
+					t.Fatalf("sandbox artifacts changed: before=%#v after=%#v", beforeArtifacts, afterArtifacts)
+				}
+			})
+
+			t.Run("historical bound sandbox", func(t *testing.T) {
+				fixture := newControllerRunFixture(t)
+				volumeResolver := &fakeVolumeResolver{}
+				fixture.controller.volumes = volumeResolver
+				sandbox, err := fixture.store.CreateSandbox(fixture.ctx, "historical", "", runtimeDriver, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
+				if err != nil {
+					t.Fatalf("CreateSandbox historical returned error: %v", err)
+				}
+				sandbox.Summary.VMStatus = domain.VMStatusStopped
+				sandbox.Summary.RuntimeRef = "original-runtime-ref"
+				if err := fixture.store.UpdateSandbox(fixture.ctx, sandbox); err != nil {
+					t.Fatalf("UpdateSandbox historical returned error: %v", err)
+				}
+				originalProxy := domain.ProxyState{Enabled: false, HostPort: 12345, GuestPort: 8888, ProxyPath: "/original"}
+				if err := fixture.store.SaveProxyState(sandbox.Summary.ID, originalProxy); err != nil {
+					t.Fatalf("SaveProxyState historical returned error: %v", err)
+				}
+				bindingKey := "loader-history/trigger-history"
+				originalBinding := domain.LoaderBinding{LoaderID: "loader-history", TriggerID: "trigger-history", SandboxID: sandbox.Summary.ID}
+				fixture.configDB.bindings = map[string]domain.LoaderBinding{bindingKey: originalBinding}
+				beforeArtifacts := snapshotRunSandboxTree(t, fixture.config.SandboxRoot)
+				beforeEvents, err := fixture.store.ListEvents(fixture.ctx, sandbox.Summary.ID)
+				if err != nil {
+					t.Fatalf("ListEvents before ensure returned error: %v", err)
+				}
+
+				result, err := fixture.controller.ensureProjectRunSandbox(fixture.ctx, domain.ProjectRunRecord{
+					RunID: "run-history", ProjectID: "project-1", ProjectName: "Project", AgentName: "worker", Driver: runtimeDriver, ImageRef: "guest:latest",
+				}, Preparation{}, RunAgentRequest{
+					StickyBindingLoaderID: "loader-history", StickyBindingTriggerID: "trigger-history", Jupyter: &agentcomposev2.RunJupyterSpec{Enabled: true},
+				})
+				assertRunsRuntimeNotCompiled(t, err, runtimeDriver)
+				if result.Sandbox == nil || result.Sandbox.Summary.ID != sandbox.Summary.ID || result.Created {
+					t.Fatalf("unsupported historical result = %#v", result)
+				}
+				loaded, loadErr := fixture.store.GetSandbox(fixture.ctx, sandbox.Summary.ID)
+				if loadErr != nil || loaded.Summary.Driver != runtimeDriver || loaded.Summary.VMStatus != domain.VMStatusStopped || loaded.Summary.RuntimeRef != "original-runtime-ref" {
+					t.Fatalf("historical sandbox changed: sandbox=%#v err=%v", loaded, loadErr)
+				}
+				proxy, proxyErr := fixture.store.GetProxyState(sandbox.Summary.ID)
+				if proxyErr != nil || !reflect.DeepEqual(proxy, originalProxy) {
+					t.Fatalf("historical proxy changed: got=%#v err=%v want=%#v", proxy, proxyErr, originalProxy)
+				}
+				afterEvents, eventErr := fixture.store.ListEvents(fixture.ctx, sandbox.Summary.ID)
+				if eventErr != nil || !reflect.DeepEqual(afterEvents, beforeEvents) {
+					t.Fatalf("historical events changed: before=%#v after=%#v err=%v", beforeEvents, afterEvents, eventErr)
+				}
+				if got := fixture.configDB.bindings[bindingKey]; got != originalBinding {
+					t.Fatalf("historical binding changed: got=%#v want=%#v", got, originalBinding)
+				}
+				if len(volumeResolver.specs) != 0 || fixture.driver.started {
+					t.Fatalf("historical ensure reached volume/runtime work: volumes=%#v driver=%#v", volumeResolver.specs, fixture.driver)
+				}
+				if afterArtifacts := snapshotRunSandboxTree(t, fixture.config.SandboxRoot); !reflect.DeepEqual(afterArtifacts, beforeArtifacts) {
+					t.Fatalf("historical artifacts changed: before=%#v after=%#v", beforeArtifacts, afterArtifacts)
+				}
+			})
+		})
+	}
+}
+
+func assertRunsRuntimeNotCompiled(t *testing.T, err error, runtimeDriver string) {
+	t.Helper()
+	if !errors.Is(err, driverpkg.ErrRuntimeDriverNotCompiled) || !errors.Is(err, domain.ErrUnsupported) {
+		t.Fatalf("error = %v, want typed unsupported", err)
+	}
+	var notCompiled *driverpkg.RuntimeDriverNotCompiledError
+	if !errors.As(err, &notCompiled) || notCompiled.Driver != runtimeDriver {
+		t.Fatalf("typed error = %#v, want driver %q", notCompiled, runtimeDriver)
+	}
+}
+
+func snapshotRunSandboxTree(t *testing.T, root string) []string {
+	t.Helper()
+	var snapshot []string
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		snapshot = append(snapshot, fmt.Sprintf("%s|%s|%d", rel, info.Mode(), info.Size()))
+		return nil
+	}); err != nil {
+		t.Fatalf("snapshot sandbox root %s: %v", root, err)
+	}
+	return snapshot
+}
+
 func TestManualTriggerCaptureHostUnavailableMethodsAndEnvSpecs(t *testing.T) {
 	ctx := context.Background()
 	host := &manualTriggerCaptureHost{}
@@ -1813,7 +1972,7 @@ func TestManualTriggerCaptureHostUnavailableMethodsAndEnvSpecs(t *testing.T) {
 func TestRunsControllerApplyJupyterOptionsToSandbox(t *testing.T) {
 	fixture := newControllerRunFixture(t)
 	fixture.config.JupyterGuestPort = 8888
-	session, err := fixture.store.CreateSandbox(fixture.ctx, "jupyter session", "", "boxlite", "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
+	session, err := fixture.store.CreateSandbox(fixture.ctx, "jupyter session", "", driverpkg.RuntimeDriverBoxlite, "guest:latest", "", domain.SandboxTypeManual, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
@@ -2356,10 +2515,11 @@ func newTestRunAttachController(t *testing.T, frames []driverpkg.RuntimeOutputFr
 	t.Helper()
 	root := t.TempDir()
 	config := &appconfig.Config{
-		DataRoot:      root,
-		SandboxRoot:   filepath.Join(root, "sessions"),
-		RuntimeDriver: "boxlite",
-		DefaultImage:  "guest:latest",
+		DataRoot:           root,
+		SandboxRoot:        filepath.Join(root, "sessions"),
+		RuntimeDriver:      driverpkg.RuntimeDriverDocker,
+		DefaultImage:       "guest:latest",
+		DockerDefaultImage: "guest:latest",
 	}
 	store, err := sessionstore.NewWithConfig(config)
 	if err != nil {
@@ -2368,10 +2528,10 @@ func newTestRunAttachController(t *testing.T, frames []driverpkg.RuntimeOutputFr
 	configDB := &fakeControllerStore{
 		project: domain.ProjectRecord{ID: "project-1", Name: "Project", CurrentRevision: 1},
 		projectAgent: domain.ProjectAgentRecord{
-			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: "boxlite", Image: "guest:latest",
+			ProjectID: "project-1", AgentName: "worker", ManagedAgentID: "agent-1", Driver: driverpkg.RuntimeDriverDocker, Image: "guest:latest",
 		},
 		managed: ManagedAgentDefinition{
-			ID: "agent-1", Enabled: true, Driver: "boxlite", GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
+			ID: "agent-1", Enabled: true, Driver: driverpkg.RuntimeDriverDocker, GuestImage: "guest:latest", ManagedProjectID: "project-1", ManagedAgentName: "worker",
 		},
 		revision: domain.ProjectRevisionRecord{ProjectID: "project-1", Revision: 1, SpecJSON: `{"agents":[{"name":"worker"}]}`},
 		agent:    domain.AgentDefinition{ID: "agent-1", Provider: "codex"},

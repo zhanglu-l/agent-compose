@@ -10,6 +10,7 @@ import (
 
 	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
+	driverpkg "agent-compose/pkg/driver"
 	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
 )
@@ -30,7 +31,7 @@ agents:
     model: gpt-test
     image: guest:latest
     driver:
-      boxlite: {}
+      docker: {}
     env:
       AGENT_ENV: agent
     capset_ids: [dev]
@@ -59,7 +60,7 @@ agents:
 		},
 	}
 	controller := NewController(ControllerDependencies{
-		Config:  &appconfig.Config{RuntimeDriver: "boxlite"},
+		Config:  &appconfig.Config{RuntimeDriver: driverpkg.RuntimeDriverDocker},
 		Store:   store,
 		Loaders: controllerCoverageLoaderValidator{},
 	})
@@ -245,11 +246,13 @@ func TestDownProjectSandboxAndSchedulerWorkflows(t *testing.T) {
 
 func TestIntegrationControllerValidateApplyDryRunAndResolveWorkflows(t *testing.T) {
 	TestControllerValidateApplyDryRunAndResolveWorkflows(t)
+	TestControllerRejectsUncompiledDriversBeforePersistence(t)
 	TestDownProjectSandboxAndSchedulerWorkflows(t)
 }
 
 func TestE2EControllerValidateApplyDryRunAndResolveWorkflows(t *testing.T) {
 	TestControllerValidateApplyDryRunAndResolveWorkflows(t)
+	TestControllerRejectsUncompiledDriversBeforePersistence(t)
 	TestDownProjectSandboxAndSchedulerWorkflows(t)
 }
 

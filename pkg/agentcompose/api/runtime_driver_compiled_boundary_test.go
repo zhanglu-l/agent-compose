@@ -11,10 +11,8 @@ import (
 
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
-	"agent-compose/pkg/execution"
 	"agent-compose/pkg/identity"
 	domain "agent-compose/pkg/model"
-	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -74,61 +72,4 @@ func TestRuntimeDriverNotCompiledConnectBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("kernel and agent", func(t *testing.T) {
-		session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-history", VMStatus: domain.VMStatusRunning}}
-		store := unsupportedRuntimeAPIStore{session: session}
-		kernel := NewKernelHandler(store, unsupportedCellExecutor{err: unsupported}, nil)
-		_, err := kernel.ExecuteCell(context.Background(), connect.NewRequest(&agentcomposev1.ExecuteCellRequest{
-			SessionId: session.Summary.ID,
-			Type:      agentcomposev1.CellType_CELL_TYPE_SHELL,
-			Source:    "echo history",
-		}))
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Fatalf("ExecuteCell error = %v, code=%v; want unimplemented", err, connect.CodeOf(err))
-		}
-		agent := NewAgentHandler(store, nil, unsupportedAgentExecutor{err: unsupported}, nil)
-		_, err = agent.SendAgentMessage(context.Background(), connect.NewRequest(&agentcomposev1.SendAgentMessageRequest{
-			SessionId: session.Summary.ID,
-			Message:   "hello",
-		}))
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Fatalf("SendAgentMessage error = %v, code=%v; want unimplemented", err, connect.CodeOf(err))
-		}
-	})
-}
-
-type unsupportedRuntimeAPIStore struct {
-	session *domain.Sandbox
-}
-
-func (s unsupportedRuntimeAPIStore) GetSandbox(context.Context, string) (*domain.Sandbox, error) {
-	return s.session, nil
-}
-
-func (unsupportedRuntimeAPIStore) ListCells(context.Context, string) ([]domain.NotebookCell, error) {
-	return nil, nil
-}
-
-func (unsupportedRuntimeAPIStore) ListEvents(context.Context, string) ([]domain.SandboxEvent, error) {
-	return nil, nil
-}
-
-type unsupportedCellExecutor struct {
-	err error
-}
-
-func (e unsupportedCellExecutor) ExecuteCell(context.Context, *domain.Sandbox, string, string) (domain.NotebookCell, error) {
-	return domain.NotebookCell{}, e.err
-}
-
-func (e unsupportedCellExecutor) ExecuteCellStream(context.Context, *domain.Sandbox, string, string, execution.CellExecutionStream) (domain.NotebookCell, error) {
-	return domain.NotebookCell{}, e.err
-}
-
-type unsupportedAgentExecutor struct {
-	err error
-}
-
-func (e unsupportedAgentExecutor) ExecuteAgentRequest(context.Context, *domain.Sandbox, execution.ExecuteAgentRequest) (domain.NotebookCell, domain.SandboxEvent, domain.SandboxEvent, error) {
-	return domain.NotebookCell{}, domain.SandboxEvent{}, domain.SandboxEvent{}, e.err
 }

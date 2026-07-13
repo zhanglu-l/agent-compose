@@ -180,6 +180,9 @@ func (b *SandboxRPCBridge) createSandbox(ctx context.Context, req sandboxRPCCrea
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if err := driverpkg.ValidateCompiledRuntimeDriver(driver); err != nil {
+		return nil, api.ConnectErrorForDomain(classifyRuntimeProviderError(err))
+	}
 	guestImage := driverpkg.ResolveSandboxGuestImage(req.GuestImage, driverpkg.DefaultGuestImageForDriver(b.config, driver))
 	session, err := b.store.CreateSandbox(ctx, req.Title, req.BaseWorkspace, driver, guestImage, workspaceID, source, workspaceSnapshot, envItems, tags)
 	if err != nil {

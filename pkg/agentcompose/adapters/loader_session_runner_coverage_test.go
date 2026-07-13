@@ -3,7 +3,9 @@ package adapters
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	driverpkg "agent-compose/pkg/driver"
@@ -121,6 +123,80 @@ func TestLoaderSandboxRunnerRejectsUnsupportedStickyResumeBeforeSideEffects(t *t
 	}
 }
 
+func TestLoaderSandboxRunnerRejectsUncompiledDriverBeforePersistence(t *testing.T) {
+	for _, runtimeDriver := range []string{driverpkg.RuntimeDriverBoxlite, driverpkg.RuntimeDriverMicrosandbox} {
+		t.Run(runtimeDriver, func(t *testing.T) {
+			rawErr := driverpkg.ValidateCompiledRuntimeDriver(runtimeDriver)
+			if rawErr == nil {
+				t.Skipf("runtime driver %s is compiled in this build", runtimeDriver)
+			}
+			ctx := context.Background()
+			bridge, sandboxDriver := newTestSandboxRPCBridge(t)
+			publisher := &loaderSessionPublisherFake{}
+			runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, sandboxDriver, nil, nil, bridge.streams, publisher, nil)
+			loader := domain.Loader{Summary: domain.LoaderSummary{
+				ID:            "loader-uncompiled-" + runtimeDriver,
+				Name:          "Uncompiled " + runtimeDriver,
+				Driver:        runtimeDriver,
+				SandboxPolicy: domain.LoaderSandboxPolicySticky,
+			}}
+			triggerID := "trigger-uncompiled"
+			originalBinding := domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: triggerID, SandboxID: "missing-original-sandbox"}
+			if err := bridge.configDB.UpsertLoaderBinding(ctx, originalBinding); err != nil {
+				t.Fatalf("UpsertLoaderBinding returned error: %v", err)
+			}
+			originalBinding, found, err := bridge.configDB.GetLoaderBinding(ctx, loader.Summary.ID, triggerID)
+			if err != nil || !found {
+				t.Fatalf("GetLoaderBinding before Ensure returned binding=%#v found=%v err=%v", originalBinding, found, err)
+			}
+			beforeSandboxes, err := bridge.store.ListSandboxes(ctx, domain.SandboxListOptions{})
+			if err != nil {
+				t.Fatalf("ListSandboxes before Ensure returned error: %v", err)
+			}
+			beforeEntries := sandboxRootEntryNames(t, bridge.config.SandboxRoot)
+			_, _, err = runner.Ensure(ctx, loader, domain.LoaderAgentRequest{BindingTriggerID: triggerID}, false)
+			if !errors.Is(err, driverpkg.ErrRuntimeDriverNotCompiled) || !errors.Is(err, domain.ErrUnsupported) {
+				t.Fatalf("Ensure error = %v, want typed unsupported error", err)
+			}
+			var notCompiled *driverpkg.RuntimeDriverNotCompiledError
+			if !errors.As(err, &notCompiled) || notCompiled.Driver != runtimeDriver {
+				t.Fatalf("Ensure typed error = %#v, want driver %q", notCompiled, runtimeDriver)
+			}
+			afterSandboxes, err := bridge.store.ListSandboxes(ctx, domain.SandboxListOptions{})
+			if err != nil || len(afterSandboxes.Sandboxes) != len(beforeSandboxes.Sandboxes) {
+				t.Fatalf("sandboxes changed: before=%d after=%d err=%v", len(beforeSandboxes.Sandboxes), len(afterSandboxes.Sandboxes), err)
+			}
+			binding, found, err := bridge.configDB.GetLoaderBinding(ctx, loader.Summary.ID, triggerID)
+			if err != nil || !found || binding != originalBinding {
+				t.Fatalf("binding changed: got=%#v found=%v err=%v, want %#v", binding, found, err, originalBinding)
+			}
+			events, err := bridge.configDB.ListLoaderEvents(ctx, loader.Summary.ID, 100)
+			if err != nil || len(events) != 0 || len(publisher.events) != 0 {
+				t.Fatalf("events changed: persisted=%#v published=%#v err=%v", events, publisher.events, err)
+			}
+			if afterEntries := sandboxRootEntryNames(t, bridge.config.SandboxRoot); !reflect.DeepEqual(afterEntries, beforeEntries) {
+				t.Fatalf("sandbox artifacts changed: before=%#v after=%#v", beforeEntries, afterEntries)
+			}
+			if len(sandboxDriver.startCalls) != 0 {
+				t.Fatalf("unsupported Ensure called StartSandboxVM: %#v", sandboxDriver.startCalls)
+			}
+		})
+	}
+}
+
+func sandboxRootEntryNames(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("ReadDir(%s) returned error: %v", root, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
 func TestLoaderSandboxRunnerResolvesVolumeMounts(t *testing.T) {
 	ctx := context.Background()
 	bridge, driver := newTestSandboxRPCBridge(t)
@@ -202,10 +278,14 @@ func TestLoaderSandboxRunnerResolvesVolumeMounts(t *testing.T) {
 
 func TestIntegrationLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	TestLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t)
+	TestLoaderSandboxRunnerRejectsUncompiledDriverBeforePersistence(t)
+	TestLoaderSandboxRunnerResolvesVolumeMounts(t)
 }
 
 func TestE2ELoaderSandboxRunnerLoadResumeAndShutdownCoverage(t *testing.T) {
 	TestLoaderSandboxRunnerLoadResumeAndShutdownCoverage(t)
+	TestLoaderSandboxRunnerRejectsUncompiledDriverBeforePersistence(t)
+	TestLoaderSandboxRunnerResolvesVolumeMounts(t)
 }
 
 type loaderSessionPublisherFake struct {

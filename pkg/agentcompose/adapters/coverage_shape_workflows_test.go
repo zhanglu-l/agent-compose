@@ -18,6 +18,7 @@ func TestIntegrationAdapterRuntimeWorkflows(t *testing.T) {
 	t.Run("sandbox resume reuses runtime", TestSandboxDriverResumeReusesRuntimeWithoutRefreshingStartupEnv)
 	t.Run("sandbox rpc", TestSandboxRPCBridgeCallJSONSupportsSessionRPCs)
 	t.Run("sandbox rpc unsupported history", TestSandboxRPCBridgeHistoricalUnsupportedRuntimeIsUnimplementedAndPreservesSummary)
+	t.Run("sandbox rpc unsupported persistence boundary", TestSandboxRPCBridgeRejectsUncompiledDriverBeforePersistence)
 	t.Run("capability guide lifecycle", TestSandboxRPCBridgeCapabilityGuideLifecycle)
 	t.Run("capability guide best effort", TestSandboxRPCBridgeCapabilityGuideIsBestEffort)
 	t.Run("runtime liveness", TestSandboxRuntimeLivenessAndNotifierBranches)

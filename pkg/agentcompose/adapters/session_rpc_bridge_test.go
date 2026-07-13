@@ -362,7 +362,7 @@ func newTestSandboxRPCBridge(t *testing.T) (*SandboxRPCBridge, *fakeRPCSandboxDr
 		DataRoot:             root,
 		SandboxRoot:          filepath.Join(root, "sandboxes"),
 		DbAddr:               filepath.Join(root, "data.db"),
-		RuntimeDriver:        driverpkg.RuntimeDriverBoxlite,
+		RuntimeDriver:        driverpkg.RuntimeDriverDocker,
 		DefaultImage:         "agent-compose-test:latest",
 		BoxliteHome:          filepath.Join(root, "boxlite"),
 		GuestWorkspacePath:   "/workspace",

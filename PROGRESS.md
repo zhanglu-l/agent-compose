@@ -9,8 +9,8 @@
 - 当前变更：platform-runtime-build。
 - 已确认产物：macOS Docker-only binary、Linux 三 Driver binary、Linux 三 Driver multi-arch Docker image。
 - 发布边界：binary 只用于本地和 CI 验证，不进入 GitHub Release。
-- 当前进度：4/18 个父任务完成。
-- 当前下一目标：2.2 在所有持久化入口提前拒绝未编译 Driver。
+- 当前进度：5/18 个父任务完成。
+- 当前下一目标：2.3 暴露兼容的 CLI 与 HTTP Build 信息。
 
 ## 文档索引
 
@@ -202,7 +202,7 @@
       - 未修改 proto、SQLite schema、guest protocol、默认 Docker driver、coverage 配置或暂停的 Workspace Resume 账本；按计划尚未检查远端 CI。
     - 下一目标：2.2 在所有持久化入口提前拒绝未编译 Driver。
 
-- [ ] 2.2 在所有持久化入口提前拒绝未编译 Driver
+- [x] 2.2 在所有持久化入口提前拒绝未编译 Driver
   - 依赖：2.1。
   - 可并行关系：可与2.3并行，避免同时修改cmd/agent-compose/main.go。
   - 工作内容：
@@ -212,19 +212,34 @@
     - loader/scheduler创建sandbox前再次验证。
     - 保持pkg/compose纯normalize跨平台接受三种产品driver。
   - 可并行子任务：
-    - [ ] 可并行：session和agent definition入口。
-    - [ ] 可并行：project apply/validate入口。
-    - [ ] 可并行：loader/scheduler入口和持久化副作用审计。
+    - [x] 可并行：session和agent definition入口。
+    - [x] 可并行：project apply/validate入口。
+    - [x] 可并行：loader/scheduler入口和持久化副作用审计。
   - 测试方案：
     - ./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/projects ./pkg/compose -run 'Test.*(Driver|Sandbox|AgentDefinition|Project|Loader)' -count=1
     - 断言失败前后store内容、revision和session数量不变。
   - 验收标准：macOS/Docker-only daemon不能持久化BoxLite/Microsandbox新配置；纯config解析仍跨平台；所有错误使用unsupported语义且无部分写入。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：2.3（若未完成）或3.1。
+    - 状态：已完成。
+    - 变更：
+      - session RPC 在规范化 Driver 名称后、创建 sandbox 文件树前校验 compiled capability；合法但未编译名称保留 `ErrRuntimeDriverNotCompiled` typed identity，经 domain/Connect 映射为 unsupported/`Unimplemented`，非法名称仍为 `InvalidArgument`。
+      - AgentDefinition create/update 及历史 definition 重新启用在数据库写入前校验；禁用未编译 Driver 的历史 definition 仍允许。当前 proto/handler 不存在 batch AgentDefinition RPC，因此未虚构新接口。
+      - `projects.Controller` 在 project、revision、managed agent、scheduler、loader、trigger、image和volume写入前统一解析并校验 Driver；`ValidateProject`/`ApplyProject` 返回 `agents.<name>.driver` issue，纯 `pkg/compose` Parse/Normalize 仍接受 Docker、BoxLite、Microsandbox。
+      - loader runner 与 project-managed scheduler/run 在 image、volume、Jupyter、sandbox、binding、event和runtime副作用前再次校验；新 sandbox、缺失 sticky replacement及已有历史 sandbox都返回 typed unsupported且保留原状态。
+      - 把受 compiled capability 影响的通用 CLI/API/project/run fixture 改为 Docker，并以本地 fake Docker image inspect 保持 CLI apply 测试确定、无 registry/宿主镜像依赖；Docker Jupyter path 的 host port断言按运行时分配合同保持为零。
+    - 验证：
+      - `CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/projects ./pkg/compose ./pkg/runs -run 'Test.*(Driver|Sandbox|AgentDefinition|Project|Loader|Scheduled)' -count=1`：通过。
+      - `CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/agentcompose/api ./pkg/projects ./pkg/compose ./pkg/runs ./pkg/loaders -count=1`：通过。
+      - 使用现有 `build/boxlite`、`build/microsandbox` artifact 和 `LD_LIBRARY_PATH` 分别以 `boxlitecgo`、`microsandboxcgo` 单 tag及 `boxlitecgo,microsandboxcgo` 双 tag运行 adapters、API、projects、compose、runs 完整 package：三组均通过；单 tag仍验证另一未编译 Driver，双 tag证明 full build不误拒绝且不访问 KVM。
+      - `task lint`：通过，`0 issues`；`task build`：通过，CGO-off daemon、v2 proto、runtime SDK build/packaging均成功。
+      - `task test`：最终通过；`CGO_ENABLED=0`，Unit `77.23%`、Integration `64.08%`、E2E `60.08%`、Combined `77.26%`，满足 `60%/60%/60%/70%` 门禁。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - 直接生产 `CreateSandbox*` 调用点审计仅有 session bridge、loader runner和runs controller，三处均已在写入前覆盖；AgentDefinition无 batch RPC。
+      - 零副作用测试覆盖 sandbox数量/目录、agent definition、project/current revision/agent/scheduler/loader/trigger、sticky binding、loader/topic/sandbox event、proxy state、runtime ref、volume resolver与driver start call，BoxLite、Microsandbox均验证 typed Driver字段。
+      - 首次 `task test` 暴露四个 CGO-off CLI apply fixture仍使用BoxLite；改为Docker后用本地 fake Docker API隔离image ensure。随后全测试通过但E2E coverage先为`59.03%`、首轮边界wrapper为`59.11%`；把同一组确定性持久化、volume、Jupyter和scheduler测试接入既有integration/E2E wrapper后达到`60.08%`，未修改coverage threshold或exclusion。
+      - 未修改 `cmd/agent-compose/main.go`、默认 Docker Driver、compose normalize、proto、SQLite schema、guest protocol、coverage配置或暂停的Workspace Resume账本；按计划未检查远端CI。
+    - 下一目标：2.3 暴露兼容的 CLI 与 HTTP Build 信息。
 
 - [ ] 2.3 暴露兼容的 CLI 与 HTTP Build 信息
   - 依赖：2.1。

@@ -1255,6 +1255,7 @@ func TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON(t *testing.T) {
 		t.Fatalf("config inline output missing scheduler script:\n%s", configOut)
 	}
 
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1318,6 +1319,7 @@ func TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON(t *testing.T) {
 
 func testCLIUpAppliesProjectFirstRepeatedModifiedAndJSON(t *testing.T) {
 	t.Helper()
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1341,7 +1343,7 @@ agents:
       Review the proposed changes carefully.
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       triggers:
         - name: hourly
@@ -1402,7 +1404,7 @@ agents:
       Review the proposed changes carefully.
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       triggers:
         - name: hourly
@@ -1431,6 +1433,7 @@ agents:
 
 func testCLIWorkspaceRegistryConfigAndApply(t *testing.T) {
 	t.Helper()
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1456,7 +1459,7 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
 `)
 
 		stdout, stderr, _, exitCode := executeCLICommand("config", "--file", composePath, "--json")
@@ -1513,7 +1516,7 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     workspace:
       name: repo-root
 `)
@@ -9264,11 +9267,33 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       script: |
         scheduler.interval("interval-review", function intervalReview() {}, %d);
 `, name, intervalMs)
+}
+
+func useTestDockerImage(t *testing.T, imageRef string) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.48")
+			_, _ = w.Write([]byte("OK"))
+		case strings.HasSuffix(req.URL.Path, "/images/"+imageRef+"/json"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Id":       "sha256:test-image",
+				"RepoTags": []string{imageRef},
+				"Os":       "linux",
+			})
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(server.URL, "http://"))
 }
 
 func decodeComposeUpOutput(t *testing.T, raw string) composeUpOutput {
