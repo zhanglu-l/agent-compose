@@ -122,11 +122,18 @@ network, or volumes remain after cleanup. The task also installs a
 fixture-scoped interrupt/exit cleanup trap; a hard-killed run reports any stale
 resource IDs on the next invocation instead of touching unrelated containers.
 Ordinary `task test` runs only the deterministic task contract and compiles the
-environment-gated runtime cases without contacting Docker.
+environment-gated runtime cases without contacting the Docker daemon.
 
 ## Quality Gate
 
 `task test` is the project quality gate for tests.
+
+Before coverage collection, it runs `task test:deploy` to validate the
+installer state machine, base and KVM Compose rendering, and the exact installer
+release-asset set. These deterministic checks require the Docker CLI with
+Compose v2 and `jq`, but do not require a running Docker daemon, KVM, network
+access, or runtime sandboxes. They do not change or contribute to the coverage
+baselines below.
 
 The `test` task in `Taskfile.yml` must calculate and print:
 - unit-test coverage

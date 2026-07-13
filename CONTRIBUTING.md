@@ -43,12 +43,15 @@ changes clearly, and include tests for user-visible behavior.
   - export BoxLite/Microsandbox development artifacts used by Linux
     `task build`, daemon image builds, and runtime smoke tests.
 
-  Docker is not required for `task lint`, `task test`, or the Darwin binary
-  build. On Linux, `task build` selects the full binary profile and requires
-  Docker when the two native artifact sets have not already been prepared.
-  Direct BoxLite and Microsandbox runtime testing additionally requires
-  Linux/KVM and the platform-specific artifacts prepared by the corresponding
-  Task targets.
+  Lint and unit-style test commands remain isolated and do not start Docker
+  workloads. The full `task test` harness also runs deterministic deployment
+  contract checks, which require the Docker Compose CLI and `jq` but do not
+  contact the Docker daemon. On Linux, `task build` selects the full
+  Docker/BoxLite/Microsandbox binary profile; its native artifact preparation
+  uses Docker when matching artifacts are not already present. The Darwin
+  binary profile compiles only Docker support. Real BoxLite and Microsandbox
+  runtime smoke tests additionally require a prepared Linux host with usable
+  KVM access.
 
 Verify the required versions before installing dependencies:
 

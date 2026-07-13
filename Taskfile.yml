@@ -68,7 +68,7 @@ tasks:
       - echo "clean done"
 
   image:agent-compose-guest:
-    desc: Build the agent-compose guest image used by BoxLite at runtime
+    desc: Build the agent-compose guest image used by sandbox deployments
     dir: '{{.TASKFILE_DIR}}'
     cmds:
       - ./scripts/build-agent-compose-guest.sh

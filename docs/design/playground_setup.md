@@ -20,7 +20,9 @@ the repo.
 ## Prerequisites
 
 - Docker and `docker compose` are available on the host.
-- `/dev/kvm` exists on the host.
+- `/dev/kvm` exists and is usable only when this playground selects the BoxLite
+  or Microsandbox runtime. The current `RUNTIME_DRIVER=docker` path does not
+  require KVM.
 - The host allows containers to mount `/var/run/docker.sock`.
 - The `/data/code` repository exists locally.
 - The build machine can access image and dependency sources needed by the build,
@@ -65,15 +67,7 @@ clients should prefer v2 API.
 
 ## Build Images
 
-Run from the code directory:
-
-```bash
-cd /data/code
-docker build -t debian:bookworm-slim -f guest-images/Dockerfile.agent-compose-guest .
-docker build -t agent-compose:latest -f Dockerfile .
-```
-
-If you prefer Task:
+Run the current image build entry points from the code directory:
 
 ```bash
 cd /data/code
@@ -291,7 +285,9 @@ docker logs --tail 200 agent-compose
 
 Confirm first:
 
-- whether `/dev/kvm` is available
+- which runtime driver the failing sandbox selected; for BoxLite or
+  Microsandbox, whether `/dev/kvm` is available and usable, the deployment has
+  the required privileged/KVM overlay, and native runtime artifacts are healthy
 - whether `/var/run/docker.sock` is mounted correctly
 - whether the image referenced by `DEFAULT_IMAGE` exists in host Docker or can
   be pulled
@@ -317,7 +313,7 @@ Rebuild images and force recreate containers:
 
 ```bash
 cd /data/code
-docker build -t debian:bookworm-slim -f guest-images/Dockerfile.agent-compose-guest .
-docker build -t agent-compose:latest -f Dockerfile .
+task image:agent-compose-guest
+task image:agent-compose
 docker compose -f /data/playground/docker-compose.yml up -d --force-recreate agent-compose agent-compose-frontend
 ```

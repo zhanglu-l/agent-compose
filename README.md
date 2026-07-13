@@ -51,17 +51,25 @@ For the full architecture, see [docs/design/agent-compose_design.md](docs/design
 
 ### Option A — Run a server (recommended)
 
-The one-line installer sets up agent-compose with Docker Compose (including the
-web UI) on Linux amd64/arm64:
+The one-line installer sets up the agent-compose daemon with Docker Compose on
+Linux amd64/arm64:
 
 ```bash
 curl -fsSL https://github.com/chaitin/agent-compose/releases/latest/download/install.sh | bash
 ```
 
-On first run it generates an `admin` password and prints it once, then you work
-through the web UI at the printed URL. See [deploy/README.md](deploy/README.md)
-for options such as `--dir`, `--port`, `--upgrade`, and pulling from a
-mirror/private registry.
+The base stack starts the daemon. The frontend is defined under the `with-ui`
+profile; enable it from the installation directory printed by the installer:
+
+```bash
+cd <directory printed by the installer>
+docker compose --profile with-ui up -d
+```
+
+On first run the installer generates an `admin` password and prints it once;
+use it at the printed URL after enabling the UI profile. See
+[deploy/README.md](deploy/README.md) for options such as `--dir`, `--port`,
+`--upgrade`, and pulling from a mirror/private registry.
 
 ### Option B — Build from source (for the CLI workflow)
 
@@ -70,6 +78,13 @@ task build                       # builds ./build/agent-compose
 export PATH="$PWD/build:$PATH"   # so `agent-compose` is on your PATH
 agent-compose daemon
 ```
+
+The host build is platform-specific: macOS produces a Docker-only native
+binary, while Linux produces a full binary with Docker, BoxLite, and
+Microsandbox compiled in. A Linux build prepares both native runtime artifact
+sets through Docker when matching local artifacts are not already available.
+These native binaries are development and CI verification artifacts, not
+GitHub Release downloads.
 
 The daemon listens on a local Unix socket by default. To expose a local HTTP
 endpoint instead:
@@ -177,6 +192,22 @@ TCP daemon), and `AGENT_COMPOSE_SOCKET` (Unix socket path). Full reference:
 - **`boxlite`**: runs guests as microVMs using BoxLite runtime artifacts.
 - **`microsandbox`**: runs guests using the Microsandbox VM runtime.
 
+The three names describe product-supported drivers; a particular artifact may
+compile a subset:
+
+| Artifact | Compiled drivers |
+| --- | --- |
+| macOS native binary | `docker` |
+| Linux native binary | `docker`, `boxlite`, `microsandbox` |
+| Published Linux daemon image (`amd64` and `arm64`) | `docker`, `boxlite`, `microsandbox` |
+
+Inspect an artifact with `agent-compose --json version` or `/api/version`.
+The `compiled_drivers` field reports build capability only—it does not probe the
+Docker daemon, KVM, or native runtime artifacts, and it is not a runtime health
+or availability list. The full Linux image still defaults to `docker` and works
+in Docker mode on macOS Docker Desktop; KVM is needed only when actually using
+BoxLite or Microsandbox.
+
 Image handling is selected by `IMAGE_STORE_MODE` (`auto` / `docker` / `oci`,
 where `oci` uses a daemonless image cache). New sandboxes use the image set by
 `DEFAULT_IMAGE`; the bundled `.env.example` and installer set this to
@@ -244,6 +275,21 @@ docker compose pull && docker compose up -d
 docker compose --profile with-ui up -d   # also start the web UI
 ```
 
+The base `docker-compose.yml` mounts the Docker socket but requests neither
+privileged mode nor `/dev/kvm`, so it is the standard Docker-only topology. On a
+Linux host where BoxLite or Microsandbox will be used, add the explicit KVM
+overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.kvm.yml up -d
+```
+
+The installer checks for `/dev/kvm` on a new installation and persists either
+the base file or the base-plus-KVM file set as `COMPOSE_FILE` in `.env`. This is
+deployment selection, not proof that KVM or either native runtime is healthy.
+See [deploy/README.md](deploy/README.md) for manual selection and upgrade
+behavior.
+
 **[`.env.example`](.env.example) is the authoritative, fully commented
 configuration reference.** At minimum, review these before exposing a deployment:
 
@@ -280,7 +326,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and hardening notes.
 ```bash
 task lint
 task build
-task test          # or: task test:unit / task test:integration / task test:e2e
+task test          # includes deterministic installer/Compose/release checks
 ```
 
 Build guest and daemon images with `task image:agent-compose-guest` and
@@ -289,7 +335,26 @@ profile: Docker-only on Darwin and the full Docker, BoxLite, and Microsandbox
 profile on Linux. Use `task build:agent-compose:darwin` or
 `task build:agent-compose:linux` to select one explicitly. The old
 `build:agent-compose:boxlite` task is a deprecated alias for the Linux full
-profile. The JavaScript runtime components live under `runtime/`.
+profile. It is not a separate BoxLite-only build. `compiled_drivers` can verify
+the resulting build capability, but not runtime availability.
+
+Stable deployment and full-image Docker smoke entry points are:
+
+```bash
+task test:deploy
+task image:agent-compose
+task image:agent-compose-guest
+task test:e2e:image-docker
+```
+
+The image smoke runs the full three-driver Linux image through its Docker path
+without privilege or KVM. Real BoxLite/Microsandbox smoke remains an explicit
+Linux/KVM operation via `task test:runtime-smoke`.
+
+Native binaries are retained only for local and CI verification. GitHub Release
+continues to ship installer assets; the supported deployment payload is the
+published multi-architecture image plus that installer, not standalone macOS or
+Linux binaries. The JavaScript runtime components live under `runtime/`.
 
 ## Documentation
 

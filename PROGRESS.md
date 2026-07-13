@@ -9,8 +9,8 @@
 - 当前变更：platform-runtime-build。
 - 已确认产物：macOS Docker-only binary、Linux 三 Driver binary、Linux 三 Driver multi-arch Docker image。
 - 发布边界：binary 只用于本地和 CI 验证，不进入 GitHub Release。
-- 当前进度：16/18 个父任务完成。
-- 当前下一目标：7.1 同步英文/中文文档与Harness。
+- 当前进度：17/18 个父任务完成。
+- 当前下一目标：7.2 执行全量门禁、实机验证与最终审计。
 
 ## 文档索引
 
@@ -681,7 +681,7 @@
 
 参考：[实施计划阶段 7](docs/plan/platform-runtime-build-implementation-plan.md#阶段-7同步文档harness-与最终验收)
 
-- [ ] 7.1 同步英文/中文文档与 Harness
+- [x] 7.1 同步英文/中文文档与 Harness
   - 依赖：6.2。
   - 工作内容：
     - 更新AGENTS.md、CONTRIBUTING.md、README.md、docs/zh-CN/README.md。
@@ -689,20 +689,31 @@
     - 仅在新增image/deploy smoke需要说明时更新TESTING.md，不改变coverage baseline和KVM opt-in。
     - 删除“普通开发不需要Docker”和“可选BoxLite binary”旧叙述，记录deprecated alias。
   - 可并行子任务：
-    - [ ] 可并行：英文harness/README/deploy文档。
-    - [ ] 可并行：中文README/设计文档。
-    - [ ] 可并行：命令、环境变量和旧术语rg审计。
+    - [x] 可并行：英文harness/README/deploy文档。
+    - [x] 可并行：中文README/设计文档。
+    - [x] 可并行：命令、环境变量和旧术语rg审计。
   - 测试方案：
     - rg审计build:agent-compose:boxlite、Docker is not required、旧内联tags和/dev/kvm叙述。
     - task --list-all与文档命令逐项对照。
     - docker compose两种组合config。
   - 验收标准：文档准确表达三类产物、compiled与available区别、基础/KVM Compose及Release边界；中英文关键合同一致。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：7.2。
+    - 状态：已完成。
+    - 变更：
+      - `AGENTS.md`、`CONTRIBUTING.md`、`TESTING.md`和`Taskfile.yml`同步稳定构建矩阵、Docker/Compose前置条件、`test:deploy`与full-image/KVM smoke边界、当前lint参数和guest image用途；明确Darwin仅Docker、Linux binary/image三Driver，`build:agent-compose:boxlite`只保留deprecated alias。
+      - 英文/中文README及`deploy/README.md`同步host build、`compiled_drivers`与runtime availability/health区别、基础Compose与显式KVM overlay、installer持久化`COMPOSE_FILE`、当前`with-ui` profile需显式启动的事实，以及native binary不进入GitHub Release的发布边界。
+      - 英文/中文agent-compose design记录`darwin-docker`与`linux-full` profile、提前compiled capability校验、lazy runtime和Compose拓扑；删除旧inline CGO/tags叙述，并按compiled capability描述driver cache source。
+      - 英文/中文playground design改为Docker socket/image优先的基础路径，只有BoxLite/Microsandbox验证要求KVM、privileged overlay和native artifact，并统一使用当前Task image owner命令。
+    - 验证：
+      - `task --list-all`及逐项`task --summary`审计所有文档中的真实Task命令：通过；deprecated alias只作为明确迁移说明出现。
+      - 旧术语/旧inline tags focused `rg`：通过，无“Docker is not required”、可选BoxLite binary、普通CGO隐式native driver或文档自行拼装tags叙述。
+      - `docker compose --env-file .env.example -f docker-compose.yml config --quiet`与追加`-f docker-compose.kvm.yml`：均通过；`task test:deploy`通过installer状态机、两种Compose拓扑及精确release asset合同。
+      - `task lint`：通过，`0 issues`；`task build`：通过；`task test`：通过，coverage为unit `77.25%`、integration `65.96%`、E2E `61.84%`、combined `79.54%`；`git diff --check`：通过。
+    - 审计与例外：
+      - 三个subagent分别完成英文/harness/deploy编辑、中文文档编辑和命令/环境变量/旧术语read-only审计；主agent统一复核并补齐Task描述、profile owner语义及双语一致性。`.env.example`已在5.3准确记录Docker默认、基础/KVM选择和空secret，本任务审计后保持不变。
+      - 当前installer实际只以普通`docker compose up -d`启动基础daemon，frontend仍在`with-ui` profile；双语Quick Start和deploy文档已按真实行为要求显式启动UI，没有在文档父任务中扩大为installer交互行为修改。
+      - 7.1未运行真实KVM smoke、macOS Docker Desktop实机或最终image build/E2E，这些环境/最终验收按账本留给7.2；未检查远端CI。未修改proto、SQLite schema、guest protocol、默认Docker driver、coverage baseline/exclusion或暂停的Workspace Resume账本。
+    - 下一目标：7.2 执行全量门禁、实机验证与最终审计。
 
 - [ ] 7.2 执行全量门禁、实机验证与最终审计
   - 依赖：7.1。
