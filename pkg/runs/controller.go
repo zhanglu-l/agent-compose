@@ -961,14 +961,11 @@ func (c *Controller) runPromptInteraction(ctx context.Context, coordinator *Coor
 				promptTransition = nextTransition
 			}
 		case driverpkg.RuntimeOutputStderr:
-			chunk := domain.ExecChunk{Text: string(frame.Data), Stream: domain.StdioStderr}
-			offset, err := appendProjectRunLogChunk(logsPath, chunk)
-			if err != nil {
+			if err := projector.AppendStderr(string(frame.Data)); err != nil {
 				transition.ExitCode = 1
 				transition.Error = fmt.Sprintf("agent execution failed: %v", err)
 				return transition, err
 			}
-			c.publishRunLogChunk(run.RunID, chunk, offset)
 			if err := send(runAttachOutputResponse(frame.Data, agentcomposev2.StdioStream_STDIO_STREAM_STDERR, false)); err != nil {
 				transition.ExitCode = 1
 				transition.Error = fmt.Sprintf("agent execution failed: %v", err)
@@ -1380,14 +1377,16 @@ func pumpRunPromptAttachInput(receive RunAttachReceiver, input *promptWrapperInp
 }
 
 type promptAttachProjector struct {
-	run        domain.ProjectRunRecord
-	sandbox    *domain.Sandbox
-	logsPath   string
-	runLogs    *RunLogHub
-	mu         sync.Mutex
-	buffer     []byte
-	itemTexts  map[string]string
-	loggedText string
+	run                domain.ProjectRunRecord
+	sandbox            *domain.Sandbox
+	logsPath           string
+	runLogs            *RunLogHub
+	mu                 sync.Mutex
+	buffer             []byte
+	itemTexts          map[string]string
+	loggedText         string
+	hasLoggedText      bool
+	logEndsWithNewline bool
 }
 
 func newPromptAttachProjector(run domain.ProjectRunRecord, sandbox *domain.Sandbox, logsPath string, hub *RunLogHub) *promptAttachProjector {
@@ -1524,7 +1523,7 @@ func (p *promptAttachProjector) appendLogText(text string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.appendLogChunkLocked(text); err != nil {
+	if err := p.appendLogChunkLocked(domain.ExecChunk{Text: text}); err != nil {
 		return err
 	}
 	p.loggedText += text
@@ -1542,14 +1541,14 @@ func (p *promptAttachProjector) appendLogFinalText(finalText string) error {
 		if text == "" {
 			return nil
 		}
-		if err := p.appendLogChunkLocked(text); err != nil {
+		if err := p.appendLogChunkLocked(domain.ExecChunk{Text: text}); err != nil {
 			return err
 		}
 		p.loggedText += text
 		return nil
 	}
 	if p.loggedText == "" {
-		if err := p.appendLogChunkLocked(finalText); err != nil {
+		if err := p.appendLogChunkLocked(domain.ExecChunk{Text: finalText}); err != nil {
 			return err
 		}
 		p.loggedText = finalText
@@ -1559,27 +1558,43 @@ func (p *promptAttachProjector) appendLogFinalText(finalText string) error {
 
 func (p *promptAttachProjector) AppendHumanMessage(message string) error {
 	text := promptAttachHumanLogText(message)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if text != "" {
+		if p.hasLoggedText && !p.logEndsWithNewline {
+			text = "\n" + text
+		}
+		if err := p.appendLogChunkLocked(domain.ExecChunk{Text: text}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *promptAttachProjector) AppendStderr(text string) error {
 	if text == "" {
 		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.appendLogChunkLocked(text)
+	return p.appendLogChunkLocked(domain.ExecChunk{Text: text, Stream: domain.StdioStderr})
 }
 
-func (p *promptAttachProjector) appendLogChunkLocked(text string) error {
-	chunk := domain.ExecChunk{Text: text}
+func (p *promptAttachProjector) appendLogChunkLocked(chunk domain.ExecChunk) error {
 	offset, err := appendProjectRunLogChunk(p.logsPath, chunk)
 	if err != nil {
 		return err
+	}
+	if chunk.Text != "" {
+		p.hasLoggedText = true
+		p.logEndsWithNewline = strings.HasSuffix(chunk.Text, "\n")
 	}
 	publishRunLogChunk(p.runLogs, p.run.RunID, chunk, offset)
 	return nil
 }
 
 func promptAttachHumanLogText(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" {
+	if strings.TrimSpace(message) == "" {
 		return ""
 	}
 	if strings.HasSuffix(message, "\n") {
