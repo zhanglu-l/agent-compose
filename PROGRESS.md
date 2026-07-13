@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：4/20 完成。
-- 当前下一目标：2.3 收紧 file/Git materializer 边界并完成 Provisioner 单元收口。
+- 代码任务：5/20 完成。
+- 当前下一目标：3.1 注册 Provisioner 单例并建立调用层接口。
 
 ## 执行规则
 
@@ -184,7 +184,7 @@
       - 未修改 proto、SQLite schema、公开 CLI、环境变量、compose 或 runtime mount；无未运行的任务内门禁。
     - 下一目标：2.3 收紧 file/Git materializer 边界并完成 Provisioner 单元收口。
 
-- [ ] 2.3 收紧 file/Git materializer 边界并完成 Provisioner 单元收口
+- [x] 2.3 收紧 file/Git materializer 边界并完成 Provisioner 单元收口
   - 依赖：2.2。
   - 工作内容：
     - 将原 session preparation 降为 Provisioner 内部 materialization，禁止生命周期层直接调用。
@@ -192,19 +192,38 @@
     - 为 file、Git、legacy、source 删除、用户清空、symlink 和远端更新补齐 unit tests。
     - 运行 `go mod tidy` 并审计依赖只产生预期变化。
   - 可并行子任务：
-    - [ ] 可并行：file workspace 状态保持用例。
-    - [ ] 可并行：本地 Git fixture 和不 re-clone 用例。
-    - [ ] 可并行：依赖 diff 与 provider 调用点审计。
+    - [x] 可并行：file workspace 状态保持用例。
+    - [x] 可并行：本地 Git fixture 和不 re-clone 用例。
+    - [x] 可并行：依赖 diff 与 provider 调用点审计。
   - 测试方案：
     - `./scripts/with-go-toolchain.sh go test ./pkg/workspaces ./pkg/model ./pkg/storage/sessionstore -count=1`
     - `./scripts/with-go-toolchain.sh go test -race ./pkg/workspaces -count=1`
   - 验收标准：file/Git 首次初始化一次；ready 后 source 变化、删除或不可达均不影响 Ensure；race test 无数据竞争。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：3.1。
+    - 状态：已完成。
+    - 变更：
+      - 默认 `sessionWorkspaceMaterializer` 改为调用 package-private `materializeSessionWorkspace`，原 workspace config materializer 同步降为私有；公开 `PrepareSessionWorkspace` 仅作为生命周期迁移期间的 deprecated compatibility wrapper 保留。
+      - Git provider 删除 `HostWorkspaceInitialized` 目录内容启发式，始终在 Provisioner 提供的空 attempt staging 中完成 clone/checkout；相关旧启发式测试和“已有正式目录时跳过 clone”断言已删除。
+      - 增加真实 file provider + Provisioner 状态保持测试，覆盖首次复制一次、同名文件内容/mode 修改、删除、目录重命名、新增文件、symlink、source/config 变化与删除、config backend 不可用。
+      - 增加本地真实 Git fixture + Provisioner 状态保持测试，覆盖 branch/pinned commit、首次 clone、tracked/untracked 本地修改、tracked 删除、用户清空、远端 advance 和远端删除不可达。
+      - legacy 测试扩展到 VM `PENDING/RUNNING/STOPPED/FAILED` 及 missing/empty/partial/symlink workspace，使用 filesystem/config/materializer panic guard 证明只持久化 ready 且不检查内容。
+      - `go mod tidy` 将已有直接 `http2/h2c` import 对应的 `golang.org/x/net v0.55.0` 归为 direct，保持 `golang.org/x/sync v0.20.0` direct，并删除未使用的 `x/sys v0.45.0` sums；当前有效 `x/sys` 仍为 `v0.47.0`。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./pkg/workspaces -run '^TestProvisioner(FileReadyPreservesWorkspaceState|GitWorkspaceReadyPreservesState|LegacyWorkspacePersistsReadyWithoutResolvingSource)$' -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/workspaces ./pkg/model ./pkg/storage/sessionstore -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh go test -race ./pkg/workspaces -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh golangci-lint fmt --no-config --diff ./pkg/workspaces ./pkg/model ./pkg/storage/sessionstore`：通过。
+      - `./scripts/with-go-toolchain.sh golangci-lint run --no-config --allow-parallel-runners ./pkg/workspaces ./pkg/model ./pkg/storage/sessionstore`：通过，`0 issues`。
+      - 在不包含 ignored `data/` 的 detached 临时 worktree 运行 `./scripts/with-go-toolchain.sh go mod tidy`，随后 `go mod tidy -diff` 无输出；主工作区 `go.mod`/`go.sum` 与该结果逐字节一致。
+      - `./scripts/with-go-toolchain.sh go mod verify`、`go list -m -json golang.org/x/net golang.org/x/sync golang.org/x/sys` 与 `go mod graph`：通过并确认 direct 版本分别为 `v0.55.0`、`v0.20.0`、`v0.47.0`。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - `rg -n 'HostWorkspaceInitialized\(' pkg` 为零命中；file/Git provider materializer 在 production 中仅由私有默认 materializer 经 Provisioner 调用，focused provider tests 保留直接 helper 调用。
+      - `PrepareSessionWorkspace` 尚有六个 production 调用点：`pkg/sessions/lifecycle.go` 两处和 `pkg/agentcompose/adapters/session_rpc_bridge.go` 一处归 3.2，`pkg/agentcompose/adapters/loader_session_runner.go` 两处和 `pkg/runs/controller.go` 一处归 3.3；本任务未提前修改 lifecycle/constructor/DI，compatibility wrapper 计划在 3.4 静态清零后删除。
+      - `x/net` direct 是 `cmd/agent-compose/main.go` 及其测试既有 `http2/h2c` imports 的 tidy debt；本任务没有新增依赖模块或提升版本，删除的 `x/sys v0.45.0` sums 已由当前 `v0.47.0` 取代。
+      - 主工作区直接 tidy 会被两个 root-owned `data/skills/*` mode-0700 ignored 目录阻断，因此使用无 ignored data 的 clean worktree取得成功证据；未把失败命令宣称为通过。
+      - 未修改 proto/generated client、SQLite schema、公开 CLI、环境变量、compose、runtime mount、生命周期生产逻辑或 CI；无其他未运行的任务内门禁。
+    - 下一目标：3.1 注册 Provisioner 单例并建立调用层接口。
 
 ## 3. Sandbox 生命周期接入
 

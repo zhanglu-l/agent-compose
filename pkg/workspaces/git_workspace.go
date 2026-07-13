@@ -57,13 +57,6 @@ func (w gitWorkspace) Prepare(ctx context.Context, session *domain.Sandbox) erro
 	if err := cleanupGitCloneTempDir(workspaceRoot); err != nil {
 		return fmt.Errorf("prepare workspace %s failed: %w", w.workspace.Name, err)
 	}
-	initialized, err := HostWorkspaceInitialized(workspaceRoot)
-	if err != nil {
-		return fmt.Errorf("prepare workspace %s failed: %w", w.workspace.Name, err)
-	}
-	if initialized {
-		return nil
-	}
 	if cloneTarget == "." {
 		if err := cloneGitWorkspaceRoot(ctx, workspaceRoot, cloneURL, cfg); err != nil {
 			return fmt.Errorf("prepare workspace %s failed: %w", w.workspace.Name, err)
@@ -108,21 +101,6 @@ func cleanupGitCloneTempDir(workspaceRoot string) error {
 		return fmt.Errorf("cleanup temp git clone dir: %w", err)
 	}
 	return nil
-}
-
-func HostWorkspaceInitialized(workspaceRoot string) (bool, error) {
-	entries, err := os.ReadDir(workspaceRoot)
-	if err != nil {
-		return false, fmt.Errorf("read workspace root: %w", err)
-	}
-	for _, entry := range entries {
-		switch entry.Name() {
-		case ".agent-compose", GitWorkspaceTempDirName:
-			continue
-		}
-		return true, nil
-	}
-	return false, nil
 }
 
 func cloneGitWorkspaceRoot(ctx context.Context, workspaceRoot, cloneURL string, cfg GitWorkspaceConfig) error {

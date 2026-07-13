@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -50,24 +51,70 @@ func TestProvisionerNoWorkspaceDoesNotCreateStateOrMaterialize(t *testing.T) {
 func TestProvisionerLegacyWorkspacePersistsReadyWithoutResolvingSource(t *testing.T) {
 	t.Parallel()
 
-	stored := provisionerStateSandbox("legacy", "/tmp/legacy-workspace", domain.SandboxWorkspaceProvisioningStatusReady)
-	stored.WorkspaceProvisioning = nil
-	store := newProvisionerStateStore(stored)
-	store.panicOnWorkspaceConfig = true
-	materializer := &provisionerStateMaterializer{panicOnCall: true}
-	provisioner := NewProvisionerWithMaterializer(store, materializer)
+	for _, vmStatus := range []string{
+		domain.VMStatusPending,
+		domain.VMStatusRunning,
+		domain.VMStatusStopped,
+		domain.VMStatusFailed,
+	} {
+		t.Run(vmStatus, func(t *testing.T) {
+			root := t.TempDir()
+			workspacePath := filepath.Join(root, "workspace")
+			switch vmStatus {
+			case domain.VMStatusRunning:
+				if err := os.Mkdir(workspacePath, 0o751); err != nil {
+					t.Fatalf("create empty legacy workspace: %v", err)
+				}
+			case domain.VMStatusStopped:
+				if err := os.Mkdir(workspacePath, 0o750); err != nil {
+					t.Fatalf("create legacy workspace: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(workspacePath, "partial.txt"), []byte("preserve partial\n"), 0o640); err != nil {
+					t.Fatalf("write legacy partial workspace: %v", err)
+				}
+			case domain.VMStatusFailed:
+				target := filepath.Join(root, "external-target")
+				if err := os.Mkdir(target, 0o755); err != nil {
+					t.Fatalf("create legacy symlink target: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(target, "preserved.txt"), []byte("preserve target\n"), 0o644); err != nil {
+					t.Fatalf("write legacy symlink target: %v", err)
+				}
+				if err := os.Symlink(target, workspacePath); err != nil {
+					t.Fatalf("create legacy workspace symlink: %v", err)
+				}
+			}
+			before := snapshotProvisionerStagingTree(t, root)
 
-	caller := cloneProvisionerStateSandbox(stored)
-	if err := provisioner.Ensure(context.Background(), caller); err != nil {
-		t.Fatalf("Ensure returned error: %v", err)
-	}
-	assertProvisionerState(t, caller, domain.SandboxWorkspaceProvisioningStatusReady)
-	assertProvisionerState(t, store.sandbox(t, stored.Summary.ID), domain.SandboxWorkspaceProvisioningStatusReady)
-	if got := store.workspaceConfigCount(); got != 0 {
-		t.Fatalf("GetWorkspaceConfig calls = %d, want 0", got)
-	}
-	if got := materializer.callCount(); got != 0 {
-		t.Fatalf("Materialize calls = %d, want 0", got)
+			stored := provisionerStateSandbox("legacy-"+strings.ToLower(vmStatus), workspacePath, "")
+			stored.Summary.VMStatus = vmStatus
+			stored.WorkspaceProvisioning = nil
+			store := newProvisionerStateStore(stored)
+			store.panicOnWorkspaceConfig = true
+			materializer := &provisionerStateMaterializer{panicOnCall: true}
+			provisioner := NewProvisionerWithMaterializer(store, materializer)
+			provisioner.filesystem = panicProvisionerStagingFileSystem{}
+
+			caller := cloneProvisionerStateSandbox(stored)
+			if err := provisioner.Ensure(context.Background(), caller); err != nil {
+				t.Fatalf("Ensure returned error: %v", err)
+			}
+			assertProvisionerState(t, caller, domain.SandboxWorkspaceProvisioningStatusReady)
+			assertProvisionerState(t, store.sandbox(t, stored.Summary.ID), domain.SandboxWorkspaceProvisioningStatusReady)
+			if got := store.updateCount(); got != 1 {
+				t.Fatalf("UpdateSandbox calls = %d, want 1", got)
+			}
+			if got := store.workspaceConfigCount(); got != 0 {
+				t.Fatalf("GetWorkspaceConfig calls = %d, want 0", got)
+			}
+			if got := materializer.callCount(); got != 0 {
+				t.Fatalf("Materialize calls = %d, want 0", got)
+			}
+			after := snapshotProvisionerStagingTree(t, root)
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("legacy workspace tree changed:\n got: %#v\nwant: %#v", after, before)
+			}
+		})
 	}
 }
 

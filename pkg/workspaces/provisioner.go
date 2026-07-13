@@ -172,5 +172,5 @@ type sessionWorkspaceMaterializer struct {
 }
 
 func (m sessionWorkspaceMaterializer) Materialize(ctx context.Context, sandbox *domain.Sandbox) error {
-	return PrepareSessionWorkspace(ctx, m.config, m.workspaces, sandbox)
+	return materializeSessionWorkspace(ctx, m.config, m.workspaces, sandbox)
 }
