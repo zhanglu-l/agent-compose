@@ -9,8 +9,8 @@
 - 当前变更：platform-runtime-build。
 - 已确认产物：macOS Docker-only binary、Linux 三 Driver binary、Linux 三 Driver multi-arch Docker image。
 - 发布边界：binary 只用于本地和 CI 验证，不进入 GitHub Release。
-- 当前进度：0/18 个父任务完成。
-- 当前下一目标：1.1 建立 compiled driver 能力模型与 typed error。
+- 当前进度：1/18 个父任务完成。
+- 当前下一目标：1.2 收紧 BoxLite、Microsandbox 和共享 CGO build constraints。
 
 ## 文档索引
 
@@ -54,7 +54,7 @@
 
 参考：[实施计划阶段 1](docs/plan/platform-runtime-build-implementation-plan.md#阶段-1建立显式-driver-编译能力与-build-constraints)
 
-- [ ] 1.1 建立 compiled driver 能力模型与 typed error
+- [x] 1.1 建立 compiled driver 能力模型与 typed error
   - 依赖：无。
   - 工作内容：
     - 在 pkg/driver 实现 CompiledRuntimeDrivers、IsRuntimeDriverCompiled、ValidateCompiledRuntimeDriver。
@@ -62,20 +62,32 @@
     - 增加 ErrRuntimeDriverNotCompiled 和包含 Driver、GOOS、GOARCH、compiled drivers 的具体错误，支持 errors.Is。
     - 使用互补 build-constrained 常量文件声明 boxliteCompiled、microsandboxCompiled；Docker始终为 true。
   - 可并行子任务：
-    - [ ] 可并行：能力 API、稳定排序和副本实现。
-    - [ ] 可并行：typed error、sentinel 和错误信息测试。
-    - [ ] 可并行：Docker-only 与 full-tag能力 fixture。
+    - [x] 可并行：能力 API、稳定排序和副本实现。
+    - [x] 可并行：typed error、sentinel 和错误信息测试。
+    - [x] 可并行：Docker-only 与 full-tag能力 fixture。
   - 测试方案：
     - CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go test ./pkg/driver -run 'Test.*(Compiled|NotCompiled|RuntimeDriver)' -count=1
     - CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go build ./cmd/agent-compose
     - git diff --check
   - 验收标准：名称合法但未编译可稳定区分；默认/非法名称语义不变；返回列表不可篡改内部状态；普通关闭CGO构建仅报告Docker。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：1.2。
+    - 状态：已完成。
+    - 变更：
+      - 在 `pkg/driver` 增加 `CompiledRuntimeDrivers`、`IsRuntimeDriverCompiled` 和 `ValidateCompiledRuntimeDriver`，固定按 Docker、BoxLite、Microsandbox 排序，并向调用方返回副本。
+      - 增加 `ErrRuntimeDriverNotCompiled` 与 `RuntimeDriverNotCompiledError`，保存规范化 Driver、GOOS、GOARCH 和 compiled drivers，支持 `errors.Is`/`errors.As`，错误文本明确 build capability 语义。
+      - 使用完整互补 build constraints 声明 BoxLite、Microsandbox 编译常量；Docker 始终编译。增加 Docker-only 与 Linux full-tag fixture。
+    - 验证：
+      - `CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go test ./pkg/driver -run 'Test.*(Compiled|NotCompiled|RuntimeDriver)' -count=1`：通过。
+      - `CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go test ./pkg/driver -count=1`：通过。
+      - `CGO_ENABLED=1 ./scripts/with-go-toolchain.sh go test ./pkg/driver -run 'Test.*(Compiled|NotCompiled|RuntimeDriver)' -count=1`：通过，普通 CGO 未隐式报告 native driver。
+      - 使用能力模型相关源文件执行 `CGO_ENABLED=1`、双显式 tag 的 full fixture：通过并报告三 Driver；`go list` 验证 Linux full、Linux no-CGO、Darwin 与默认组合选择正确的 true/false 文件。
+      - `CGO_ENABLED=0 ./scripts/with-go-toolchain.sh go build ./cmd/agent-compose`：通过。
+      - `task lint`：通过，`0 issues`。
+    - 审计与例外：
+      - 实现前基线中 `task lint`、`task build` 通过；`task test` 在 Go unit 完成后因 `runtime/javascript` 尚未安装 Vitest 依赖而失败，随后已按仓库流程执行 `npm ci --no-audit --no-fund`，阶段 1 全量门禁在 1.3 复跑。
+      - 尝试导出 BoxLite artifact 以运行完整 native full-tag package，GitHub release 下载数分钟无进展后主动取消；本任务已通过不依赖 native runtime 的 full fixture 和 build-file 选择矩阵，完整 native package 矩阵按计划在 1.2/1.3 验证。
+      - 未修改现有 runtime/cache constraints、Taskfile、coverage exclusion、proto、SQLite、默认 Driver 或生产 runtime 选择路径；这些后续接入保持在依赖任务中。
+    - 下一目标：1.2 收紧 BoxLite、Microsandbox 和共享 CGO build constraints。
 
 - [ ] 1.2 收紧 BoxLite、Microsandbox 和共享 CGO build constraints
   - 依赖：1.1。
