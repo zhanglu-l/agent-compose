@@ -61,6 +61,63 @@ test starts an isolated host daemon, creates a Docker sandbox through the public
 API, verifies the unified Jupyter endpoint, then stops and resumes the sandbox
 with deliberately stale persisted port state to verify inspect-based recovery.
 
+The real host-daemon Docker file-workspace restart/resume E2E is also opt-in.
+It requires a reachable local Docker Engine, the Docker CLI, and a compatible
+guest image that already exists locally. Build the default image and run the
+test with:
+
+```bash
+task image:agent-compose-guest
+task test:e2e:docker-workspace-resume
+```
+
+The E2E task depends on `build:agent-compose`, uses the repository Go toolchain
+wrapper and cache, and passes the resulting `build/agent-compose` binary to the
+test. It uses the local `agent-compose-guest:latest` image by default. To select
+another compatible image that is already present locally, run:
+
+```bash
+AGENT_COMPOSE_E2E_DOCKER_WORKSPACE_IMAGE=example/agent-compose-guest:tag \
+  task test:e2e:docker-workspace-resume
+```
+
+The task checks the selected image with `docker image inspect` and fails with a
+build/override hint when it is unavailable; it never pulls an image implicitly.
+
+The test exercises the complete workflow through public APIs and a real Docker
+runtime:
+
+- create a file Workspace Source and upload template files
+- create sandbox A, then modify, delete, and add files inside its workspace
+- stop sandbox A, update the source template, and stop the host daemon
+- restart a real daemon with the same data and sandbox roots
+- resume sandbox A and verify the same sandbox/container identity and preserved
+  modified, deleted, and generated-file state
+- create sandbox B and verify that it receives the latest source template but
+  none of sandbox A's generated state
+- list and download source files to prove sandbox mutations never synchronize
+  back into the Workspace Source
+
+The test removes both sandboxes and the workspace through public APIs while the
+second daemon is running, with exact Docker-label fallback cleanup. It then
+asserts that no test container, daemon process, Unix socket, TCP listener, or
+temporary root remains. On failure, inspect the verbose test output and daemon
+logs, then check for leaked resources with commands such as:
+
+```bash
+docker ps -a --filter label=agent-compose.driver=docker \
+  --filter 'label=agent-compose.sandbox_id=<sandbox-id>'
+ps -ef | grep '[a]gent-compose daemon'
+ss -ltnp | grep ':<listen-port>'
+find /tmp -maxdepth 1 -type d \
+  -name 'agent-compose-docker-workspace-e2e-*' -print
+```
+
+This focused Docker task is intentionally absent from `task test` and the
+GitHub Actions workflow. It is a required local acceptance gate for workspace
+resume preservation, but remains opt-in because GitHub-hosted CI does not
+provide its prebuilt guest-image prerequisite.
+
 ## Quality Gate
 
 `task test` is the project quality gate for tests.

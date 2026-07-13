@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：15/20 完成。
-- 当前下一目标：5.3 更新 Task、Testing 和设计文档。
+- 代码任务：16/20 完成。
+- 当前下一目标：5.4 运行 E2E 阶段门禁并审计资源清理。
 
 ## 执行规则
 
@@ -592,7 +592,7 @@
       - 变更范围仅为三个 `test/e2e/*_test.go` 文件和本账本；未修改 proto/generated code、SQLite schema、公开 CLI/API、产品环境变量、compose、runtime mount、Taskfile、TESTING/design 文档或 CI。Task/文档属于 5.3，无未运行的 5.2 门禁或其他例外。
     - 下一目标：5.3 更新 Task、Testing 和设计文档。
 
-- [ ] 5.3 更新 Task、Testing 和设计文档
+- [x] 5.3 更新 Task、Testing 和设计文档
   - 依赖：5.1。
   - 可并行关系：可与 5.2 并行，E2E test name 和 env contract 以 plan 为准。
   - 工作内容：
@@ -602,17 +602,33 @@
     - 更新核心 E2E 规格对应 workspace 场景，不把 Docker 结果描述为三 driver 等价证明。
     - 明确 `.github/workflows/ci.yml` 保持不变。
   - 可并行子任务：
-    - [ ] 可并行：Taskfile 和 TESTING.md。
-    - [ ] 可并行：中英文设计文档同步。
-    - [ ] 可并行：核心 E2E 规格审计与更新。
+    - [x] 可并行：Taskfile 和 TESTING.md。
+    - [x] 可并行：中英文设计文档同步。
+    - [x] 可并行：核心 E2E 规格审计与更新。
   - 测试方案：`task --list-all`；检查 task 展示和 shell 语法；运行文档/Task 相关 focused 命令。
   - 验收标准：文档与真实命令一致；无 daemon 公共配置、compose、CI 或 image 默认变化；Docker focused task 可独立运行。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：5.4（等待 5.2）。
+    - 状态：已完成。
+    - 变更：
+      - 在 `Taskfile.yml` 新增 opt-in `test:e2e:docker-workspace-resume`，依赖 `build:agent-compose`，默认检查本地 `agent-compose-guest:latest`，支持 `AGENT_COMPOSE_E2E_DOCKER_WORKSPACE_IMAGE` 覆盖；镜像缺失时给出 build/override 提示且不执行隐式 pull，再把 `build/agent-compose`、image 和现有 Go cache/toolchain contract 传给精确 anchored E2E selector。
+      - `TESTING.md` 新增本机 Docker/CLI/预构建 guest image 前置条件、默认与覆盖命令、公开 API 工作流、同 root daemon restart、原 container/workspace 状态保持、sandbox B 最新 source、无反向同步、公开清理/精确 label fallback、泄漏诊断和 opt-in/non-CI 边界。
+      - 中英文 `agent-compose_design.md` 同步改为当前态合同：Workspace Source 是一次性 seed，带 workspace sandbox 持久化 `pending/failed/ready`，所有 create/resume 路径共享单例 Provisioner，`ready` resume/daemon restart 不解析 source、检查 workspace 或调用 materializer，legacy 直接迁移 ready，新 sandbox 使用最新 source，sandbox 变更不反向同步，remove 删除 workspace、metadata 和 staging。
+      - `core-e2e-test-strategy-spec.md` 增加 `WKS-004` 与 `SBX-002/SBX-004/SBX-006` 的 focused 证据映射，引用 `TestE2EDockerFileWorkspaceResumePreservesState` 和新 Task；明确当前证据只覆盖 host daemon + Docker，不宣称 BoxLite/Microsandbox、container topology 或完整 `WKS-003` 合同等价完成。
+      - `.github/workflows/ci.yml` 保持不变；真实 Docker focused task 不进入 `task test` 或 GitHub-hosted CI。
+    - 验证：
+      - `task --list-all` 与 `task --summary test:e2e:docker-workspace-resume`：通过，新 task 可发现且 dependency/command 与文档一致。
+      - 默认 image 和 `AGENT_COMPOSE_E2E_DOCKER_WORKSPACE_IMAGE=example.invalid/local:tag` 两种 `task --dry test:e2e:docker-workspace-resume`：通过；独立审计从 Task 提取脚本执行 `bash -n` 同样通过。
+      - 缺失 image 使用 `invalid.invalid/agent-compose-e2e-missing:never` 执行新 task：按预期非零退出，并输出默认 image build 与 override 提示；Taskfile 无 `docker pull`/`image pull` 命令。
+      - `task test:e2e:docker-workspace-resume`：使用本机 Docker `29.5.3`、默认 `agent-compose-guest:latest` 和 Task 构建的 daemon 真实通过，`TestE2EDockerFileWorkspaceResumePreservesState` 耗时 `3.48s`，未 skip。
+      - `./scripts/with-go-toolchain.sh go test ./test/e2e -run '^$' -count=1`：通过；workspace HTTP/Exec helper focused tests 同时通过。
+      - `git diff --check`：通过；Taskfile/TESTING/test env 与 selector、双语必需概念和 stale create/resume 文案静态审计均通过。
+    - 审计与例外：
+      - 独立只读最终审计逐项对照 plan/spec、实际 test 与 production Provisioner/lifecycle/remove 路径，确认 Task 精确合同、TESTING 行为、双语设计语义、核心 E2E Docker-only 边界均无 finding；production 仍只有 Provisioner 调用 private materializer，直接准备与目录启发式零命中。
+      - scope diff 仅包含 `Taskfile.yml`、`TESTING.md`、中英文设计、核心 E2E 规格和本账本；`.github/workflows/ci.yml`、compose、proto/generated、daemon 产品环境变量、runtime mount、`cmd` 与 `pkg` 均无修改，CI 文件 SHA-256 仍为 `e367fd1ab5df07fae64f5d4810ee4650bb2254d6e4001e77b85d9cd17fc53461`。
+      - 真实 Task 运行后没有当日新增的 labeled Docker container、匹配的 daemon process 或 `/tmp/agent-compose-docker-workspace-e2e-*` root；测试内部同时断言 Unix socket、TCP port 和临时 root 释放。
+      - 首次缺失-image 验证 wrapper 使用 zsh 只读变量 `status`，在 Task 已按预期失败后无法执行 wrapper 断言；改用 `exit_code` 原样重跑即通过。该失败属于验证脚本变量命名，不是 Task/产品失败，不产生残余风险。
+      - 最终审计未重复运行真实 Docker test；root 已通过新 Task 取得直接运行证据，5.4 仍会按依赖再次执行 E2E 阶段门禁和资源审计。无其他例外或未运行的 5.3 门禁。
+    - 下一目标：5.4 运行 E2E 阶段门禁并审计资源清理。
 
 - [ ] 5.4 运行 E2E 阶段门禁并审计资源清理
   - 依赖：5.2、5.3。

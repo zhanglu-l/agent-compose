@@ -194,7 +194,7 @@ daemon、v2 API、持久化 revision 和 loader runtime 仍只接收脚本文本
 workspace provider 当前在 project run 准备阶段支持：
 
 - `local`：从 project source path 下的相对路径物化成 file workspace snapshot。
-- `git`：生成 git workspace config，后续由现有 workspace provisioning clone。
+- `git`：生成 git workspace snapshot，在 sandbox 的一次性 workspace provisioning 中 clone。
 
 ## API 边界
 
@@ -480,17 +480,34 @@ Sandbox 是底层 runtime 生命周期单位。当前支持三个 runtime driver
 
 默认 driver 由 `RUNTIME_DRIVER` 控制，空值时为 `docker`。默认 guest image 是 `debian:bookworm-slim`。
 
-当前 sandbox 创建流程（v1-compatible `CreateSession` 会委托到该流程）：
+### Workspace Provisioning 与 Resume
+
+Workspace Source 是 sandbox workspace 的一次性 seed。file workspace 内容、project local file workspace snapshot，或保存在 sandbox snapshot 中的 Git 配置，只会由该 sandbox 首次进入 `ready` 之前的初始 provisioning attempt 读取和物化。生成的 `<sandbox>/workspace` 是独立且可写的副本，不会与 source 持续同步。
+
+Sandbox metadata 持久化 version 1 workspace provisioning 状态，取值如下：
+
+- `pending`：带 workspace 的 sandbox 已存在，但首次 provisioning 尚未完成。
+- `failed`：最近一次首次 provisioning 在 runtime 启动前失败；后续启动可以经 `pending` 重试。
+- `ready`：provisioning 已完成，或 legacy sandbox 已被认定为完成初始化；这是该 sandbox 生命周期内的终态。
+
+所有可能启动或重新启动 workspace-backed sandbox 的生命周期路径共享同一个进程级 `Provisioner`：v1 session create/resume、`sessions.Lifecycle.ResumeLoaded`、Jupyter `EnsureProxyReady`、loader sandbox create/sticky resume，以及 project run sandbox create/reuse。它重新加载持久化 metadata，并根据 provisioning 状态决策，而不依赖 create/resume flag 或 workspace 目录内容。对于 `pending` 和 `failed`，它在同一文件系统的 staging 目录中物化 source，提升结果，并在允许 runtime driver 启动前持久化 `ready`。provisioning 或状态持久化出错时不会启动 driver。
+
+对于 `ready`，Provisioner 不解析 workspace config，不读取或检查 Workspace Source 或 sandbox workspace，也不调用 provider materializer。使用相同 data root 和 sandbox root 的 stop/resume 与 daemon restart 因而会保留修改、删除、生成文件、symlink 及其他 workspace 状态。后续 source 或 config 变更、source 删除、Git remote 变化都不会刷新已有 sandbox。sandbox 内的修改不会复制回 file/local source，也不会自动 commit 或 push 到 Git。
+
+带 workspace 但 metadata 缺少 provisioning 状态的 legacy sandbox，会在 runtime 启动前直接迁移为 `ready`。迁移不解析 config、不检查 workspace 内容、不根据 runtime status 推断，也不尝试重建。新 sandbox 彼此独立，并使用其当前 snapshot 或 config 选定的最新 source 完成自身首次 provisioning；source 变更因此只影响新建 sandbox，不影响已有 `ready` sandbox。删除 sandbox 会删除整个 sandbox 目录，包括可写 workspace、provisioning metadata 和所有 provisioning staging attempt。
+
+当前 sandbox 启动流程由 v1-compatible `CreateSession` 及其他创建路径共同使用：
 
 1. 解析请求里的 env、tags、workspace id、driver、guest image。
 2. 合并 global env 和请求 env。
-3. 创建 sandbox 目录，初始化 metadata、VM state 和 proxy state。
-4. 如果设置 workspace id，则准备对应 workspace。
-5. 通过 driver 启动 runtime。
-6. 标记 sandbox 为 `RUNNING`。
-7. 记录 sandbox created 状态。Loader lifecycle event 使用 `loader.sandbox.*`；历史 `agent-compose.session.*` topic prefix 仅在 v1 兼容 event bus 仍发送处保留。
+3. 创建 sandbox 目录，初始化 metadata、VM state 和 proxy state；workspace id 或 snapshot 会把 provisioning 初始化为 `pending`。
+4. 运行共享 Provisioner；它会建立并持久化 `ready`、迁移 legacy metadata，或在 runtime 启动前返回错误。
+5. 准备受管 capability、runtime、state 和 home 资源。
+6. 通过 driver 启动 runtime。
+7. 标记 sandbox 为 `RUNNING`。
+8. 记录 sandbox created 状态。Loader lifecycle event 使用 `loader.sandbox.*`；历史 `agent-compose.session.*` topic prefix 仅在 v1 兼容 event bus 仍发送处保留。
 
-`ResumeSession` 是 v1-compatible resume 方法；内部会重新准备 workspace 并启动 sandbox runtime。`StopSession` 是 v1-compatible stop 方法；内部会停止 runtime 并将 sandbox 标记为 `STOPPED`。
+`ResumeSession` 是 v1-compatible resume 方法；它加载同一个 sandbox，运行共享 Provisioner，再启动其 runtime，`ready` workspace 保持不变。`StopSession` 会停止 runtime 并将 sandbox 标记为 `STOPPED`，但不改变 workspace 或 provisioning 状态。
 
 服务启动时会校准 persisted sandbox runtime state；`GetSession`、`ListSessions` 和 `StopSession` 也会触发校准逻辑。
 
