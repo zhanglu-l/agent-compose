@@ -9,8 +9,8 @@
 - 当前变更：platform-runtime-build。
 - 已确认产物：macOS Docker-only binary、Linux 三 Driver binary、Linux 三 Driver multi-arch Docker image。
 - 发布边界：binary 只用于本地和 CI 验证，不进入 GitHub Release。
-- 当前进度：2/18 个父任务完成。
-- 当前下一目标：1.3 更新 runtime smoke tags 并完成阶段 1 门禁。
+- 当前进度：3/18 个父任务完成。
+- 当前下一目标：2.1 在 Runtime Provider 和执行路径接入 compiled capability。
 
 ## 文档索引
 
@@ -127,7 +127,7 @@
       - 本任务未修改 Taskfile、coverage exclusion、proto、SQLite、默认 Driver 或 runtime 生产选择；阶段 1 的全量 coverage 门禁和 smoke task tag 更新按账本留给 1.3。
     - 下一目标：1.3 更新 runtime smoke tags 并完成阶段 1 门禁。
 
-- [ ] 1.3 更新 runtime smoke tags 并完成阶段 1 门禁
+- [x] 1.3 更新 runtime smoke tags 并完成阶段 1 门禁
   - 依赖：1.2。
   - 工作内容：
     - 更新 Taskfile.yml 中 test:runtime-smoke、test:boxlite-mount-repro 的显式tags。
@@ -135,20 +135,33 @@
     - 审计 scripts/test-coverage.sh exclusion；新增能力代码纳入普通coverage，不扩大无关排除。
     - 补齐stub/full-tag矩阵回归并修复coverage-shape编译。
   - 可并行子任务：
-    - [ ] 可并行：Task runtime smoke命令更新。
-    - [ ] 可并行：coverage exclusion和测试shape审计。
-    - [ ] 可并行：full-tag focused test复跑。
+    - [x] 可并行：Task runtime smoke命令更新。
+    - [x] 可并行：coverage exclusion和测试shape审计。
+    - [x] 可并行：full-tag focused test复跑。
   - 测试方案：
     - task lint
     - task test
     - 无KVM环境运行full-tag pkg/driver unit tests；有KVM时追加 task test:runtime-smoke。
   - 验收标准：普通task test不下载artifact、不要求Docker/KVM且满足coverage；显式smoke命令编译正确能力；阶段1所有constraints和测试审计完成。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：2.1。
+    - 状态：已完成。
+    - 变更：
+      - `test:runtime-smoke` 的 BoxLite、Microsandbox 分支分别显式使用 `boxlitecgo`、`microsandboxcgo`，并把每个 driver 的三个精确 smoke 名称拆成独立 `go test` 进程，隔离 native SDK 进程级状态；`test:boxlite-mount-repro` 保持 `boxlitecgo,boxlite_repro`。
+      - 把会创建真实 Docker sandbox 的 scheduler script E2E 收敛到 `docker_e2e` build tag 和 opt-in `test:e2e:docker-scheduler` task；测试通过 v2 `RemoveSandbox(force=true)` 公共 API 清理并断言响应。
+      - `TESTING.md` 记录 Docker scheduler E2E 的显式入口、guest image 配置和普通 coverage 门禁的隔离边界。
+    - 验证：
+      - `task lint`：通过，`0 issues`。
+      - `task test`：通过；`CGO_ENABLED=0`，Unit `77.02%`、Integration `64.69%`、E2E `60.32%`、Combined `79.32%`，满足 `60%/60%/60%/70%` 门禁且未执行真实 Docker/KVM runtime。
+      - `task test:e2e:docker-scheduler`：通过，耗时 `24.49s`；公共 `RemoveSandbox` 清理成功，验证窗口未残留测试容器。
+      - `LD_LIBRARY_PATH="$PWD/build/boxlite/lib:$PWD/build/microsandbox/lib:${LD_LIBRARY_PATH:-}" CGO_ENABLED=1 ./scripts/with-go-toolchain.sh go test -tags 'boxlitecgo,microsandboxcgo' ./pkg/driver -count=1`：通过；CGO-off 默认、CGO-off 双 tag、普通 CGO no-tag、Microsandbox 单 tag 和 build-file selection 审计也通过。
+      - `sg kvm -c 'SMOKE_RUNTIME_DRIVERS=microsandbox task test:runtime-smoke'`：通过；stop/resume 与 mount-manifest 分别在独立进程通过，OCI smoke 因未设置 `SMOKE_OCI_IMAGE_REF` 按合同明确跳过，不再出现连续运行时的 SQLite code 14。
+      - `task --dry test:runtime-smoke`、`task --dry test:boxlite-mount-repro`、dry-run shell `bash -n` 和 `git diff --check`：通过；独立审计确认六个精确测试、single-driver tag 与 library path 均隔离。
+    - 审计与例外：
+      - `scripts/test-coverage.sh` exclusion regex 未修改；新增 compiled capability 和 typed error 文件仍进入普通 coverage。审计发现原 scheduler E2E 会被普通 `task test` 实际执行并创建容器，现已通过 build tag 与独立 task 修复，不以 selector 或 skip 隐藏。
+      - `sg kvm -c 'SMOKE_RUNTIME_DRIVERS=boxlite task test:runtime-smoke'` 已确认独立进程命令和 native runtime 启动，但 BoxLite 在启动后内部再次拉取 `debian:bookworm-slim`，因无法访问 `https://index.docker.io` 失败；即使 smoke materialization 使用内部 mirror 仍无法覆盖 SDK 的内部 pull，属于外部 runtime 网络阻塞，未削弱镜像检查。
+      - 当前 shell 未刷新 `/etc/group` 中已有的 `kvm` 补充组，因此真实 KVM smoke 通过 `sg kvm` 运行。GitHub 下载不可用时，从与固定版本匹配的本地 Docker image layer 导出 ignored `build/boxlite`、`build/microsandbox` artifact，用于 full-tag 链接和 smoke。
+      - 未修改 coverage baseline、proto、SQLite schema、guest protocol、默认 Docker driver或暂停的 Workspace Resume 账本；按用户要求尚未检查远端 CI。
+    - 下一目标：2.1 在 Runtime Provider 和执行路径接入 compiled capability。
 
 ## 2. 提前校验与可观察 Build 信息
 

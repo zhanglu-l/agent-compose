@@ -87,6 +87,19 @@ daemon logs when it fails.
 This focused task is intentionally absent from `task test` and GitHub Actions
 because GitHub-hosted CI does not provide its prebuilt guest-image prerequisite.
 
+The real Docker scheduler script E2E is also opt-in because it starts a Docker
+sandbox and waits for a scheduler trigger. Run it with:
+
+```bash
+task test:e2e:docker-scheduler
+```
+
+The task uses `agent-compose-guest:latest` by default. Set
+`AGENT_COMPOSE_E2E_GUEST_IMAGE` to use another compatible image. The test is
+compiled only with the `docker_e2e` build tag, so the ordinary `task test`
+coverage gate does not include this scheduler Docker E2E or create its runtime
+containers.
+
 ## Quality Gate
 
 `task test` is the project quality gate for tests.
