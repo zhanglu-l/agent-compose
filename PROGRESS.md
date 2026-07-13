@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：7/20 完成。
-- 当前下一目标：3.3 接入 Loader 和 Project Run 复用路径。
+- 代码任务：8/20 完成。
+- 当前下一目标：3.4 审计双轨调用并完成生命周期阶段门禁。
 
 ## 执行规则
 
@@ -296,7 +296,7 @@
       - 无未运行的任务内门禁或其他例外。
     - 下一目标：3.3 接入 Loader 和 Project Run 复用路径。
 
-- [ ] 3.3 接入 Loader 和 Project Run 复用路径
+- [x] 3.3 接入 Loader 和 Project Run 复用路径
   - 依赖：3.1。
   - 可并行关系：可与 3.2 并行，避免同时修改公共 constructor/DI 文件。
   - 工作内容：
@@ -305,16 +305,31 @@
     - 确保本次 run 新解析的 workspace snapshot 不覆盖已有 sandbox snapshot。
     - 保持 cleanup policy、event、dashboard、run status 和 driver error 行为。
   - 可并行子任务：
-    - [ ] 可并行：Loader 接入和 sticky tests。
-    - [ ] 可并行：Run controller 接入、existing/new sandbox tests。
+    - [x] 可并行：Loader 接入和 sticky tests。
+    - [x] 可并行：Run controller 接入、existing/new sandbox tests。
   - 测试方案：`./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/runs -run 'Test.*(Loader|Run|Sandbox).*' -count=1`。
   - 验收标准：Loader/Run 的创建和复用都经过 Ensurer；复用已有 sandbox 不重新 materialize；cleanup 非回归。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：3.4（等待 3.2）。
+    - 状态：已完成。
+    - 变更：
+      - `LoaderSandboxRunner.Ensure` 新建路径和 `LoadOrResume` stopped 路径均以注入的 `WorkspaceEnsurer.Ensure` 替换直接 preparation；running sticky 快速返回继续跳过 Ensurer、guide、driver、事件和 binding 更新。
+      - Loader 保持 workspace ready → capability guide → driver → running 持久化 → stream/event → reload/transient/token/topic 顺序；create Ensurer 错误继续持久化 VM failed，resume 错误继续直接返回，runtime 错误不回退 provisioning ready。
+      - `runs.Controller.startProjectRunSandbox` 改用同一注入 Ensurer；新 sandbox、显式 sandbox、sticky binding 和 already-running 复用均经过该 helper，running sandbox 仍不重复启动 driver。
+      - Run 复用路径继续只使用已保存的 workspace snapshot/provisioning；本次 prepared local/Git snapshot 和 provider env 只进入新建分支，不覆盖显式或 sticky sandbox。既有 `SandboxResult.Created`、binding、event/dashboard/bus 和 cleanup policy 语义保持。
+      - 增加 Loader/Run fake Ensurer tests，覆盖调用次数/identity/顺序、source v1→v2 后 ready snapshot 与 `UpdatedAt` 保持、sticky binding、错误短路、runtime-failure-ready，以及 remove-on-completion 对复用 sandbox 的保护。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/runs -run 'Test.*(Loader|Run|Sandbox).*' -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh go test ./pkg/agentcompose/adapters ./pkg/runs ./pkg/workspaces ./pkg/agentcompose/app ./pkg/sessions -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh golangci-lint fmt --no-config --diff ./pkg/agentcompose/adapters ./pkg/runs ./pkg/workspaces ./pkg/agentcompose/app ./pkg/sessions`：通过，无格式 diff。
+      - `./scripts/with-go-toolchain.sh golangci-lint run --no-config --allow-parallel-runners ./pkg/agentcompose/adapters ./pkg/runs ./pkg/workspaces ./pkg/agentcompose/app ./pkg/sessions`：通过，`0 issues`。
+      - `git diff --check`：通过。
+    - 审计与例外：
+      - `rg -n 'PrepareSessionWorkspace\(' pkg` 只剩计划在 3.4 删除的 deprecated compatibility wrapper 定义；Loader/Run 三处 production direct preparation 已全部删除。
+      - `rg -n 'HostWorkspaceInitialized\(' pkg` 为零命中；静态审计显示六处 lifecycle Ensurer 调用精确覆盖 v1 create、普通 resume、Jupyter、Loader create/resume 和 Project Run helper。
+      - 独立只读审计确认 production 仅三行调用替换，guide/driver/status/event/dashboard/token/binding/cleanup 周边顺序没有重排；内容级 Loader/Project local integration 按计划留给 4.2。
+      - 变更范围仅为 Loader/Run production 文件及 focused tests；未修改 cmd、proto/generated client、SQLite schema、公开 CLI/API shape、环境变量、compose、runtime mount、Task/TESTING、runtime 或 CI。
+      - 无未运行的任务内门禁或其他例外。
+    - 下一目标：3.4 审计双轨调用并完成生命周期阶段门禁。
 
 - [ ] 3.4 审计双轨调用并完成生命周期阶段门禁
   - 依赖：3.2、3.3。

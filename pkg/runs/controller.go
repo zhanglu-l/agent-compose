@@ -2092,7 +2092,7 @@ func (c *Controller) startProjectRunSandbox(ctx context.Context, sandbox *domain
 	if sandbox == nil {
 		return fmt.Errorf("sandbox is required")
 	}
-	if err := workspaces.PrepareSessionWorkspace(ctx, c.config, c.configDB, sandbox); err != nil {
+	if err := c.workspaceEnsurer.Ensure(ctx, sandbox); err != nil {
 		sandbox.Summary.VMStatus = domain.VMStatusFailed
 		_ = c.store.UpdateSandbox(ctx, sandbox)
 		return err

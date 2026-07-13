@@ -158,7 +158,7 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 		}
 	}
 	r.recordVolumeWarnings(ctx, session.Summary.ID, volumeWarnings)
-	if err := workspaces.PrepareSessionWorkspace(ctx, r.Config, r.ConfigDB, session); err != nil {
+	if err := r.workspaceEnsurer.Ensure(ctx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
 		_ = r.Store.UpdateSandbox(ctx, session)
 		return nil, "", err
@@ -213,7 +213,7 @@ func (r *LoaderSandboxRunner) LoadOrResume(ctx context.Context, sessionID string
 	if session.Summary.VMStatus == domain.VMStatusRunning {
 		return session, "", nil
 	}
-	if err := workspaces.PrepareSessionWorkspace(ctx, r.Config, r.ConfigDB, session); err != nil {
+	if err := r.workspaceEnsurer.Ensure(ctx, session); err != nil {
 		return nil, "", err
 	}
 	writeCapabilityGuide(ctx, r.Cap, r.Store, r.Streams, session, capabilities.SandboxCapsets(session))
