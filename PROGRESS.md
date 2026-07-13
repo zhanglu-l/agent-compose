@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：19/20 完成。
-- 当前下一目标：6.3 完成交付审阅和账本总结。
+- 代码任务：20/20 完成。
+- 当前下一目标：无。
 
 ## 执行规则
 
@@ -740,7 +740,7 @@
       - 最终工作区审计在账本更新前保持 clean；无失败需要回退到所属实现阶段，无 release blocker 或其他未运行的 6.2 门禁。
     - 下一目标：6.3 完成交付审阅和账本总结。
 
-- [ ] 6.3 完成交付审阅和账本总结
+- [x] 6.3 完成交付审阅和账本总结
   - 依赖：6.2。
   - 工作内容：
     - 将 spec 验收标准逐项映射到实际 unit/integration/E2E 证据。
@@ -748,16 +748,38 @@
     - 更新本文件“当前状态”、所有父任务完成总结和最终残余风险。
     - 确认工作区仅包含本变更需要的代码、测试、Taskfile 和文档。
   - 可并行子任务：
-    - [ ] 可并行：验收标准到测试证据映射。
-    - [ ] 可并行：文档一致性审阅。
-    - [ ] 可并行：最终 diff 和残余风险审阅。
+    - [x] 可并行：验收标准到测试证据映射。
+    - [x] 可并行：文档一致性审阅。
+    - [x] 可并行：最终 diff 和残余风险审阅。
   - 测试方案：复核 6.2 的完整门禁结果；运行 `git diff --check` 和最终静态审计。
   - 验收标准：20/20 父任务完成；每项有五段式证据；无未说明的兼容、部署、测试或数据风险；下一目标为“无”。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
+    - 状态：已完成，代码任务 20/20。
+    - 变更：本任务仅完成 spec 验收标准到 unit/integration/真实 Docker E2E 的逐项映射、设计/spec/plan 语气复核、最终 diff/commit/范围/残余风险审计和账本收口；无 production、测试、Task、coverage、CI 或部署变更。
+    - 验证：
+      - 验收标准与直接证据映射均为 proven，contradicted、weak、missing 均为零：
+
+        | 合同范围 | 直接证据 | 结果 |
+        | --- | --- | --- |
+        | metadata、状态机、pending 初始化、持久化与 legacy JSON | `pkg/model`、`pkg/storage/sessionstore` workspace provisioning unit tests | 通过 |
+        | one-time file/Git materialization、ready 无副作用、失败重试、staging、并发与 unknown-state fail closed | `pkg/workspaces/provisioner_*_test.go`、workspace race gate | 通过 |
+        | v1/Jupyter/Loader/Project Run 单例 Ensurer、错误短路和 runtime failure 后 ready 保持 | adapter/session/run Ensurer tests、`TestAppWorkspaceProvisionerSingletonAndRequired` | 通过 |
+        | Session/Jupyter/Loader/Project/Store 重建/legacy/首次失败跨组件行为 | 对应 `TestIntegration*Workspace*` 与 failure-retry Integration tests | 通过 |
+        | daemon restart、同 sandbox/container 状态保持、新 sandbox 最新 source、无反向同步和资源清理 | `TestE2EDockerFileWorkspaceResumePreservesState` 真实 Docker non-skip 运行 | 通过 |
+        | harness、coverage、build 和交付范围 | 6.1/6.2 dependency/static/race/lint/test/build/scope 证据 | 通过 |
+
+      - `task test:unit`：通过；Go unit shape、runtime SDK `31` tests 和 runtime JavaScript `131` tests 全部成功。
+      - `task test:integration`：通过；Go Integration shape 和 runtime JavaScript `56` tests 全部成功。
+      - 复核 6.2 的 race、真实 Docker E2E、lint、clean coverage 和 build 均通过；从保留 artifacts 独立重算 Unit `77.00%`、Integration `65.12%`、E2E `61.10%`、Combined `79.82%`，与账本一致并超过 `60/60/60/70` 门禁。
+      - `git diff --check`、workspace 实现范围 `git diff --check 8c59a9d..HEAD`、readonly module verification、双轨/ready/legacy/error-order/bypass 静态审计均通过；20 个父任务各有且仅有一组五段式完成总结。
+    - 审计与例外：
+      - 三项独立只读最终审计均为 PASS：中英文 design 以当前态准确描述一次性 seed、singleton Provisioner、ready resume、legacy migration 和 remove；workspace spec/plan 保持规范/计划语气；Task/TESTING/env/default image/anchored selector 精确一致，core E2E spec 明确限定当前真实证据为 Docker-only，无三-driver 完成过称。
+      - workspace 实现 diff 的 `58` 个文件全部归类为 `8` 个 ledger/harness/docs、`2` 个 module manifests、`12` 个 production files、`1` 个 test-support helper 和 `35` 个 test files；20 个父任务对应从 `6018463` 到本提交的 20 个顺序 commit，均已独立 push。
+      - proto/generated client、SQLite configstore/schema、`.github/workflows/ci.yml`、产品 env/config、Dockerfile/compose/image、runtime driver/mount/volume、proxy 和 daemon `main.go` 与 implementation baseline 相同；唯一 `cmd` delta 是已审计的 scheduler E2E cleanup test，coverage harness/exclusion/selector/threshold 均未改变。
+      - 保留的用户 `docs/spec/dynamic-workflow-spec.md` 与其提交 `8c59a9d` 字节一致；其 EOF 空行仍是 branch-wide `git diff --check f7a7b611...HEAD` 唯一 retained hit，而 workspace 实现范围和本任务 diff 均 clean。主工作区 tidy 的 root-owned ignored `data/skills/*` 遍历限制已由 6.1 detached clean-worktree byte-identical tidy 关闭，不修改部署数据。
+      - 真实 provisioning E2E 按确认范围仅覆盖 Docker；BoxLite/Microsandbox 等价性、多 daemon 共享 SandboxRoot 分布式锁以及宿主机/测试进程灾难性终止绕过 cleanup callback 均为 spec 明确的范围外或通用残余风险，不影响本次合同。
+      - 最终资源复核仍为 `38` 个既存 labeled Docker containers，ID 集 SHA-256 `0bebb07b677f66638675bb7f40894045cd5b289123069a1d12d18099e2b34822`；无测试 daemon、socket、listener 或临时 root。GitHub Actions workflow 保持不变且只由 PR 或 main push 触发；本分支无 PR，因此无适用 workflow run，最终 push 后仍需外部复核无失败再结束 goal。
+      - 无 release blocker、未说明风险或未运行的本目标门禁。
     - 下一目标：无。
 
 ## 全局停止条件和范围外事项
