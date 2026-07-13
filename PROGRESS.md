@@ -20,8 +20,8 @@
 
 - 已确认：resume 严格保持 sandbox workspace；旧 sandbox 原样迁移；首版无 reset API；真实 runtime 使用 Docker E2E。
 - 已完成文档：技术规格、实施计划。
-- 代码任务：13/20 完成。
-- 当前下一目标：5.1。
+- 代码任务：14/20 完成。
+- 当前下一目标：5.2 与 5.3 可并行。
 
 ## 执行规则
 
@@ -519,7 +519,7 @@
 
 参考：[实施计划阶段 5](docs/plan/workspace-resume-preservation-implementation-plan.md#阶段-5增加真实-docker-e2e-和运维文档)
 
-- [ ] 5.1 提取 host-daemon Docker E2E 公共 helper
+- [x] 5.1 提取 host-daemon Docker E2E 公共 helper
   - 依赖：4.4。
   - 工作内容：
     - 从现有 Docker Jupyter E2E 提取 binary、daemon、端口、client、环境、日志和 cleanup helper。
@@ -531,11 +531,27 @@
     - 有前置镜像时运行 `task test:e2e:docker-jupyter`。
   - 验收标准：公共 helper 无业务实现复制；Jupyter E2E 可编译，具备环境时真实通过；清理和日志诊断不回归。
   - 完成总结：
-    - 状态：待完成。
-    - 变更：待完成。
-    - 验证：待完成。
-    - 审计与例外：待完成。
-    - 下一目标：5.2 与 5.3 可并行。
+    - 状态：已完成。
+    - 变更：
+      - 新增 package-local `_test.go` host-daemon helper，集中承载 synchronized log buffer、configured/local binary、daemon start/readiness/stop、loopback address、proxy-free HTTP client、environment overlay、Docker client/image preflight、label fallback cleanup 和 repo-root lookup。
+      - 原 Docker Jupyter E2E 仅保留 ApplyProject/RunAgent、public stop/resume、Jupyter proxy state、Docker binding/container identity、kernelspec readiness 和业务结果断言；未复制产品实现或新增公开测试后门。
+      - daemon 与 Docker client cleanup 改为 helper 内创建后立即注册，保持既有 LIFO 顺序；daemon stop 使用 `sync.Once`，允许 5.2 显式 stop/restart 后 cleanup 安全重复调用，不会二次读取已消费的 process result。
+      - HTTP client 提取后继续禁用 proxy 并保持 30 秒业务 timeout；readiness 复用同一 transport contract 并覆盖为 1 秒 request timeout。
+    - 验证：
+      - `./scripts/with-go-toolchain.sh go test ./test/e2e -run '^TestE2EDockerJupyterHostDaemonStopResume$' -count=1`：通过，未配置 opt-in env 时完成 package 编译与约定 skip。
+      - `task test:e2e:docker-jupyter`：使用本机 Docker `29.5.3` 和 `agent-compose-guest:latest` 真实连续运行两次，均通过；两次都复用原 container 并从 stale persisted port 恢复新的有效 host binding。
+      - `./scripts/with-go-toolchain.sh go test ./test/e2e -count=1`：通过。
+      - `./scripts/with-go-toolchain.sh golangci-lint fmt --no-config --diff ./test/e2e`：通过，无格式 diff。
+      - `./scripts/with-go-toolchain.sh golangci-lint run --no-config --allow-parallel-runners ./test/e2e`：通过，`0 issues`。
+      - `git diff --cached --check`：通过。
+    - 审计与例外：
+      - 独立只读审计确认 daemon argv/cwd、完整 env override、5 分钟 test context、readiness/business timeout、poll interval、interrupt→kill grace、sandbox cleanup timeout 和 daemon-log diagnostics 与提取前一致。
+      - 公共 helper 全部 unexported 且只存在于 `test/e2e/*_test.go`；Jupyter/project/run/proxy 业务逻辑没有进入 helper，production code 无新入口。
+      - 两次真实运行后没有新增 labeled Docker container，也没有残留 `build/agent-compose daemon` 进程；宿主机既存 labeled containers 最晚创建于本任务前约 30 小时，属于用户环境并保持未触碰。
+      - Docker image 预检错误文案从 Jupyter-specific 泛化为 `Docker E2E image`，仍保留 image 和底层 error；Docker client close error 从静默忽略改为 test log，不改变业务流程。
+      - 5.2 restart cleanup 注意项：daemon #2 的自动 cleanup 晚于 daemon #1 下资源的 creation-time cleanup 注册；测试成功路径应在 daemon #2 存活时显式 public remove，失败路径继续依赖已注册的 Docker label fallback，避免 cleanup 时 public API 已不可用。
+      - 变更范围仅为共享 E2E helper、原 Jupyter E2E 调用点和本账本；未修改 production、cmd、proto/generated client、SQLite schema、公开 CLI/API、产品环境变量、compose、runtime mount、Task/TESTING、design 或 CI。无未运行的任务内门禁或其他 blocker。
+    - 下一目标：5.2 与 5.3 可并行，避免并发修改 Taskfile/文档与共享 E2E helper。
 
 - [ ] 5.2 实现 Docker workspace restart/resume E2E
   - 依赖：5.1。
