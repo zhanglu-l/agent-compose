@@ -5290,6 +5290,86 @@ func TestCLIExecPromptAttachUsesExecAttachClient(t *testing.T) {
 	}
 }
 
+func TestCLIExecPromptAttachDoesNotWaitForOpenStdin(t *testing.T) {
+	stream := newFakeExecAttachStream(nil)
+	stream.recvErr = io.EOF
+	stdin, stdinWriter := io.Pipe()
+	defer func() { _ = stdin.Close() }()
+	defer func() { _ = stdinWriter.Close() }()
+
+	cmd := &cobra.Command{Use: "exec"}
+	cmd.SetContext(context.Background())
+	cmd.SetIn(stdin)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runComposeExecPromptAttachCommand(cmd, "cli-exec-prompt", &fakeExecAttachClient{stream: stream}, &agentcomposev2.ExecRequest{
+			Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "sandbox-attach"},
+		}, composeExecOptions{Interactive: true, Prompt: "hi"})
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "completed without result") {
+			t.Fatalf("exec prompt attach error = %v, want missing result", err)
+		}
+		if err := stdinWriter.Close(); err != nil {
+			t.Fatalf("close caller-owned stdin writer: %v", err)
+		}
+		select {
+		case <-stream.closedCh:
+		case <-time.After(time.Second):
+			t.Fatal("prompt input pump did not close the request stream after stdin ended")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exec prompt attach waited for stdin after the response stream completed")
+	}
+}
+
+func TestCLIExecPromptAttachReceiveErrorDoesNotCloseCallerStdin(t *testing.T) {
+	receiveErr := connect.NewError(connect.CodeUnavailable, errors.New("stream lost"))
+	stream := newFakeExecAttachStream(nil)
+	stream.recvErr = receiveErr
+	stdin, stdinWriter := io.Pipe()
+	defer func() { _ = stdin.Close() }()
+	defer func() { _ = stdinWriter.Close() }()
+
+	cmd := &cobra.Command{Use: "exec"}
+	cmd.SetContext(context.Background())
+	cmd.SetIn(stdin)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runComposeExecPromptAttachCommand(cmd, "cli-exec-prompt", &fakeExecAttachClient{stream: stream}, &agentcomposev2.ExecRequest{
+			Target: &agentcomposev2.ExecRequest_SandboxId{SandboxId: "sandbox-attach"},
+		}, composeExecOptions{Interactive: true, Prompt: "hi"})
+	}()
+
+	select {
+	case err := <-done:
+		if connect.CodeOf(err) != connect.CodeUnavailable {
+			t.Fatalf("exec prompt attach error = %v, want unavailable", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exec prompt attach waited for stdin after receive failed")
+	}
+	if _, err := stdinWriter.Write([]byte("caller still owns stdin\n")); err != nil {
+		t.Fatalf("write caller-owned stdin after command returned: %v", err)
+	}
+	if err := stdinWriter.Close(); err != nil {
+		t.Fatalf("close caller-owned stdin writer: %v", err)
+	}
+	select {
+	case <-stream.closedCh:
+	case <-time.After(time.Second):
+		t.Fatal("prompt input pump did not close the request stream after stdin ended")
+	}
+}
+
 func TestCLIExecInteractiveUnsupportedUsesUnsupportedExitCode(t *testing.T) {
 	client := &fakeExecAttachClient{stream: &fakeExecAttachStream{
 		closedCh: make(chan struct{}),
