@@ -1,0 +1,163 @@
+name: Notify DingTalk release
+
+on:
+  workflow_run:
+    workflows:
+      - Images & Release
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to translate and send to DingTalk
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  notify-dingtalk:
+    name: Translate and notify DingTalk
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        startsWith(github.event.workflow_run.head_branch, 'v')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Translate release notes and send notification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          RELEASE_LLM_API_URL: ${{ secrets.RELEASE_LLM_API_URL }}
+          RELEASE_LLM_API_KEY: ${{ secrets.RELEASE_LLM_API_KEY }}
+          RELEASE_LLM_MODEL: ${{ secrets.RELEASE_LLM_MODEL }}
+        run: |
+          set -euo pipefail
+
+          for variable in \
+            DINGTALK_WEBHOOK \
+            DINGTALK_SECRET \
+            RELEASE_LLM_API_URL \
+            RELEASE_LLM_API_KEY \
+            RELEASE_LLM_MODEL
+          do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::GitHub Actions secret '$variable' is not configured"
+              exit 1
+            fi
+          done
+
+          release_tag="${WORKFLOW_RUN_TAG:-}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_tag="${MANUAL_RELEASE_TAG:-}"
+          fi
+          if [[ -z "$release_tag" ]]; then
+            echo "::error::A release tag is required"
+            exit 1
+          fi
+
+          release_json="$(gh api \
+            --header 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}")"
+          release_tag="$(jq -er '.tag_name' <<<"$release_json")"
+          release_name="$(jq -er '.name // .tag_name' <<<"$release_json")"
+          release_url="$(jq -er '.html_url' <<<"$release_json")"
+          release_body="$(jq -r '.body // ""' <<<"$release_json")"
+
+          if [[ -z "$release_body" ]]; then
+            release_body="(This release has no release notes.)"
+          fi
+
+          temporary_response="$(mktemp)"
+          trap 'rm -f "$temporary_response"' EXIT
+
+          system_prompt='You translate GitHub release notes into Simplified Chinese for a DingTalk notification. Output Markdown only. Translate every release-note heading and every change description; do not summarize, omit, merge, or reorder any entry. Preserve the exact version strings, scope names, code identifiers, usernames, pull-request numbers, URLs, Markdown links, and bullet structure. Do not add facts that are not present in the input. Keep technical product names such as agent-compose, Docker, GitHub, API, CLI, LLM, Codex, Claude, Gemini, OpenCode, Jupyter, BoxLite, and Microsandbox unchanged.'
+
+          request_body="$(jq -n \
+            --arg model "$RELEASE_LLM_MODEL" \
+            --arg system_prompt "$system_prompt" \
+            --arg release_body "$release_body" \
+            '{
+              model: $model,
+              temperature: 0.1,
+              messages: [
+                {role: "system", content: $system_prompt},
+                {role: "user", content: ("Translate the following release notes:\n\n--- BEGIN RELEASE NOTES ---\n" + $release_body + "\n--- END RELEASE NOTES ---")}
+              ]
+            }')"
+
+          if ! curl -fsS \
+            --retry 2 \
+            --connect-timeout 10 \
+            --max-time 120 \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${RELEASE_LLM_API_KEY}" \
+            --data "$request_body" \
+            "$RELEASE_LLM_API_URL" >"$temporary_response"
+          then
+            echo "::error::LLM request failed; check RELEASE_LLM_API_URL, RELEASE_LLM_API_KEY, and RELEASE_LLM_MODEL"
+            exit 1
+          fi
+
+          translated_body="$(jq -er '.choices[0].message.content // empty' "$temporary_response" 2>/dev/null || true)"
+          if [[ -z "$translated_body" ]]; then
+            llm_error="$(jq -r '.error.message // "LLM response did not contain choices[0].message.content"' "$temporary_response" 2>/dev/null || true)"
+            echo "::error::Release note translation failed: ${llm_error:-unknown error}"
+            exit 1
+          fi
+
+          dingtalk_text="$(printf '### agent-compose %s 已发布\n\n**版本**：%s\n\n**变更内容**\n\n%s\n\n[查看 Release](%s)' \
+            "$release_tag" \
+            "$release_tag" \
+            "$translated_body" \
+            "$release_url")"
+
+          dingtalk_payload="$(jq -n \
+            --arg title "agent-compose ${release_tag} 已发布" \
+            --arg text "$dingtalk_text" \
+            '{msgtype: "markdown", markdown: {title: $title, text: $text}}')"
+
+          timestamp="$(date +%s)000"
+          string_to_sign="${timestamp}
+          ${DINGTALK_SECRET}"
+          sign="$(printf '%s' "$string_to_sign" \
+            | openssl dgst -sha256 -hmac "$DINGTALK_SECRET" -binary \
+            | base64 \
+            | tr -d '\r\n')"
+          encoded_sign="$(jq -rn --arg sign "$sign" '$sign | @uri')"
+
+          separator='?'
+          if [[ "$DINGTALK_WEBHOOK" == *\?* ]]; then
+            separator='&'
+          fi
+          signed_webhook="${DINGTALK_WEBHOOK}${separator}timestamp=${timestamp}&sign=${encoded_sign}"
+
+          if ! dingtalk_response="$(curl -fsS \
+            --retry 3 \
+            --connect-timeout 10 \
+            --max-time 30 \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data "$dingtalk_payload" \
+            "$signed_webhook")"
+          then
+            echo "::error::DingTalk HTTP request failed; check DINGTALK_WEBHOOK and DINGTALK_SECRET"
+            exit 1
+          fi
+
+          dingtalk_error="$(jq -r 'if (.errcode // 0) == 0 then empty else (.errmsg // "unknown error") end' <<<"$dingtalk_response")"
+          if [[ -n "$dingtalk_error" ]]; then
+            echo "::error::DingTalk notification failed: $dingtalk_error"
+            exit 1
+          fi
+
+          echo "DingTalk notification sent for ${release_name:-$release_tag}."
