@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="octobuslogo.jpg" alt="OctoBus" width="240">
+</p>
+
 # agent-compose 中文文档
 
 **agent-compose 是一个 daemon + CLI 形态的控制面，用于在隔离 sandbox 中运行 AI coding agent。** 你在 `agent-compose.yml` 里声明 agent，一个常驻 daemon 负责为每个 agent 构建、运行、调度并代理一个隔离的 runtime。
