@@ -1,6 +1,6 @@
 # Playground 部署与验证
 
-本文档以当前共享 playground 为准，而不是仓库内历史上的 `./playground` 假设。
+本文档描述仓库外的共享 playground 部署，不是仓库内的本地开发环境。
 
 当前实际环境：
 

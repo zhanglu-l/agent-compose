@@ -2,8 +2,8 @@
 
 Chinese version: [../zh-CN/design/playground_setup.md](../zh-CN/design/playground_setup.md)
 
-This document is based on the current shared playground, not the historical
-`./playground` assumptions inside the repository.
+This document describes the external shared playground deployment. It is not a
+repository-local development environment.
 
 Current real environment:
 
