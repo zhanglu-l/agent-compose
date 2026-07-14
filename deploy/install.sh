@@ -23,6 +23,9 @@ PORT=""
 NO_START=0
 UPGRADE=0
 YES="${AGENT_COMPOSE_YES:-0}"
+# Test seam: production uses /dev/kvm; deterministic installer tests point this
+# at an existing or missing temporary path without touching the host device.
+KVM_DETECT_PATH="${AGENT_COMPOSE_KVM_DETECT_PATH:-/dev/kvm}"
 
 log()  { printf '\033[0;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[0;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -41,7 +44,7 @@ Options:
   --version <vX.Y.Z>     Release version to install in remote mode (default: latest)
   --image-prefix <ref>   Pull images from this prefix (mirror / private registry)
                          instead of the default registry
-  --upgrade              Update existing image refs to this installer version
+  --upgrade              Update installer-managed image refs to this version
   --no-start             Lay down files but do not pull images or start
   -y, --yes              Run without the interactive confirmation prompt
   -h, --help             Show this help
@@ -96,11 +99,31 @@ gen_password() {
 
 set_env() { # $1=file $2=key $3=value
   local file="$1" key="$2" value="$3"
-  if grep -q "^${key}=" "$file" 2>/dev/null; then
+  if has_active_env "$file" "$key"; then
+    cp -p "$file" "${file}.tmp"
     awk -v k="$key" -v v="$value" '
-      BEGIN { FS=OFS="=" }
-      $1 == k { print k "=" v; next }
-      { print }
+      {
+        lines[NR] = $0
+        line = $0
+        sub(/^[[:space:]]*/, "", line)
+        sub(/^export[[:space:]]+/, "", line)
+        equals = index(line, "=")
+        candidate = substr(line, 1, equals - 1)
+        sub(/[[:space:]]*$/, "", candidate)
+        if (equals > 0 && candidate == k) {
+          last = NR
+        }
+      }
+      END {
+        for (i = 1; i <= NR; i++) {
+          if (i == last) {
+            original_equals = index(lines[i], "=")
+            print substr(lines[i], 1, original_equals) v
+          } else {
+            print lines[i]
+          }
+        }
+      }
     ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
   else
     printf '%s=%s\n' "$key" "$value" >> "$file"
@@ -108,7 +131,31 @@ set_env() { # $1=file $2=key $3=value
 }
 
 get_env() { # $1=file $2=key -> value (may be empty)
-  grep "^$2=" "$1" 2>/dev/null | head -n1 | cut -d= -f2- || true
+  awk -v k="$2" '
+    {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/^export[[:space:]]+/, "", line)
+      equals = index(line, "=")
+      candidate = substr(line, 1, equals - 1)
+      sub(/[[:space:]]*$/, "", candidate)
+    }
+    equals > 0 && candidate == k {
+      value = substr(line, equals + 1)
+      sub(/\r$/, "", value)
+      result = value
+      found = 1
+    }
+    END {
+      if (found) {
+        print result
+      }
+    }
+  ' "$1" 2>/dev/null || true
+}
+
+has_active_env() { # $1=file $2=key -> assignment exists, including an empty value
+  grep -Eq "^[[:space:]]*(export[[:space:]]+)?$2[[:space:]]*=" "$1" 2>/dev/null
 }
 
 truthy() {
@@ -118,8 +165,8 @@ truthy() {
   esac
 }
 
-apply_image_refs() { # $1=file $2=mode(set-missing|overwrite)
-  local file="$1" mode="$2" key value pair current
+apply_image_refs() { # $1=file $2=mode(install|set-missing|upgrade) $3=managed-state
+  local file="$1" mode="$2" state_file="$3" key value pair current managed
   if [ -n "$IMAGE_PREFIX" ]; then
     for pair in \
       "AGENT_COMPOSE_IMAGE=${IMAGE_PREFIX}/agent-compose:${IMAGE_VERSION}" \
@@ -129,27 +176,36 @@ apply_image_refs() { # $1=file $2=mode(set-missing|overwrite)
       key="${pair%%=*}"
       value="${pair#*=}"
       current="$(get_env "$file" "$key")"
-      if [ "$mode" = "overwrite" ] || [ -z "$current" ]; then
-        set_env "$file" "$key" "$value"
-        log "Set $key in $file"
-      elif [ "$current" != "$value" ]; then
-        warn "$key already set; keeping existing image ref"
-      fi
+      managed="$(get_env "$state_file" "$key")"
+      apply_image_ref "$file" "$state_file" "$mode" "$key" "$value" "$current" "$managed"
     done
   elif [ -f "$MANIFEST" ]; then
     while IFS='=' read -r key value; do
       case "$key" in
         AGENT_COMPOSE_IMAGE|AGENT_COMPOSE_FRONTEND_VERSION|AGENT_COMPOSE_FRONTEND_IMAGE|DEFAULT_IMAGE)
           current="$(get_env "$file" "$key")"
-          if [ "$mode" = "overwrite" ] || [ -z "$current" ]; then
-            set_env "$file" "$key" "$value"
-            log "Set $key in $file"
-          elif [ "$current" != "$value" ]; then
-            warn "$key already set; keeping existing image ref"
-          fi
+          managed="$(get_env "$state_file" "$key")"
+          apply_image_ref "$file" "$state_file" "$mode" "$key" "$value" "$current" "$managed"
           ;;
       esac
     done < "$MANIFEST"
+  fi
+}
+
+apply_image_ref() { # $1=env $2=state $3=mode $4=key $5=desired $6=current $7=managed
+  local file="$1" state_file="$2" mode="$3" key="$4" desired="$5" current="$6" managed="$7"
+  if [ "$mode" = "install" ] || [ -z "$current" ]; then
+    set_env "$file" "$key" "$desired"
+    set_env "$state_file" "$key" "$desired"
+    log "Set $key in $file"
+  elif [ "$mode" = "upgrade" ] && [ -n "$managed" ] && [ "$current" = "$managed" ]; then
+    set_env "$file" "$key" "$desired"
+    set_env "$state_file" "$key" "$desired"
+    log "Updated installer-managed $key in $file"
+  elif [ -n "$managed" ] && [ "$current" = "$managed" ]; then
+    warn "$key has a newer installer-managed value available; use --upgrade to update it"
+  elif [ "$current" != "$desired" ]; then
+    warn "$key is user-managed; keeping existing image ref"
   fi
 }
 
@@ -159,8 +215,102 @@ apply_image_refs() { # $1=file $2=mode(set-missing|overwrite)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
 BUNDLE_SRC=""
 TMP_DIR=""
+WORK_DIR=""
+ROLLBACK_DIR=""
+INSTALL_DIR_ABS=""
+INSTALL_MUTATED=0
+INSTALL_SUCCEEDED=0
+INSTALL_DIR_EXISTED=0
+INSTALL_DIR_CREATED=0
+INSTALL_DIR_CREATED_PATH=""
+DATA_DIR_EXISTED=0
+PREVIOUS_INSTALL=0
+UP_ATTEMPTED=0
+installer_temp_files=()
 
-cleanup() { if [ -n "$TMP_DIR" ]; then rm -rf "$TMP_DIR"; fi; }
+managed_files=(docker-compose.yml docker-compose.kvm.yml install.sh .env .installer-state.env)
+
+snapshot_candidate_for_recovery() {
+  local name recovery_dir="$ROLLBACK_DIR/recovery-install"
+  mkdir -p "$recovery_dir" || return 1
+  for name in "${managed_files[@]}"; do
+    if [ -f "$INSTALL_DIR_ABS/$name" ]; then
+      cp -p "$INSTALL_DIR_ABS/$name" "$recovery_dir/$name" || return 1
+    fi
+  done
+}
+
+restore_installation() {
+  local name destination temporary restore_status=0
+  [ -n "$ROLLBACK_DIR" ] && [ -n "$INSTALL_DIR_ABS" ] || return 0
+  for name in "${managed_files[@]}"; do
+    destination="$INSTALL_DIR_ABS/$name"
+    if [ -f "$ROLLBACK_DIR/$name.present" ]; then
+      if ! temporary="$(mktemp "${destination}.installer-restore.XXXXXX")"; then
+        restore_status=1
+        continue
+      fi
+      installer_temp_files+=("$temporary")
+      if ! cp -p "$ROLLBACK_DIR/$name" "$temporary" || ! mv -f "$temporary" "$destination"; then
+        restore_status=1
+      fi
+    else
+      rm -f "$destination" || restore_status=1
+    fi
+  done
+  if [ "$DATA_DIR_EXISTED" -eq 0 ]; then
+    if [ -L "$INSTALL_DIR_ABS/data" ] || [ -L "$INSTALL_DIR_ABS/data/agent-compose" ]; then
+      restore_status=1
+    else
+      rm -rf "$INSTALL_DIR_ABS/data/agent-compose" || restore_status=1
+      rmdir "$INSTALL_DIR_ABS/data" 2>/dev/null || true
+    fi
+  fi
+  if [ "$INSTALL_DIR_EXISTED" -eq 0 ]; then
+    rm -rf "$INSTALL_DIR_ABS" || restore_status=1
+  fi
+  return "$restore_status"
+}
+
+cleanup() {
+  local status=$? restore_status=0 recovery_status=0 preserve_rollback=0 temporary
+  trap - EXIT
+  if [ "$status" -ne 0 ] && [ "$INSTALL_MUTATED" -eq 1 ] && [ "$INSTALL_SUCCEEDED" -eq 0 ]; then
+    if [ "$UP_ATTEMPTED" -eq 1 ] && [ "$PREVIOUS_INSTALL" -eq 0 ]; then
+      if ! run_installed_compose down --remove-orphans >/dev/null 2>&1; then
+        recovery_status=1
+        snapshot_candidate_for_recovery || restore_status=1
+      fi
+    fi
+    if [ "$UP_ATTEMPTED" -eq 1 ] && [ "$PREVIOUS_INSTALL" -eq 0 ] && [ "$recovery_status" -ne 0 ]; then
+      # Keep the candidate project in place so the operator still has the
+      # exact Compose selection and credentials required to remove orphans.
+      restore_status=1
+    else
+      restore_installation || restore_status=1
+    fi
+    if [ "$UP_ATTEMPTED" -eq 1 ] && [ "$PREVIOUS_INSTALL" -eq 1 ] && [ "$restore_status" -eq 0 ]; then
+      run_installed_compose up -d >/dev/null 2>&1 || recovery_status=1
+    fi
+    if [ "$restore_status" -eq 0 ] && [ "$recovery_status" -eq 0 ]; then
+      warn "installation failed; restored managed files in $INSTALL_DIR_ABS"
+    else
+      preserve_rollback=1
+      warn "installation failed and recovery was incomplete in $INSTALL_DIR_ABS; backups retained at $ROLLBACK_DIR"
+    fi
+  elif [ "$status" -ne 0 ] && [ "$INSTALL_DIR_CREATED" -eq 1 ] && [ "$INSTALL_MUTATED" -eq 0 ]; then
+    rmdir "$INSTALL_DIR_CREATED_PATH" 2>/dev/null || true
+  fi
+  for temporary in "${installer_temp_files[@]}"; do
+    rm -f "$temporary"
+  done
+  [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"
+  [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
+  if [ "$preserve_rollback" -eq 0 ]; then
+    [ -z "$ROLLBACK_DIR" ] || rm -rf "$ROLLBACK_DIR"
+  fi
+  exit "$status"
+}
 trap cleanup EXIT
 
 # images/manifest.env only exists in a real installer bundle, so it
@@ -197,17 +347,96 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# Bundle and target preflight
+# --------------------------------------------------------------------------
+command -v realpath >/dev/null 2>&1 || die "realpath is required for safe install-path validation"
+INSTALL_DIR_LEXICAL="$(realpath -ms -- "$INSTALL_DIR")"
+INSTALL_DIR_RESOLVED="$(realpath -m -- "$INSTALL_DIR")"
+if [ "$INSTALL_DIR_LEXICAL" != "$INSTALL_DIR_RESOLVED" ]; then
+  die "refusing install path with symlink components: $INSTALL_DIR"
+fi
+INSTALL_DIR="$INSTALL_DIR_LEXICAL"
+
+validate_install_path_identity() {
+  local lexical resolved
+  lexical="$(realpath -ms -- "$INSTALL_DIR")"
+  resolved="$(realpath -m -- "$INSTALL_DIR")"
+  [ "$lexical" = "$INSTALL_DIR" ] && [ "$resolved" = "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ] \
+    || die "refusing install path changed through symlink components: $INSTALL_DIR"
+}
+
+validate_data_paths() {
+  local data_path
+  for data_path in "$INSTALL_DIR/data" "$INSTALL_DIR/data/agent-compose"; do
+    if [ -L "$data_path" ] || { [ -e "$data_path" ] && [ ! -d "$data_path" ]; }; then
+      die "refusing unsafe data-directory target: $data_path"
+    fi
+  done
+}
+
+for required in docker-compose.yml .env.example; do
+  [ -f "$BUNDLE_SRC/$required" ] && [ ! -L "$BUNDLE_SRC/$required" ] \
+    || die "installer bundle is missing regular file $required"
+done
+if [ -e "$BUNDLE_SRC/docker-compose.kvm.yml" ] || [ -L "$BUNDLE_SRC/docker-compose.kvm.yml" ]; then
+  [ -f "$BUNDLE_SRC/docker-compose.kvm.yml" ] && [ ! -L "$BUNDLE_SRC/docker-compose.kvm.yml" ] \
+    || die "installer bundle KVM overlay must be a regular file"
+fi
+if [ -L "$INSTALL_DIR" ]; then
+  die "refusing symlink install directory: $INSTALL_DIR"
+fi
+if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+  die "install target exists and is not a directory: $INSTALL_DIR"
+fi
+[ -d "$INSTALL_DIR" ] && INSTALL_DIR_EXISTED=1
+validate_data_paths
+[ -d "$INSTALL_DIR/data/agent-compose" ] && DATA_DIR_EXISTED=1
+for name in "${managed_files[@]}"; do
+  target="$INSTALL_DIR/$name"
+  if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
+    die "refusing unsafe managed-file target: $target"
+  fi
+done
+
+KVM_AVAILABLE=0
+[ -e "$KVM_DETECT_PATH" ] && KVM_AVAILABLE=1
+KVM_OVERLAY_AVAILABLE=0
+if [ -f "$BUNDLE_SRC/docker-compose.kvm.yml" ] || [ -f "$INSTALL_DIR/docker-compose.kvm.yml" ]; then
+  KVM_OVERLAY_AVAILABLE=1
+fi
+
+EXISTING_ENV_FILE="$INSTALL_DIR/.env"
+COMPOSE_SELECTION_EXPLICIT=0
+if has_active_env "$EXISTING_ENV_FILE" COMPOSE_FILE; then
+  COMPOSE_SELECTION_EXPLICIT=1
+  COMPOSE_STATE="existing COMPOSE_FILE selection will be preserved"
+  if [ "$KVM_AVAILABLE" -eq 0 ]; then
+    warn "$KVM_DETECT_PATH not present; preserving the existing explicit Compose selection"
+  fi
+elif has_active_env "$EXISTING_ENV_FILE" COMPOSE_PATH_SEPARATOR; then
+  die "existing COMPOSE_PATH_SEPARATOR requires an explicit COMPOSE_FILE before installation"
+elif [ "$KVM_AVAILABLE" -eq 1 ]; then
+  [ "$KVM_OVERLAY_AVAILABLE" -eq 1 ] \
+    || die "KVM detected at $KVM_DETECT_PATH but docker-compose.kvm.yml is unavailable"
+  COMPOSE_STATE="docker-compose.yml:docker-compose.kvm.yml (KVM enabled)"
+else
+  COMPOSE_STATE="docker-compose.yml (Docker-only; KVM unavailable)"
+  warn "$KVM_DETECT_PATH not present; persisting Docker-only Compose selection"
+fi
+
+# --------------------------------------------------------------------------
 # Prerequisites
 # --------------------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
 if docker compose version >/dev/null 2>&1; then
-  COMPOSE="docker compose"
+  COMPOSE_CMD=(docker compose)
+  COMPOSE_DISPLAY="docker compose"
 elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE="docker-compose"
+  COMPOSE_CMD=(docker-compose)
+  COMPOSE_DISPLAY="docker-compose"
 else
   die "docker compose (v2) is required"
 fi
-[ -e /dev/kvm ] || warn "/dev/kvm not present; the boxlite/microsandbox drivers need it (the default docker driver does not)"
 
 # --------------------------------------------------------------------------
 # Explicit confirmation before changing the installation directory
@@ -218,7 +447,7 @@ else
   ENV_STATE="new .env will be created with generated credentials"
 fi
 if [ "$UPGRADE" -eq 1 ]; then
-  IMAGE_STATE="image refs in .env will be updated to this installer version"
+  IMAGE_STATE="installer-managed image refs will be updated; custom refs will be preserved"
 else
   IMAGE_STATE="existing image refs in .env will be kept"
 fi
@@ -235,6 +464,7 @@ agent-compose deployment plan
   Target dir:   $INSTALL_DIR
   Data dir:     $INSTALL_DIR/data/agent-compose
   Config:       $ENV_STATE
+  Compose:      $COMPOSE_STATE
   Images:       $IMAGE_STATE
   Start:        $START_STATE
 
@@ -253,17 +483,18 @@ if ! truthy "$YES"; then
 fi
 
 # --------------------------------------------------------------------------
-# Lay down files
+# Build candidate files without changing the installation
 # --------------------------------------------------------------------------
-mkdir -p "$INSTALL_DIR/data/agent-compose"
-cp "$BUNDLE_SRC/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
-if [ -f "$BUNDLE_SRC/install.sh" ] && [ "$BUNDLE_SRC/install.sh" -ef "$INSTALL_DIR/install.sh" ] 2>/dev/null; then
-  : # already the same file; nothing to copy
-elif [ -f "$BUNDLE_SRC/install.sh" ]; then
-  cp "$BUNDLE_SRC/install.sh" "$INSTALL_DIR/install.sh"
+WORK_DIR="$(mktemp -d)"
+cp "$BUNDLE_SRC/docker-compose.yml" "$WORK_DIR/docker-compose.yml"
+if [ -f "$BUNDLE_SRC/docker-compose.kvm.yml" ]; then
+  cp "$BUNDLE_SRC/docker-compose.kvm.yml" "$WORK_DIR/docker-compose.kvm.yml"
+elif [ -f "$INSTALL_DIR/docker-compose.kvm.yml" ]; then
+  cp "$INSTALL_DIR/docker-compose.kvm.yml" "$WORK_DIR/docker-compose.kvm.yml"
 fi
-INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
-ENV_FILE="$INSTALL_DIR/.env"
+if [ -f "$BUNDLE_SRC/install.sh" ]; then
+  cp "$BUNDLE_SRC/install.sh" "$WORK_DIR/install.sh"
+fi
 
 # Manifest pins the compose image refs to this release's version.
 MANIFEST="$BUNDLE_SRC/images/manifest.env"
@@ -274,56 +505,151 @@ if [ -f "$MANIFEST" ]; then
 fi
 
 GENERATED_PASSWORD=""
+ENV_FILE="$INSTALL_DIR/.env"
+CANDIDATE_ENV="$WORK_DIR/.env"
+STATE_FILE="$INSTALL_DIR/.installer-state.env"
+CANDIDATE_STATE="$WORK_DIR/.installer-state.env"
+if [ -f "$STATE_FILE" ]; then
+  cp -p "$STATE_FILE" "$CANDIDATE_STATE"
+else
+  : >"$CANDIDATE_STATE"
+fi
 if [ ! -f "$ENV_FILE" ]; then
-  cp "$BUNDLE_SRC/.env.example" "$ENV_FILE"
-  log "Created $ENV_FILE"
+  cp "$BUNDLE_SRC/.env.example" "$CANDIDATE_ENV"
 
-  set_env "$ENV_FILE" AUTH_SECRET "$(gen_hex 32)"
+  set_env "$CANDIDATE_ENV" AUTH_SECRET "$(gen_hex 32)"
 
   GENERATED_PASSWORD="$(gen_password)"
-  set_env "$ENV_FILE" AUTH_PASSWORD "$GENERATED_PASSWORD"
+  set_env "$CANDIDATE_ENV" AUTH_PASSWORD "$GENERATED_PASSWORD"
 
-  apply_image_refs "$ENV_FILE" overwrite
-  [ -n "$PORT" ] && set_env "$ENV_FILE" AGENT_COMPOSE_HTTP_PORT "$PORT"
+  apply_image_refs "$CANDIDATE_ENV" install "$CANDIDATE_STATE"
+  [ -n "$PORT" ] && set_env "$CANDIDATE_ENV" AGENT_COMPOSE_HTTP_PORT "$PORT"
 else
+  cp -p "$ENV_FILE" "$CANDIDATE_ENV"
   warn "$ENV_FILE already exists; preserving configured settings"
-  if [ -z "$(get_env "$ENV_FILE" AUTH_SECRET)" ]; then
-    set_env "$ENV_FILE" AUTH_SECRET "$(gen_hex 32)"
+  if [ -z "$(get_env "$CANDIDATE_ENV" AUTH_SECRET)" ]; then
+    set_env "$CANDIDATE_ENV" AUTH_SECRET "$(gen_hex 32)"
     log "Generated missing AUTH_SECRET in $ENV_FILE"
   fi
-  if [ -z "$(get_env "$ENV_FILE" AUTH_PASSWORD)" ]; then
+  if [ -z "$(get_env "$CANDIDATE_ENV" AUTH_PASSWORD)" ]; then
     GENERATED_PASSWORD="$(gen_password)"
-    set_env "$ENV_FILE" AUTH_PASSWORD "$GENERATED_PASSWORD"
+    set_env "$CANDIDATE_ENV" AUTH_PASSWORD "$GENERATED_PASSWORD"
     log "Generated missing AUTH_PASSWORD in $ENV_FILE"
   fi
   if [ "$UPGRADE" -eq 1 ]; then
-    apply_image_refs "$ENV_FILE" overwrite
+    apply_image_refs "$CANDIDATE_ENV" upgrade "$CANDIDATE_STATE"
   else
-    apply_image_refs "$ENV_FILE" set-missing
+    apply_image_refs "$CANDIDATE_ENV" set-missing "$CANDIDATE_STATE"
   fi
-  [ -n "$PORT" ] && set_env "$ENV_FILE" AGENT_COMPOSE_HTTP_PORT "$PORT"
+  [ -n "$PORT" ] && set_env "$CANDIDATE_ENV" AGENT_COMPOSE_HTTP_PORT "$PORT"
+fi
+
+if [ "$COMPOSE_SELECTION_EXPLICIT" -eq 0 ]; then
+  if [ "$KVM_AVAILABLE" -eq 1 ]; then
+    set_env "$CANDIDATE_ENV" COMPOSE_FILE "docker-compose.yml:docker-compose.kvm.yml"
+  else
+    set_env "$CANDIDATE_ENV" COMPOSE_FILE "docker-compose.yml"
+  fi
+fi
+chmod 600 "$CANDIDATE_ENV"
+chmod 600 "$CANDIDATE_STATE"
+
+# --------------------------------------------------------------------------
+# Atomically promote managed files, with rollback on any later failure
+# --------------------------------------------------------------------------
+atomic_install_file() { # $1=source $2=destination $3=mode
+  local source="$1" destination="$2" mode="$3" preserve_metadata="${4:-0}" temporary
+  temporary="$(mktemp "${destination}.installer-tmp.XXXXXX")"
+  installer_temp_files+=("$temporary")
+  if [ "$preserve_metadata" -eq 1 ]; then
+    cp -p "$source" "$temporary"
+  else
+    cp "$source" "$temporary"
+  fi
+  chmod "$mode" "$temporary"
+  mv -f "$temporary" "$destination"
+}
+
+ROLLBACK_DIR="$(mktemp -d)"
+validate_install_path_identity
+mkdir -p -- "$INSTALL_DIR"
+validate_install_path_identity
+validate_data_paths
+if [ "$INSTALL_DIR_EXISTED" -eq 0 ]; then
+  INSTALL_DIR_CREATED=1
+  INSTALL_DIR_CREATED_PATH="$INSTALL_DIR"
+fi
+INSTALL_DIR_ABS="$(cd -P -- "$INSTALL_DIR" && pwd)"
+[ "$INSTALL_DIR_ABS" = "$INSTALL_DIR" ] \
+  || die "refusing install path changed during creation: $INSTALL_DIR"
+INSTALL_DIR="$INSTALL_DIR_ABS"
+ENV_FILE="$INSTALL_DIR/.env"
+for name in "${managed_files[@]}"; do
+  target="$INSTALL_DIR/$name"
+  if [ -f "$target" ]; then
+    cp -p "$target" "$ROLLBACK_DIR/$name"
+    touch "$ROLLBACK_DIR/$name.present"
+  fi
+done
+if [ -f "$ROLLBACK_DIR/docker-compose.yml.present" ] && [ -f "$ROLLBACK_DIR/.env.present" ]; then
+  PREVIOUS_INSTALL=1
+fi
+
+INSTALL_MUTATED=1
+atomic_install_file "$WORK_DIR/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml" 644
+if [ -f "$BUNDLE_SRC/docker-compose.kvm.yml" ]; then
+  atomic_install_file "$WORK_DIR/docker-compose.kvm.yml" "$INSTALL_DIR/docker-compose.kvm.yml" 644
+fi
+if [ -f "$WORK_DIR/install.sh" ]; then
+  atomic_install_file "$WORK_DIR/install.sh" "$INSTALL_DIR/install.sh" 755
+fi
+atomic_install_file "$CANDIDATE_ENV" "$ENV_FILE" 600 1
+atomic_install_file "$CANDIDATE_STATE" "$INSTALL_DIR/.installer-state.env" 600 1
+validate_data_paths
+mkdir -p "$INSTALL_DIR/data/agent-compose"
+if [ ! -f "$ROLLBACK_DIR/.env.present" ]; then
+  log "Created $ENV_FILE"
 fi
 
 # --------------------------------------------------------------------------
-# Start
+# Validate and start using the persisted project .env selection
 # --------------------------------------------------------------------------
+run_installed_compose() {
+  (
+    cd "$INSTALL_DIR"
+    unset COMPOSE_FILE COMPOSE_PATH_SEPARATOR COMPOSE_ENV_FILES COMPOSE_DISABLE_ENV_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME
+    "${COMPOSE_CMD[@]}" "$@"
+  )
+}
+
+run_installed_compose config --quiet
+
 HTTP_PORT="$(get_env "$ENV_FILE" AGENT_COMPOSE_HTTP_PORT)"; HTTP_PORT="${HTTP_PORT:-80}"
 USERNAME="$(get_env "$ENV_FILE" AUTH_USERNAME)"; USERNAME="${USERNAME:-admin}"
+printf -v INSTALL_DIR_SHELL '%q' "$INSTALL_DIR"
 
 if [ "$NO_START" -eq 1 ]; then
-  log "Skipping start (--no-start). Run later with: cd $INSTALL_DIR && $COMPOSE up -d"
+  log "Skipping start (--no-start). Run later with: cd $INSTALL_DIR_SHELL && $COMPOSE_DISPLAY up -d"
 else
   log "Pulling images and starting the stack"
-  ( cd "$INSTALL_DIR" && $COMPOSE pull && $COMPOSE up -d )
+  run_installed_compose pull
+  UP_ATTEMPTED=1
+  run_installed_compose up -d
 fi
+INSTALL_SUCCEEDED=1
 
 # --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 printf '\n'
-printf '\033[0;32m================ agent-compose is ready ================\033[0m\n'
+if [ "$NO_START" -eq 1 ]; then
+  printf '\033[0;32m============= agent-compose installation prepared =============\033[0m\n'
+else
+  printf '\033[0;32m================ agent-compose is ready ================\033[0m\n'
+fi
 printf '  URL:        http://localhost:%s\n' "$HTTP_PORT"
 printf '  Directory:  %s\n' "$INSTALL_DIR"
+printf '  Compose:    %s\n' "$COMPOSE_STATE"
 if [ -n "$GENERATED_PASSWORD" ]; then
   printf '\n  \033[1mLogin credentials (generated, shown only once):\033[0m\n'
   printf '    Username: %s\n' "$USERNAME"
@@ -332,5 +658,5 @@ if [ -n "$GENERATED_PASSWORD" ]; then
 else
   printf '\n  Credentials unchanged; see AUTH_PASSWORD in %s.\n' "$ENV_FILE"
 fi
-printf '\n  Manage: cd %s && %s [ps|logs -f|down]\n' "$INSTALL_DIR" "$COMPOSE"
+printf '\n  Manage: cd %s && %s [ps|logs -f|down]\n' "$INSTALL_DIR_SHELL" "$COMPOSE_DISPLAY"
 printf '\033[0;32m========================================================\033[0m\n'

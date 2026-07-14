@@ -35,13 +35,20 @@
 
 ### 方式 A —— 部署服务器（推荐）
 
-一行安装脚本会用 Docker Compose 部署 agent-compose（含 Web UI），支持 Linux amd64/arm64：
+一行安装脚本会用 Docker Compose 部署并启动 agent-compose daemon，支持 Linux amd64/arm64。Web UI 位于可选的 `with-ui` profile，不会由安装脚本的普通 `docker compose up -d` 自动启动：
 
 ```bash
 curl -fsSL https://github.com/chaitin/agent-compose/releases/latest/download/install.sh | bash
 ```
 
-首次运行会生成 `admin` 密码并打印一次，之后通过打印出的 URL 使用 Web UI。安装选项（`--dir`、`--port`、`--upgrade`、使用镜像/私有 registry 等）见 [../../deploy/README.md](../../deploy/README.md)。
+首次运行会生成 `admin` 密码并打印一次，同时打印安装目录和浏览器 URL。使用浏览器前，先在该安装目录显式启动 Web UI：
+
+```bash
+cd <安装脚本打印的目录>
+docker compose --profile with-ui up -d
+```
+
+然后访问安装脚本打印的 URL。基础 `docker-compose.yml` 不启用 `privileged`，也不映射 `/dev/kvm`；installer 在新安装时检测 KVM，并在可用时把 `COMPOSE_FILE=docker-compose.yml:docker-compose.kvm.yml` 持久化到安装目录的 `.env`。没有 KVM 时仍可使用默认 Docker driver。安装选项（`--dir`、`--port`、`--upgrade`、使用镜像/私有 registry 等）见 [../../deploy/README.md](../../deploy/README.md)。
 
 ### 方式 B —— 从源码构建（用于 CLI 工作流）
 
@@ -151,6 +158,8 @@ agents:
 - **`boxlite`**：使用 BoxLite runtime artifact 以 microVM 运行 guest。
 - **`microsandbox`**：使用 Microsandbox VM runtime 运行 guest。
 
+产物的平台能力并不相同：macOS 原生二进制只编译 `docker`；Linux 原生二进制和发布的 Linux daemon 镜像编译 `docker`、`boxlite`、`microsandbox`。`agent-compose --json version` 和 `/api/version` 中的 `compiled_drivers` 只表示真实 driver 实现已编入当前产物，不代表 Docker daemon、KVM、native artifact 或 runtime 本身当前可用或健康。BoxLite 和 Microsandbox 的真实运行仍要求 Linux/KVM 及对应 runtime artifact；完整 Linux 镜像可以在 macOS Docker Desktop 中以 Docker driver 运行，但不承诺在该环境运行两种 KVM driver。
+
 镜像处理由 `IMAGE_STORE_MODE` 选择（`auto` / `docker` / `oci`，其中 `oci` 使用无 daemon 的镜像缓存）。新 sandbox 使用 `DEFAULT_IMAGE` 指定的镜像；自带的 `.env.example` 和安装脚本将其设为 `ghcr.io/chaitin/agent-compose-guest:latest`，该镜像内置 agent runtime 和各 provider CLI。
 
 ## Agent Provider
@@ -201,6 +210,8 @@ docker compose pull && docker compose up -d
 docker compose --profile with-ui up -d   # 同时启动 Web UI
 ```
 
+以上命令默认使用不含 KVM 权限的基础 Compose。需要在 Linux KVM 主机显式启用 BoxLite/Microsandbox 时，把 `COMPOSE_FILE=docker-compose.yml:docker-compose.kvm.yml` 写入部署目录的 `.env`；`docker-compose.kvm.yml` 只增加 `privileged` 和 `/dev/kvm` 能力，不是本地 build override。
+
 **[../../.env.example](../../.env.example) 是权威的、带完整注释的配置参考。** 对外部署前至少检查这些：
 
 - `AUTH_PASSWORD`、`AUTH_SECRET` —— UI server 登录 secret（务必替换示例值）。
@@ -232,7 +243,9 @@ task build
 task test          # 或：task test:unit / task test:integration / task test:e2e
 ```
 
-用 `task image:agent-compose-guest` 和 `task image:agent-compose` 构建 guest 和 daemon 镜像。启用 BoxLite 的二进制（`task build:agent-compose:boxlite`）为可选，需要 BoxLite runtime artifact。JavaScript runtime 组件在 `runtime/` 下。
+用 `task image:agent-compose-guest` 和 `task image:agent-compose` 构建 guest 和 daemon 镜像。`task build:agent-compose` 按当前宿主选择原生 profile：Darwin 构建仅支持 Docker 的二进制，Linux 构建同时支持 Docker、BoxLite 和 Microsandbox；Linux full 构建会通过 Docker 准备两种 native runtime artifact。也可通过 `task build:agent-compose:darwin` 或 `task build:agent-compose:linux` 显式选择。旧任务 `build:agent-compose:boxlite` 已废弃，仅作为 Linux full profile 的兼容 alias。JavaScript runtime 组件在 `runtime/` 下。
+
+macOS/Linux 原生二进制只用于本地开发和 CI 验证，不作为 GitHub Release 资产。正式发布载体仍是 GHCR 中 `linux/amd64`、`linux/arm64` 的 multi-arch daemon/guest 镜像；GitHub Release 只包含 standalone installer、installer bundle 和校验和，不包含平台二进制。
 
 ## 文档
 

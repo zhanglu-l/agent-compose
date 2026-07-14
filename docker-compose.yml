@@ -3,9 +3,6 @@ services:
     image: ${AGENT_COMPOSE_IMAGE:-ghcr.io/chaitin/agent-compose:latest}
     container_name: agent-compose
     restart: always
-    privileged: true
-    devices:
-      - /dev/kvm:/dev/kvm
     environment:
       AGENT_COMPOSE_RUNTIME_BASE_URL: ${AGENT_COMPOSE_RUNTIME_BASE_URL:-http://agent-compose:7410}
     volumes:

@@ -1,4 +1,4 @@
-//go:build boxlitecgo && boxlite_repro
+//go:build linux && cgo && boxlitecgo && boxlite_repro
 
 package driver
 
@@ -13,7 +13,7 @@ package driver
 //   测试成功代表问题被复现，因此会保留 /tmp/agent-compose-smoke-* 现场目录供排查。
 //
 // 隔离方式：
-//   文件使用 boxlitecgo && boxlite_repro build tag。只有显式传入
+//   文件在 BoxLite 真实实现约束外额外使用 boxlite_repro build tag。只有显式传入
 //   -tags 'boxlitecgo,boxlite_repro' 时才会被编译和执行。
 
 import (

@@ -1,4 +1,4 @@
-//go:build boxlitecgo || cgo
+//go:build linux && cgo && (boxlitecgo || microsandboxcgo)
 
 package driver
 

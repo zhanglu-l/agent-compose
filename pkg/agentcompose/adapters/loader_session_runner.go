@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -130,6 +131,9 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if err != nil {
 		return nil, "", err
 	}
+	if err := validateLoaderRuntimeDriverCompiled(driver); err != nil {
+		return nil, "", err
+	}
 	guestImage := r.guestImage(request, loader, agentDefinition, driver)
 	title := firstNonEmpty(strings.TrimSpace(request.Title), strings.TrimSpace(loader.Summary.Name), domain.DefaultLoaderName(time.Now().UTC()))
 	if agentDefinition != nil {
@@ -212,6 +216,11 @@ func (r *LoaderSandboxRunner) LoadOrResume(ctx context.Context, sessionID string
 	}
 	if session.Summary.VMStatus == domain.VMStatusRunning {
 		return session, "", nil
+	}
+	if validator, ok := r.Driver.(sessions.SandboxRuntimeValidator); ok {
+		if err := validator.ValidateSandboxRuntime(session); err != nil {
+			return nil, "", err
+		}
 	}
 	if err := r.workspaceEnsurer.Ensure(ctx, session); err != nil {
 		return nil, "", err
@@ -299,6 +308,14 @@ func (r *LoaderSandboxRunner) driver(request domain.LoaderAgentRequest, loader d
 		driverValue = firstNonEmpty(strings.TrimSpace(request.Driver), strings.TrimSpace(loader.Summary.Driver), strings.TrimSpace(agentDefinition.Driver))
 	}
 	return driverpkg.ResolveSandboxRuntimeDriver(driverValue, r.Config.RuntimeDriver)
+}
+
+func validateLoaderRuntimeDriverCompiled(driver string) error {
+	err := driverpkg.ValidateCompiledRuntimeDriver(driver)
+	if errors.Is(err, driverpkg.ErrRuntimeDriverNotCompiled) {
+		return domain.ClassifyError(domain.ErrUnsupported, "", err)
+	}
+	return err
 }
 
 func (r *LoaderSandboxRunner) guestImage(request domain.LoaderAgentRequest, loader domain.Loader, agentDefinition *domain.AgentDefinition, driver string) string {

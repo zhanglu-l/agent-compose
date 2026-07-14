@@ -31,12 +31,8 @@ func ensureDockerImage(ctx context.Context, imageRef string, pullPolicy string, 
 
 	switch pullPolicy {
 	case "never":
-		if resolvedRef, ok, err := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); err == nil && ok {
-			return resolvedRef, nil
-		} else if err != nil {
-			return "", fmt.Errorf("inspect guest image %s: %w", imageRef, err)
-		}
-		return "", fmt.Errorf("guest image %s: not found locally (pull_policy=never)", imageRef)
+		resolvedRef, ok, resolveErr := resolveLocalDockerImageRef(ctx, dockerClient, imageRef)
+		return requireLocalDockerImage(imageRef, resolvedRef, ok, resolveErr)
 
 	case "always":
 		pullCtx, pullCancel := context.WithTimeout(ctx, pullTimeout)
@@ -78,6 +74,16 @@ func ensureDockerImage(ctx context.Context, imageRef string, pullPolicy string, 
 	}
 }
 
+func requireLocalDockerImage(imageRef, resolvedRef string, ok bool, resolveErr error) (string, error) {
+	if resolveErr != nil {
+		return "", fmt.Errorf("inspect guest image %s: %w", imageRef, resolveErr)
+	}
+	if ok {
+		return resolvedRef, nil
+	}
+	return "", fmt.Errorf("guest image %s: not found locally (pull_policy=never)", imageRef)
+}
+
 func dockerImagePull(ctx context.Context, dockerClient *client.Client, imageRef string) error {
 	reader, err := dockerClient.ImagePull(ctx, imageRef, typesimage.PullOptions{})
 	if err != nil {
@@ -85,72 +91,6 @@ func dockerImagePull(ctx context.Context, dockerClient *client.Client, imageRef 
 	}
 	defer func() { _ = reader.Close() }()
 	return consumeDockerPullStream(reader)
-}
-
-// applyDockerDaemonPullPolicy refreshes (or gates) the local docker-daemon copy
-// of imageRef according to pullPolicy, BEFORE a caller materializes a rootfs/OCI
-// layout from that local copy. The microsandbox and boxlite drivers resolve
-// images through the local docker daemon first; without this the daemon short
-// circuit returns a stale local image and pullPolicy=always never re-pulls.
-//
-//   - "always": pull imageRef into the local daemon (bounded by pullTimeout). On
-//     pull failure fall back to the existing local copy if present (warn), else
-//     error carrying the pull cause.
-//   - "never": do not pull; error only if the image is absent locally.
-//   - "missing"/empty: no-op — the caller's existing local-first + IfMissing
-//     behavior is preserved byte-for-byte.
-//
-// It never mutates the caller's control flow beyond the pull; materialization
-// still runs afterward on the (possibly refreshed) local image.
-func applyDockerDaemonPullPolicy(ctx context.Context, imageRef, pullPolicy string, pullTimeout time.Duration) error {
-	imageRef = strings.TrimSpace(imageRef)
-	if imageRef == "" {
-		return nil
-	}
-	switch strings.ToLower(strings.TrimSpace(pullPolicy)) {
-	case "always", "never":
-		// handled below
-	default:
-		return nil // missing / empty: preserve prior behavior exactly
-	}
-
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		// This runs only after the caller has confirmed the docker daemon is
-		// available (the resolve* paths gate this behind dockerAvailable==true)
-		// and BEFORE it materializes from the local daemon copy. Silently
-		// returning nil here would let the caller proceed to dockerMaterialize
-		// with policy unenforced — pull_policy=always would skip the re-pull and
-		// pull_policy=never would skip the local existence check. Surface the
-		// error so the caller aborts instead of using an unvalidated image.
-		return fmt.Errorf("connect docker daemon for pull-policy check %s: %w", imageRef, err)
-	}
-	defer func() { _ = dockerClient.Close() }()
-
-	switch strings.ToLower(strings.TrimSpace(pullPolicy)) {
-	case "never":
-		if _, ok, resolveErr := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); resolveErr == nil && ok {
-			return nil
-		}
-		return fmt.Errorf("guest image %s: not found locally (pull_policy=never)", imageRef)
-
-	case "always":
-		pullCtx := ctx
-		if pullTimeout > 0 {
-			var cancel context.CancelFunc
-			pullCtx, cancel = context.WithTimeout(ctx, pullTimeout)
-			defer cancel()
-		}
-		if pullErr := dockerImagePull(pullCtx, dockerClient, imageRef); pullErr != nil {
-			if _, ok, resolveErr := resolveLocalDockerImageRef(ctx, dockerClient, imageRef); resolveErr == nil && ok {
-				slog.Warn("guest image pull failed, using cached local image", "image", imageRef, "pull_error", pullErr)
-				return nil
-			}
-			return fmt.Errorf("guest image %s: pull failed (%w) and not found locally", imageRef, pullErr)
-		}
-		return nil
-	}
-	return nil
 }
 
 func EnsureDockerImage(ctx context.Context, imageRef string) (string, error) {

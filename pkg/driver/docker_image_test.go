@@ -1,11 +1,36 @@
 package driver
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	typesimage "github.com/docker/docker/api/types/image"
 )
+
+func TestRequireLocalDockerImage(t *testing.T) {
+	t.Run("found", func(t *testing.T) {
+		got, err := requireLocalDockerImage("guest:latest", "guest:latest", true, nil)
+		if err != nil || got != "guest:latest" {
+			t.Fatalf("requireLocalDockerImage() = %q, %v; want local ref", got, err)
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		_, err := requireLocalDockerImage("guest:latest", "", false, nil)
+		if err == nil || !strings.Contains(err.Error(), "not found locally (pull_policy=never)") {
+			t.Fatalf("requireLocalDockerImage() error = %v; want not-found error", err)
+		}
+	})
+
+	t.Run("inspect error", func(t *testing.T) {
+		inspectErr := errors.New("docker daemon unavailable")
+		_, err := requireLocalDockerImage("guest:latest", "", false, inspectErr)
+		if !errors.Is(err, inspectErr) || !strings.Contains(err.Error(), "inspect guest image guest:latest") {
+			t.Fatalf("requireLocalDockerImage() error = %v; want wrapped inspect error", err)
+		}
+	})
+}
 
 func TestMatchLocalDockerImageRefUsesExactLocalTag(t *testing.T) {
 	images := []typesimage.Summary{{

@@ -87,9 +87,53 @@ daemon logs when it fails.
 This focused task is intentionally absent from `task test` and GitHub Actions
 because GitHub-hosted CI does not provide its prebuilt guest-image prerequisite.
 
+The real Docker scheduler script E2E is also opt-in because it starts a Docker
+sandbox and waits for a scheduler trigger. Run it with:
+
+```bash
+task test:e2e:docker-scheduler
+```
+
+The task uses `agent-compose-guest:latest` by default. Set
+`AGENT_COMPOSE_E2E_GUEST_IMAGE` to use another compatible image. The test is
+compiled only with the `docker_e2e` build tag, so the ordinary `task test`
+coverage gate does not include this scheduler Docker E2E or create its runtime
+containers.
+
+The full daemon image Docker lifecycle E2E is opt-in because it starts the
+daemon image and Docker sandbox containers through a local Docker socket. Run
+it after building both local images:
+
+```bash
+task image:agent-compose
+task image:agent-compose-guest
+task test:e2e:image-docker
+```
+
+The task uses `agent-compose:latest`, `agent-compose-guest:latest`, and
+`/var/run/docker.sock` by default. Override them with
+`AGENT_COMPOSE_E2E_DAEMON_IMAGE`, `AGENT_COMPOSE_E2E_GUEST_IMAGE`, and
+`AGENT_COMPOSE_E2E_DOCKER_SOCKET`. The startup case runs the shipped daemon
+image with no Docker socket, privilege, device, or `/dev/kvm` and verifies
+`/api/version`. The lifecycle case mounts the selected socket, then uses the
+public APIs to create, exec, stop, resume, exec, and remove a Docker sandbox.
+Both cases use isolated resources and fail if their labeled containers,
+network, or volumes remain after cleanup. The task also installs a
+fixture-scoped interrupt/exit cleanup trap; a hard-killed run reports any stale
+resource IDs on the next invocation instead of touching unrelated containers.
+Ordinary `task test` runs only the deterministic task contract and compiles the
+environment-gated runtime cases without contacting the Docker daemon.
+
 ## Quality Gate
 
 `task test` is the project quality gate for tests.
+
+Before coverage collection, it runs `task test:deploy` to validate the
+installer state machine, base and KVM Compose rendering, and the exact installer
+release-asset set. These deterministic checks require the Docker CLI with
+Compose v2 and `jq`, but do not require a running Docker daemon, KVM, network
+access, or runtime sandboxes. They do not change or contribute to the coverage
+baselines below.
 
 The `test` task in `Taskfile.yml` must calculate and print:
 - unit-test coverage

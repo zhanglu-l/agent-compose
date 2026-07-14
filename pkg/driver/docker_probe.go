@@ -1,3 +1,5 @@
+//go:build linux && cgo && (boxlitecgo || microsandboxcgo)
+
 package driver
 
 import (

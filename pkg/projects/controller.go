@@ -549,10 +549,13 @@ func (c *Controller) validateManagedAgentDefinitions(normalized NormalizedProjec
 			issues = append(issues, ValidationIssue{Path: path, Message: err.Error()})
 			continue
 		}
-		if strings.TrimSpace(agent.Driver) != "" {
-			if _, err := driverpkg.ResolveSandboxRuntimeDriver(agent.Driver, c.defaultDR); err != nil {
-				issues = append(issues, ValidationIssue{Path: path + ".driver", Message: err.Error()})
-			}
+		driver, err := driverpkg.ResolveSandboxRuntimeDriver(agent.Driver, c.defaultDR)
+		if err != nil {
+			issues = append(issues, ValidationIssue{Path: path + ".driver", Message: err.Error()})
+			continue
+		}
+		if err := driverpkg.ValidateCompiledRuntimeDriver(driver); err != nil {
+			issues = append(issues, ValidationIssue{Path: path + ".driver", Message: err.Error()})
 		}
 	}
 	return issues

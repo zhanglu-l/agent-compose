@@ -211,8 +211,7 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 	assertE2EDockerSandboxContainerCount(t, ctx, dockerClient, sandboxAID, 0)
 
 	if _, err := projectClient.RemoveProject(ctx, connect.NewRequest(&agentcomposev2.RemoveProjectRequest{
-		Project:       &agentcomposev2.ProjectRef{ProjectId: projectID},
-		RemoveHistory: true,
+		Project: &agentcomposev2.ProjectRef{ProjectId: projectID},
 	})); err != nil {
 		t.Fatalf("RemoveProject returned error: %v", err)
 	}

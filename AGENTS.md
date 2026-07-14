@@ -107,9 +107,49 @@ Before finishing a code change, verify:
 - During development, run focused tests for every changed package and the narrowest integration tests that cover crossed boundaries. For changes to synchronization, goroutine lifecycle, or shared state, also run the relevant tests with `go test -race`.
 - Follow `TESTING.md` for test shapes, coverage requirements, and when a change requires integration or E2E coverage.
 
+## Runtime and Build Contract
+
+Product support and compiled capability are separate. The stable build matrix is:
+
+| Artifact | Build entry | Compiled drivers |
+| --- | --- | --- |
+| macOS native binary | `task build:agent-compose` on macOS, or `task build:agent-compose:darwin` | `docker` |
+| Linux native binary | `task build:agent-compose` on Linux, or `task build:agent-compose:linux` | `docker`, `boxlite`, `microsandbox` |
+| Linux daemon image | `task image:agent-compose` | `docker`, `boxlite`, `microsandbox` |
+
+`compiled_drivers` in `agent-compose --json version` and `/api/version` reports what was built into the binary. It does not check Docker daemon reachability, KVM access, runtime artifact health, or whether a driver can start. The default driver remains `docker`; BoxLite and Microsandbox runtime initialization is lazy, and operations that select a driver absent from the current binary fail as unsupported before runtime state is created or changed.
+
+Important defaults:
+
+- `DATA_ROOT`: `./data/`
+- `SANDBOX_ROOT`: `<data-root>/sandboxes`
+- `HTTP_LISTEN`: `127.0.0.1:7410`
+- `DEFAULT_IMAGE`: `debian:bookworm-slim`
+- `JUPYTER_PROXY_BASE`: `/jupyter`
+
 ## Deployment Configuration
 
-- Keep `docker-compose.yml` deployable on its own with published images. A remote deployment should only need `docker-compose.yml` plus a user-created `.env`.
+Current Docker build behavior:
+
+- `Dockerfile` builds the full Linux `cmd/agent-compose` binary and published daemon image
+- `guest-images/Dockerfile.agent-compose-guest` builds the guest image used by sandbox deployments
+- `scripts/build-agent-compose.sh` defaults to `IMAGE_NAME=agent-compose:latest` and `DOCKERFILE=Dockerfile`
+- `task build:agent-compose:boxlite` is a deprecated alias for `task build:agent-compose:linux`; it does not define a separate BoxLite-only profile
+- native binaries are local/CI verification artifacts; supported deployment remains the registry images plus GitHub Release installer assets, not per-platform binaries
+
+Current compose behavior:
+
+- `docker-compose.yml` deploys the `agent-compose` service and the published `agent-compose-frontend` nginx image
+- the agent-compose service listens on `7410`
+- data is mounted from `./data`
+- the user-created `.env` is mounted read-only at `/data/work/.env` for daemon configuration
+- the base file mounts the Docker socket but does not set `privileged` or expose `/dev/kvm`; it supports the default Docker driver on its own
+- `docker-compose.kvm.yml` is the explicit overlay that adds `privileged` and `/dev/kvm` for BoxLite or Microsandbox deployments
+- the installer detects `/dev/kvm` for a new installation and persists the selected Compose file set in `.env`; this selection is not a runtime health check
+
+Compose and environment variable conventions:
+
+- Keep `docker-compose.yml` deployable on its own with published images. A default Docker-mode remote deployment should only need `docker-compose.yml` plus a user-created `.env`; KVM deployments additionally need `docker-compose.kvm.yml`.
 - Use `docker-compose.override.yml` for local development behavior such as `build:`, locally built image tags, local-only build args, or other settings that should not affect remote deployments.
 - Keep defaults in the application or image rather than duplicating them in Compose. Expose only deployment knobs in `.env.example`, grouped by purpose, and use commented examples for optional settings.
 - Keep secrets and required deployment credentials in `.env.example` empty unless a safe example value exists, and document that operators must set them before exposing a deployment.
@@ -123,8 +163,24 @@ Primary commands:
 task lint
 task build
 task test
+task test:deploy
 ```
 
 `Taskfile.yml` is the source of truth for lint scope and options. Use `task lint` rather than reproducing its package list or flags manually.
+
+`task test:deploy` validates the installer state machine, the base/KVM Compose
+topologies, and the installer release-asset boundary. It requires the Docker
+Compose CLI and `jq`, but not a running Docker daemon, KVM, network access, or
+runtime sandboxes. The opt-in full-image Docker lifecycle smoke is:
+
+```bash
+task image:agent-compose
+task image:agent-compose-guest
+task test:e2e:image-docker
+```
+
+It verifies the full image's Docker path without privilege or KVM. Run
+`task test:runtime-smoke` only on a prepared Linux/KVM host for real BoxLite or
+Microsandbox smoke coverage.
 
 Before final handoff, run `task lint`, `task build`, and `task test` when the change and environment make them applicable. Focused package tests are sufficient during iteration; boundary-crossing changes require the relevant integration or E2E tests described in `TESTING.md`. If a gate cannot be run because of environment, dependency, or scope constraints, report exactly which command was not run and why—do not imply it passed.

@@ -16,6 +16,7 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,6 +25,7 @@ import (
 
 	"agent-compose/pkg/compose"
 	"agent-compose/pkg/config"
+	driverpkg "agent-compose/pkg/driver"
 	"agent-compose/pkg/identity"
 	"agent-compose/pkg/imagecache"
 	domain "agent-compose/pkg/model"
@@ -167,6 +169,58 @@ func TestVersionCommandPrintsBuildVersionWithoutStartingDaemon(t *testing.T) {
 	}
 	if runCount != 0 {
 		t.Fatalf("daemon runner called %d times, want 0", runCount)
+	}
+}
+
+func TestVersionCommandJSONPrintsStableBuildInfo(t *testing.T) {
+	oldVersion := config.BuildVersion
+	config.BuildVersion = "test-json-version"
+	t.Cleanup(func() { config.BuildVersion = oldVersion })
+
+	stdout, stderr, runCount, err := executeCommand("--json", "version")
+	if err != nil {
+		t.Fatalf("--json version command returned error: %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("--json version stderr = %q, want empty", stderr)
+	}
+	if runCount != 0 {
+		t.Fatalf("daemon runner called %d times, want 0", runCount)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &fields); err != nil {
+		t.Fatalf("--json version output is not JSON: %v\n%s", err, stdout)
+	}
+	if len(fields) != 4 {
+		t.Fatalf("--json version fields = %v, want exactly version/os/arch/compiled_drivers", fields)
+	}
+	for _, name := range []string{"version", "os", "arch", "compiled_drivers"} {
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("--json version fields = %v, missing %q", fields, name)
+		}
+	}
+
+	var got buildInfo
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("decode build info: %v", err)
+	}
+	if got.Version != config.BuildVersion || got.OS != runtime.GOOS || got.Arch != runtime.GOARCH || !reflect.DeepEqual(got.CompiledDrivers, driverpkg.CompiledRuntimeDrivers()) {
+		t.Fatalf("build info = %#v, want version=%q os=%q arch=%q drivers=%v", got, config.BuildVersion, runtime.GOOS, runtime.GOARCH, driverpkg.CompiledRuntimeDrivers())
+	}
+}
+
+func TestCurrentBuildInfoOwnsCompiledDriverSlice(t *testing.T) {
+	first := currentBuildInfo()
+	if len(first.CompiledDrivers) == 0 {
+		t.Fatal("currentBuildInfo compiled drivers is empty")
+	}
+	first.CompiledDrivers[0] = "mutated"
+
+	second := currentBuildInfo()
+	want := driverpkg.CompiledRuntimeDrivers()
+	if !reflect.DeepEqual(second.CompiledDrivers, want) {
+		t.Fatalf("compiled drivers after caller mutation = %v, want %v", second.CompiledDrivers, want)
 	}
 }
 
@@ -1255,6 +1309,7 @@ func TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON(t *testing.T) {
 		t.Fatalf("config inline output missing scheduler script:\n%s", configOut)
 	}
 
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1318,6 +1373,7 @@ func TestIntegrationCLIUpAppliesInlineSchedulerScriptAndPSJSON(t *testing.T) {
 
 func testCLIUpAppliesProjectFirstRepeatedModifiedAndJSON(t *testing.T) {
 	t.Helper()
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1341,7 +1397,7 @@ agents:
       Review the proposed changes carefully.
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       triggers:
         - name: hourly
@@ -1402,7 +1458,7 @@ agents:
       Review the proposed changes carefully.
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       triggers:
         - name: hourly
@@ -1431,6 +1487,7 @@ agents:
 
 func testCLIWorkspaceRegistryConfigAndApply(t *testing.T) {
 	t.Helper()
+	useTestDockerImage(t, "guest:v1")
 	socketPath := shortUnixSocketPath(t)
 	app, cancel := newTestDaemonAppWithSocketAndTCP(t, socketPath, "", nil)
 	defer cancel()
@@ -1456,7 +1513,7 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
 `)
 
 		stdout, stderr, _, exitCode := executeCLICommand("config", "--file", composePath, "--json")
@@ -1513,7 +1570,7 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     workspace:
       name: repo-root
 `)
@@ -9264,11 +9321,33 @@ agents:
     provider: codex
     image: guest:v1
     driver:
-      boxlite: {}
+      docker: {}
     scheduler:
       script: |
         scheduler.interval("interval-review", function intervalReview() {}, %d);
 `, name, intervalMs)
+}
+
+func useTestDockerImage(t *testing.T, imageRef string) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.48")
+			_, _ = w.Write([]byte("OK"))
+		case strings.HasSuffix(req.URL.Path, "/images/"+imageRef+"/json"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Id":       "sha256:test-image",
+				"RepoTags": []string{imageRef},
+				"Os":       "linux",
+			})
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(server.URL, "http://"))
 }
 
 func decodeComposeUpOutput(t *testing.T, raw string) composeUpOutput {

@@ -29,7 +29,8 @@ changes clearly, and include tests for user-visible behavior.
 
   Prebuilt packages and other installation methods are available in the
   [Task installation guide](https://taskfile.dev/docs/installation).
-- **Docker Engine** only for Docker-backed workflows. Install it from the
+- **Docker Engine** for Docker-backed workflows and Linux full-binary artifact
+  preparation. Install it from the
   [official Docker Engine documentation](https://docs.docker.com/engine/install/).
   The playground also requires the
   [Docker Compose plugin](https://docs.docker.com/compose/install/). A working
@@ -39,13 +40,18 @@ changes clearly, and include tests for user-visible behavior.
   - build the guest image (`task image:agent-compose-guest`);
   - build daemon images or start the playground (`task image:agent-compose`,
     `task playground:up`, or `task all`); and
-  - export optional BoxLite/Microsandbox development artifacts used by their
-    image builds and runtime smoke tests.
+  - export BoxLite/Microsandbox development artifacts used by Linux
+    `task build`, daemon image builds, and runtime smoke tests.
 
-  Docker is not required for the ordinary `task lint`, `task build`, and
-  `task test` development loop. Direct BoxLite and Microsandbox runtime testing
-  additionally requires Linux/KVM and the platform-specific artifacts prepared
-  by the corresponding Task targets.
+  Lint and unit-style test commands remain isolated and do not start Docker
+  workloads. The full `task test` harness also runs deterministic deployment
+  contract checks, which require the Docker Compose CLI and `jq` but do not
+  contact the Docker daemon. On Linux, `task build` selects the full
+  Docker/BoxLite/Microsandbox binary profile; its native artifact preparation
+  uses Docker when matching artifacts are not already present. The Darwin
+  binary profile compiles only Docker support. Real BoxLite and Microsandbox
+  runtime smoke tests additionally require a prepared Linux host with usable
+  KVM access.
 
 Verify the required versions before installing dependencies:
 

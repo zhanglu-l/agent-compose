@@ -180,6 +180,9 @@ func (b *SandboxRPCBridge) createSandbox(ctx context.Context, req sandboxRPCCrea
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if err := driverpkg.ValidateCompiledRuntimeDriver(driver); err != nil {
+		return nil, api.ConnectErrorForDomain(classifyRuntimeProviderError(err))
+	}
 	guestImage := driverpkg.ResolveSandboxGuestImage(req.GuestImage, driverpkg.DefaultGuestImageForDriver(b.config, driver))
 	session, err := b.store.CreateSandbox(ctx, req.Title, req.BaseWorkspace, driver, guestImage, workspaceID, source, workspaceSnapshot, envItems, tags)
 	if err != nil {
@@ -195,7 +198,7 @@ func (b *SandboxRPCBridge) createSandbox(ctx context.Context, req sandboxRPCCrea
 	if err := b.driver.StartSandboxVM(ctx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
 		_ = b.store.UpdateSandbox(ctx, session)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, api.ConnectErrorForDomain(err)
 	}
 	session.Summary.VMStatus = domain.VMStatusRunning
 	if err := b.store.UpdateSandbox(ctx, session); err != nil {
@@ -235,7 +238,7 @@ func (b *SandboxRPCBridge) resumeSandbox(ctx context.Context, sandboxID, source 
 	}
 	loaded, err := b.sessionLifecycle().ResumeLoaded(ctx, session, capabilities.SandboxCapsets(session))
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, api.ConnectErrorForDomain(err)
 	}
 	b.indexCapabilitySandbox(loaded)
 	b.publishLoaderTopic("agent-compose.session.resumed", loaders.SessionTopicPayload(loaded, source))
@@ -270,7 +273,7 @@ func (b *SandboxRPCBridge) stopSandbox(ctx context.Context, sandboxID, source st
 	}
 	loaded, stopped, err := b.sessionLifecycle().StopLoaded(ctx, session)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, api.ConnectErrorForDomain(err)
 	}
 	b.revokeCapabilitySandbox(loaded.Summary.ID)
 	if stopped {
@@ -330,7 +333,7 @@ func (b *SandboxRPCBridge) getSandboxProxy(ctx context.Context, sandboxID string
 		if os.IsNotExist(err) {
 			return nil, api.SandboxProxy{}, connect.NewError(connect.CodeNotFound, err)
 		}
-		return nil, api.SandboxProxy{}, connect.NewError(connect.CodeInternal, err)
+		return nil, api.SandboxProxy{}, api.ConnectErrorForDomain(err)
 	}
 	notebookURL := session.Summary.ProxyPath
 	if proxyState.Token != "" {

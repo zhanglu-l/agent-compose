@@ -531,9 +531,10 @@ dry-run/remove rules, and it does not import Connect.
 The current daemon controller is composed from `runtimecache.Source`
 implementations. The always-registered source scans materialized image cache via
 `pkg/imagecache` metadata and `<DATA_ROOT>/image-cache`. Driver sources are
-added by `pkg/driver.NewRuntimeCacheSources`: BoxLite contributes
-runtime-derived cache items when the `boxlitecgo` build tag is enabled, and
-Microsandbox contributes sandbox-ephemeral items for cgo builds. The
+added by `pkg/driver.NewRuntimeCacheSources` only when the corresponding driver
+is compiled into the current binary. Ordinary CGO does not implicitly add a
+native driver capability. BoxLite contributes runtime-derived cache items, and
+Microsandbox contributes sandbox-ephemeral items. The
 Microsandbox app-level source marks references as unknown until full sandbox or
 SDK state is resolved, so those items are listed but protected from removal by
 default.
@@ -673,6 +674,57 @@ currently supported:
 
 The default driver is controlled by `RUNTIME_DRIVER`; when empty, it is
 `docker`. The default guest image is `debian:bookworm-slim`.
+
+### Compiled Driver Capability
+
+Driver names describe product support, while compiled capability belongs to a
+specific binary or image:
+
+| Artifact/profile | Compiled drivers |
+| --- | --- |
+| macOS native binary (`darwin-docker`) | `docker` |
+| Linux native binary (`linux-full`) | `docker`, `boxlite`, `microsandbox` |
+| Linux daemon image (`linux-full`; `linux/amd64`, `linux/arm64`) | `docker`, `boxlite`, `microsandbox` |
+
+The platform Task entry dispatches to the macOS Docker-only build on Darwin and
+the Linux full build on Linux. `scripts/build-agent-compose-binary.sh` is the
+single owner of profile CGO settings, build tags, target metadata, and
+`BuildVersion` linker flags; Task, both Dockerfiles, and CI select a profile
+instead of rebuilding those arguments. The Linux profile fails its artifact
+preflight unless the required BoxLite headers, libraries, and runtime
+executables and the Microsandbox executables and shared libraries are present;
+the Go build does not start after a preflight failure. The legacy
+`build:agent-compose:boxlite` task remains only as a deprecated alias of the
+Linux full build.
+
+Native binaries are local and CI verification artifacts; GitHub Release does
+not publish standalone per-platform binaries and continues to publish the
+installer assets that refer to the multi-architecture images.
+
+`agent-compose --json version` has the stable shape `version`, `os`, `arch`, and
+`compiled_drivers`; `/api/version` adds the same build fields to its legacy
+envelope, and `status --json` preserves the complete response. The text form of
+`agent-compose version` and the status table remain backward compatible.
+`CompiledRuntimeDrivers` owns the ordered driver list. It reports build
+capability only and does not probe Docker daemon reachability, `/dev/kvm`,
+runtime libraries or executables, image access, or driver health. The full
+image therefore reports all three drivers even when running on macOS Docker
+Desktop without KVM, while its default runtime remains Docker.
+
+Compiled capability is validated before persistence or runtime side effects.
+A daemon whose configured default driver is absent from its binary fails during
+service graph construction. Create/apply/scheduler entry points reject an
+uncompiled selected driver as unsupported before writing project, agent, run,
+or sandbox state. Historical objects remain readable, but runtime operations on
+an unavailable compiled driver return the same unsupported classification
+without rewriting their stored driver or runtime state. Connect surfaces map
+this condition to `CodeUnimplemented`, and the CLI preserves its unsupported
+exit-code classification. Runtime wrappers remain lazy: constructing the
+provider does not initialize BoxLite or Microsandbox and does not touch KVM;
+actual runtime availability is established only when an operation starts the
+selected driver. Pure compose parsing and normalization remain
+platform-independent and continue to accept all product-supported driver names;
+compiled validation occurs at daemon-side apply/create/run boundaries.
 
 ### Workspace Provisioning And Resume
 
@@ -919,6 +971,27 @@ The current Docker deployment provides an independent frontend service:
   container network and host loopback; direct external use must be protected by
   a trusted network, reverse proxy, VPN, mTLS, or upper-layer machine
   authentication.
+
+Deployment capability is layered rather than inferred from the image's
+compiled drivers:
+
+- `docker-compose.yml` is the complete base deployment. It mounts the Docker
+  socket for the default Docker driver, but requests neither privileged mode nor
+  `/dev/kvm`.
+- `docker-compose.kvm.yml` is an explicit overlay for hosts that will run
+  BoxLite or Microsandbox. It adds only `privileged: true` and the `/dev/kvm`
+  device to the daemon service.
+- `docker-compose.override.yml` is reserved for local-development build
+  overrides; it is independent of the KVM overlay.
+- On a new installation, the installer checks whether `/dev/kvm` exists and
+  persists either `docker-compose.yml` or
+  `docker-compose.yml:docker-compose.kvm.yml` as `COMPOSE_FILE` in `.env`.
+  Existing explicit selections are preserved. Detection selects topology; it
+  does not prove KVM permissions or native runtime health.
+
+Consequently, the published full Linux image can follow the base Compose path
+in Docker mode without privilege or KVM. Operators opt into the KVM topology
+only when they select BoxLite or Microsandbox at runtime.
 
 The local CLI does not go through the UI server. It uses the daemon Unix socket
 by default with socket peer credential trust, and reaches the TCP/HTTP daemon

@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build linux && cgo && microsandboxcgo
 
 package driver
 

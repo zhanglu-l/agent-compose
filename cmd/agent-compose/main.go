@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +58,26 @@ import (
 )
 
 const optionalRunModeFlagNoValue = "\x00agent-compose-run-mode"
+
+type buildInfo struct {
+	Version         string   `json:"version"`
+	OS              string   `json:"os"`
+	Arch            string   `json:"arch"`
+	CompiledDrivers []string `json:"compiled_drivers"`
+}
+
+func buildInfoForVersion(version string) buildInfo {
+	return buildInfo{
+		Version:         version,
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		CompiledDrivers: driverpkg.CompiledRuntimeDrivers(),
+	}
+}
+
+func currentBuildInfo() buildInfo {
+	return buildInfoForVersion(config.BuildVersion)
+}
 
 type daemonRunner func(context.Context) error
 
@@ -109,11 +130,15 @@ func NewEcho(di do.Injector) (*echo.Echo, error) {
 	e.GET("/api/version", func(c echo.Context) error {
 		now := time.Now()
 		timezone, timezoneOffset := now.Zone()
+		build := buildInfoForVersion(conf.Version)
 		return c.JSON(http.StatusOK, restful.NewResponse[map[string]any, restful.StrStatusResp[map[string]any]](nil, codes.OK.String(), map[string]any{
-			"version":         conf.Version,
-			"timestamp":       float64(now.UnixNano()) / 1e9,
-			"timezone":        timezone,
-			"timezone_offset": timezoneOffset,
+			"version":          build.Version,
+			"os":               build.OS,
+			"arch":             build.Arch,
+			"compiled_drivers": build.CompiledDrivers,
+			"timestamp":        float64(now.UnixNano()) / 1e9,
+			"timezone":         timezone,
+			"timezone_offset":  timezoneOffset,
 		}))
 	})
 	e.GET("/api/null", echofn.EchoWrap(restful.NullHandler[restful.StrStatusResp[any]]))
@@ -432,6 +457,13 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		Short: "Print build version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if options.JSON {
+				data, err := json.MarshalIndent(currentBuildInfo(), "", "  ")
+				if err != nil {
+					return err
+				}
+				return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), config.BuildVersion)
 			return err
 		},
@@ -8271,10 +8303,13 @@ type daemonStatusResponse struct {
 	Err  json.RawMessage `json:"err"`
 	Msg  string          `json:"msg"`
 	Data struct {
-		Timestamp      float64 `json:"timestamp"`
-		Timezone       string  `json:"timezone"`
-		TimezoneOffset *int    `json:"timezone_offset"`
-		Version        string  `json:"version"`
+		Timestamp       float64  `json:"timestamp"`
+		Timezone        string   `json:"timezone"`
+		TimezoneOffset  *int     `json:"timezone_offset"`
+		Version         string   `json:"version"`
+		OS              string   `json:"os"`
+		Arch            string   `json:"arch"`
+		CompiledDrivers []string `json:"compiled_drivers"`
 	} `json:"data"`
 }
 

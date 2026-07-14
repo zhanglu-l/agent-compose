@@ -1950,13 +1950,16 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 			}
 			warnings = append(warnings, fmt.Sprintf("sticky sandbox %s is unavailable; creating a replacement", sandboxID))
 		} else {
+			driver, err := driverpkg.ResolveSandboxRuntimeDriver(sandbox.Summary.Driver, c.config.RuntimeDriver)
+			if err != nil {
+				return SandboxResult{}, err
+			}
+			if err := c.validateSandboxRuntimeDriver(driver); err != nil {
+				return SandboxResult{Sandbox: sandbox}, err
+			}
 			if sandbox.Summary.VMStatus != domain.VMStatusRunning {
 				if err := c.applyJupyterOptionsToSandbox(sandbox, jupyterOptions); err != nil {
 					return SandboxResult{Sandbox: sandbox}, err
-				}
-				driver, err := driverpkg.ResolveSandboxRuntimeDriver(sandbox.Summary.Driver, c.config.RuntimeDriver)
-				if err != nil {
-					return SandboxResult{}, err
 				}
 				guestImage := driverpkg.ResolveSandboxGuestImage(sandbox.Summary.GuestImage, driverpkg.DefaultGuestImageForDriver(c.config, driver))
 				if err := images.EnsureDriverImage(ctx, c.config, c.images, images.EnsureRequest{
@@ -1983,6 +1986,9 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 	}
 	driver, err := driverpkg.ResolveSandboxRuntimeDriver(run.Driver, c.config.RuntimeDriver)
 	if err != nil {
+		return SandboxResult{}, err
+	}
+	if err := c.validateSandboxRuntimeDriver(driver); err != nil {
 		return SandboxResult{}, err
 	}
 	guestImage := driverpkg.ResolveSandboxGuestImage(run.ImageRef, driverpkg.DefaultGuestImageForDriver(c.config, driver))
@@ -2028,6 +2034,14 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 	}
 	volumeWarnings = append(warnings, volumeWarnings...)
 	return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, nil
+}
+
+func (c *Controller) validateSandboxRuntimeDriver(driver string) error {
+	err := driverpkg.ValidateCompiledRuntimeDriver(driver)
+	if errors.Is(err, driverpkg.ErrRuntimeDriverNotCompiled) {
+		return domain.ClassifyError(domain.ErrUnsupported, "", err)
+	}
+	return err
 }
 
 func (c *Controller) resolveProjectRunVolumeMounts(ctx context.Context, prepared Preparation, req RunAgentRequest) ([]domain.SandboxVolumeMount, []string, error) {

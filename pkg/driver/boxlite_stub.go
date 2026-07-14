@@ -1,4 +1,4 @@
-//go:build !boxlitecgo
+//go:build !linux || !cgo || !boxlitecgo
 
 package driver
 
