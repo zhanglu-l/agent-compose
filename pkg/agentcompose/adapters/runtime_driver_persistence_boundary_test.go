@@ -9,7 +9,6 @@ import (
 
 	driverpkg "agent-compose/pkg/driver"
 	domain "agent-compose/pkg/model"
-	agentcomposev1 "agent-compose/proto/agentcompose/v1"
 )
 
 func TestSandboxRPCBridgeRejectsUncompiledDriverBeforePersistence(t *testing.T) {
@@ -33,10 +32,10 @@ func TestSandboxRPCBridgeRejectsUncompiledDriverBeforePersistence(t *testing.T) 
 			if driverpkg.IsRuntimeDriverCompiled(driver) {
 				t.Skipf("runtime driver %s is compiled in this build", driver)
 			}
-			_, err := bridge.CreateSession(ctx, connect.NewRequest(&agentcomposev1.CreateSessionRequest{
+			_, err := bridge.createSandbox(ctx, sandboxRPCCreateRequest{
 				Title:  "must not persist",
 				Driver: driver,
-			}))
+			}, domain.SandboxTypeManual)
 			assertUncompiledDriverConnectError(t, err, driver)
 			assertSandboxCount(0)
 			if len(runtime.startCalls) != 0 {
@@ -46,7 +45,7 @@ func TestSandboxRPCBridgeRejectsUncompiledDriverBeforePersistence(t *testing.T) 
 	}
 
 	t.Run("invalid name remains invalid argument", func(t *testing.T) {
-		_, err := bridge.CreateSession(ctx, connect.NewRequest(&agentcomposev1.CreateSessionRequest{Driver: "future-runtime"}))
+		_, err := bridge.createSandbox(ctx, sandboxRPCCreateRequest{Driver: "future-runtime"}, domain.SandboxTypeManual)
 		if connect.CodeOf(err) != connect.CodeInvalidArgument || errors.Is(err, domain.ErrUnsupported) || errors.Is(err, driverpkg.ErrRuntimeDriverNotCompiled) {
 			t.Fatalf("invalid driver error = %v, code=%v; want InvalidArgument only", err, connect.CodeOf(err))
 		}
