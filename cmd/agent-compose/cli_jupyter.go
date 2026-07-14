@@ -54,9 +54,21 @@ func resolveRunJupyterOutput(ctx context.Context, cli cliOptions, sandboxID stri
 		return composeRunJupyterOutput{}, err
 	}
 	return composeRunJupyterOutput{
-		URL:  joinBaseURLAndPath(baseURL, firstNonEmptyString(notebookURL, proxyPath)),
+		URL:  joinBaseURLAndPath(baseURL, jupyterBrowserLocation(notebookURL, proxyPath)),
 		Path: proxyPath,
 	}, nil
+}
+
+func jupyterBrowserLocation(notebookURL, proxyPath string) string {
+	if notebookURL = strings.TrimSpace(notebookURL); notebookURL != "" {
+		return notebookURL
+	}
+	proxyPath = strings.TrimRight(strings.TrimSpace(proxyPath), "/")
+	entryPath := strings.TrimSuffix(proxyPath, "/lab")
+	if entryPath == "" {
+		return proxyPath
+	}
+	return entryPath
 }
 
 func resolveDetachedRunJupyterOutput(ctx context.Context, cli cliOptions, runClient agentcomposev2connect.RunServiceClient, run *agentcomposev2.RunSummary) (composeRunJupyterOutput, *agentcomposev2.RunSummary, error) {

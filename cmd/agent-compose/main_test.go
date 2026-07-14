@@ -2239,6 +2239,79 @@ agents:
 	}
 }
 
+func TestIntegrationCLIRunJupyterWithoutExposePrintsTokenRedirectEntry(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-run-jupyter-private
+agents:
+  reviewer:
+    provider: codex
+`)
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		run: runServiceStub{
+			runAgentStream: func(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+				if req.Msg.GetJupyter() == nil || !req.Msg.GetJupyter().GetEnabled() || req.Msg.GetJupyter().GetExpose() {
+					t.Fatalf("RunAgentStream jupyter request = %#v", req.Msg)
+				}
+				return stream.Send(&agentcomposev2.RunAgentStreamResponse{
+					EventType: agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED,
+					RunId:     "run-jupyter-private",
+					Run: &agentcomposev2.RunSummary{
+						RunId:     "run-jupyter-private",
+						ProjectId: req.Msg.GetProjectId(),
+						AgentName: "reviewer",
+						Status:    agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
+						SandboxId: "sandbox-jupyter-private",
+					},
+				})
+			},
+			getRun: func(ctx context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: testRunDetail(req.Msg.GetProjectId(), "run-jupyter-private", "reviewer", "sandbox-jupyter-private", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "")}), nil
+			},
+		},
+		session: sessionServiceStub{
+			getSessionProxy: func(ctx context.Context, req *connect.Request[agentcomposev2.GetSandboxRequest]) (*connect.Response[agentcomposev2.GetSandboxResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetSandboxResponse{Sandbox: &agentcomposev2.Sandbox{
+					SandboxId: req.Msg.GetSandboxId(),
+					ProxyPath: "/agent-compose/session/" + req.Msg.GetSandboxId() + "/lab",
+					Status:    domain.VMStatusRunning,
+				}}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("run", "--host", server.URL, "--file", composePath, "reviewer", "--jupyter", "--keep-running", "--prompt", "inspect")
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("run --jupyter code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+	want := "Jupyter: " + server.URL + "/agent-compose/session/sandbox-jupyter-private\n"
+	if stdout != want {
+		t.Fatalf("run --jupyter stdout = %q, want %q", stdout, want)
+	}
+}
+
+func TestJupyterBrowserLocation(t *testing.T) {
+	tests := []struct {
+		name        string
+		notebookURL string
+		proxyPath   string
+		want        string
+	}{
+		{name: "exposed notebook URL", notebookURL: "/jupyter/sandbox/lab?token=secret", proxyPath: "/jupyter/sandbox/lab", want: "/jupyter/sandbox/lab?token=secret"},
+		{name: "private proxy path", proxyPath: "/jupyter/sandbox/lab", want: "/jupyter/sandbox"},
+		{name: "private proxy path trailing slash", proxyPath: "/jupyter/sandbox/lab/", want: "/jupyter/sandbox"},
+		{name: "entry path already", proxyPath: "/jupyter/sandbox", want: "/jupyter/sandbox"},
+		{name: "lab root has no parent entry", proxyPath: "/lab", want: "/lab"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jupyterBrowserLocation(tt.notebookURL, tt.proxyPath); got != tt.want {
+				t.Fatalf("jupyterBrowserLocation(%q, %q) = %q, want %q", tt.notebookURL, tt.proxyPath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBrowserBaseURLForCLIUnixSocketDoesNotGuessHTTPAddress(t *testing.T) {
 	t.Setenv("AGENT_COMPOSE_HOST", "")
 	t.Setenv("AGENT_COMPOSE_SOCKET", filepath.Join(t.TempDir(), "agent-compose.sock"))
