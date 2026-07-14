@@ -59,7 +59,7 @@ func testWorkspaceFileAndPathWorkflows(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(contentRoot, "README.md"), []byte("updated\n"), 0o644); err != nil {
 		t.Fatalf("overwrite README.md: %v", err)
 	}
-	if err := PrepareSessionWorkspace(context.Background(), config, nil, &domain.Sandbox{
+	if err := materializeSessionWorkspace(context.Background(), config, nil, &domain.Sandbox{
 		Summary:     domain.SandboxSummary{ID: "session-snapshot", WorkspacePath: session.Summary.WorkspacePath},
 		WorkspaceID: workspaceID,
 		Workspace: &domain.SandboxWorkspace{
@@ -69,7 +69,7 @@ func testWorkspaceFileAndPathWorkflows(t *testing.T) {
 			ConfigJSON: DefaultFileConfigJSON(config, workspaceID),
 		},
 	}); err != nil {
-		t.Fatalf("PrepareSessionWorkspace returned error: %v", err)
+		t.Fatalf("materializeSessionWorkspace returned error: %v", err)
 	}
 	assertFileContent(t, filepath.Join(session.Summary.WorkspacePath, "README.md"), "updated\n")
 
@@ -330,25 +330,6 @@ func TestWorkspaceGitHelpers(t *testing.T) {
 		t.Fatalf("ApplyGitCredentials ssh = %q", got)
 	}
 
-	workspaceRoot := t.TempDir()
-	if err := os.Mkdir(filepath.Join(workspaceRoot, ".agent-compose"), 0o755); err != nil {
-		t.Fatalf("mkdir .agent-compose: %v", err)
-	}
-	if err := os.Mkdir(filepath.Join(workspaceRoot, GitWorkspaceTempDirName), 0o755); err != nil {
-		t.Fatalf("mkdir temp dir: %v", err)
-	}
-	initialized, err := HostWorkspaceInitialized(workspaceRoot)
-	if err != nil || initialized {
-		t.Fatalf("HostWorkspaceInitialized internal-only = %v/%v", initialized, err)
-	}
-	if err := os.WriteFile(filepath.Join(workspaceRoot, "README.md"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatalf("write README.md: %v", err)
-	}
-	initialized, err = HostWorkspaceInitialized(workspaceRoot)
-	if err != nil || !initialized {
-		t.Fatalf("HostWorkspaceInitialized after file = %v/%v", initialized, err)
-	}
-
 	src := filepath.Join(t.TempDir(), "src")
 	dst := filepath.Join(t.TempDir(), "dst")
 	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o755); err != nil {
@@ -403,21 +384,6 @@ func testWorkspaceGitPrepareWorkflow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rootWorkspace, GitWorkspaceTempDirName)); !os.IsNotExist(err) {
 		t.Fatalf("temporary git clone directory still exists: %v", err)
 	}
-
-	if err := os.WriteFile(filepath.Join(rootWorkspace, "LOCAL.txt"), []byte("keep\n"), 0o644); err != nil {
-		t.Fatalf("write local file: %v", err)
-	}
-	if err := PrepareGitWorkspace(context.Background(), &domain.Sandbox{
-		Summary: domain.SandboxSummary{ID: "session-git-root", WorkspacePath: rootWorkspace},
-	}, domain.WorkspaceConfig{
-		ID:         "ws-git-root",
-		Name:       "Git Root Workspace",
-		Type:       "git",
-		ConfigJSON: rootWorkspaceConfig,
-	}); err != nil {
-		t.Fatalf("PrepareGitWorkspace initialized root returned error: %v", err)
-	}
-	assertFileContent(t, filepath.Join(rootWorkspace, "LOCAL.txt"), "keep\n")
 
 	nestedWorkspace := t.TempDir()
 	if err := PrepareGitWorkspace(context.Background(), &domain.Sandbox{

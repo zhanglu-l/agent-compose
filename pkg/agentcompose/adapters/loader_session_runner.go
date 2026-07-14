@@ -29,19 +29,20 @@ type LoaderVolumeResolver interface {
 }
 
 type LoaderSandboxRunner struct {
-	Config    *appconfig.Config
-	Store     *sessionstore.Store
-	ConfigDB  *configstore.ConfigStore
-	Driver    sessions.SandboxDriver
-	Cap       capabilities.Provider
-	Volumes   LoaderVolumeResolver
-	Streams   *sessions.StreamBroker
-	Publisher loaders.ControllerPublisher
-	CapTokens *CapabilitySandboxResolver
+	Config           *appconfig.Config
+	Store            *sessionstore.Store
+	ConfigDB         *configstore.ConfigStore
+	workspaceEnsurer workspaces.WorkspaceEnsurer
+	Driver           sessions.SandboxDriver
+	Cap              capabilities.Provider
+	Volumes          LoaderVolumeResolver
+	Streams          *sessions.StreamBroker
+	Publisher        loaders.ControllerPublisher
+	CapTokens        *CapabilitySandboxResolver
 }
 
-func NewLoaderSandboxRunner(config *appconfig.Config, store *sessionstore.Store, configDB *configstore.ConfigStore, driver sessions.SandboxDriver, cap capabilities.Provider, volumeResolver LoaderVolumeResolver, streams *sessions.StreamBroker, publisher loaders.ControllerPublisher, capTokens *CapabilitySandboxResolver) *LoaderSandboxRunner {
-	return &LoaderSandboxRunner{Config: config, Store: store, ConfigDB: configDB, Driver: driver, Cap: cap, Volumes: volumeResolver, Streams: streams, Publisher: publisher, CapTokens: capTokens}
+func NewLoaderSandboxRunner(config *appconfig.Config, store *sessionstore.Store, configDB *configstore.ConfigStore, workspaceEnsurer workspaces.WorkspaceEnsurer, driver sessions.SandboxDriver, cap capabilities.Provider, volumeResolver LoaderVolumeResolver, streams *sessions.StreamBroker, publisher loaders.ControllerPublisher, capTokens *CapabilitySandboxResolver) *LoaderSandboxRunner {
+	return &LoaderSandboxRunner{Config: config, Store: store, ConfigDB: configDB, workspaceEnsurer: workspaceEnsurer, Driver: driver, Cap: cap, Volumes: volumeResolver, Streams: streams, Publisher: publisher, CapTokens: capTokens}
 }
 
 func (r *LoaderSandboxRunner) Shutdown(ctx context.Context, sessionID string) error {
@@ -157,7 +158,7 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 		}
 	}
 	r.recordVolumeWarnings(ctx, session.Summary.ID, volumeWarnings)
-	if err := workspaces.PrepareSessionWorkspace(ctx, r.Config, r.ConfigDB, session); err != nil {
+	if err := r.workspaceEnsurer.Ensure(ctx, session); err != nil {
 		session.Summary.VMStatus = domain.VMStatusFailed
 		_ = r.Store.UpdateSandbox(ctx, session)
 		return nil, "", err
@@ -212,7 +213,7 @@ func (r *LoaderSandboxRunner) LoadOrResume(ctx context.Context, sessionID string
 	if session.Summary.VMStatus == domain.VMStatusRunning {
 		return session, "", nil
 	}
-	if err := workspaces.PrepareSessionWorkspace(ctx, r.Config, r.ConfigDB, session); err != nil {
+	if err := r.workspaceEnsurer.Ensure(ctx, session); err != nil {
 		return nil, "", err
 	}
 	writeCapabilityGuide(ctx, r.Cap, r.Store, r.Streams, session, capabilities.SandboxCapsets(session))

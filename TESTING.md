@@ -61,6 +61,32 @@ test starts an isolated host daemon, creates a Docker sandbox through the public
 API, verifies the unified Jupyter endpoint, then stops and resumes the sandbox
 with deliberately stale persisted port state to verify inspect-based recovery.
 
+The real host-daemon Docker file-workspace restart/resume E2E is also opt-in. It
+requires a reachable local Docker Engine, the Docker CLI, and a compatible local
+guest image. Build the default image and run it with:
+
+```bash
+task image:agent-compose-guest
+task test:e2e:docker-workspace-resume
+```
+
+The task uses `agent-compose-guest:latest` by default. To use another existing
+local image, run:
+
+```bash
+AGENT_COMPOSE_E2E_DOCKER_WORKSPACE_IMAGE=example/agent-compose-guest:tag \
+  task test:e2e:docker-workspace-resume
+```
+
+The test uses public APIs and a real Docker runtime to verify that a daemon
+restart preserves an existing sandbox's workspace and container identity, while
+a new sandbox receives the latest Workspace Source without state leaking back
+to that source. It also checks resource cleanup. Inspect verbose test output and
+daemon logs when it fails.
+
+This focused task is intentionally absent from `task test` and GitHub Actions
+because GitHub-hosted CI does not provide its prebuilt guest-image prerequisite.
+
 ## Quality Gate
 
 `task test` is the project quality gate for tests.

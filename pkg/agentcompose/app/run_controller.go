@@ -21,6 +21,7 @@ import (
 	"agent-compose/pkg/storage/configstore"
 	"agent-compose/pkg/storage/sessionstore"
 	"agent-compose/pkg/volumes"
+	"agent-compose/pkg/workspaces"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -32,11 +33,12 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 	imageBackends := do.MustInvoke[*adapters.ImageBackends](di)
 	runtimeProvider := do.MustInvoke[adapters.RuntimeProvider](di)
 	return runs.NewController(runs.ControllerDependencies{
-		Config:   do.MustInvoke[*appconfig.Config](di),
-		Store:    do.MustInvoke[*sessionstore.Store](di),
-		ConfigDB: do.MustInvoke[*configstore.ConfigStore](di),
-		Driver:   do.MustInvoke[*adapters.SandboxDriver](di),
-		Executor: do.MustInvoke[*adapters.AgentExecutor](di),
+		Config:           do.MustInvoke[*appconfig.Config](di),
+		Store:            do.MustInvoke[*sessionstore.Store](di),
+		ConfigDB:         do.MustInvoke[*configstore.ConfigStore](di),
+		WorkspaceEnsurer: do.MustInvoke[workspaces.WorkspaceEnsurer](di),
+		Driver:           do.MustInvoke[*adapters.SandboxDriver](di),
+		Executor:         do.MustInvoke[*adapters.AgentExecutor](di),
 		Runtime: func(session *domain.Sandbox) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)
 		},

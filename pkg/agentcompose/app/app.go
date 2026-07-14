@@ -52,6 +52,8 @@ func Register(di do.Injector) {
 func RegisterDependencies(di do.Injector) {
 	do.Provide(di, sessionstore.NewStore)
 	do.Provide(di, NewConfigStore)
+	do.Provide(di, NewWorkspaceProvisioner)
+	do.MustAs[*workspaces.Provisioner, workspaces.WorkspaceEnsurer](di)
 	do.Provide(di, NewRuntimeProvider)
 	do.Provide(di, NewLLMClient)
 	do.Provide(di, NewCapabilityProvider)
@@ -278,6 +280,7 @@ func NewLoaderSandboxRunner(di do.Injector) (*adapters.LoaderSandboxRunner, erro
 		do.MustInvoke[*appconfig.Config](di),
 		do.MustInvoke[*sessionstore.Store](di),
 		do.MustInvoke[*configstore.ConfigStore](di),
+		do.MustInvoke[workspaces.WorkspaceEnsurer](di),
 		do.MustInvoke[*adapters.SandboxDriver](di),
 		do.MustInvoke[capabilities.Provider](di),
 		do.MustInvoke[*volumes.Manager](di),
@@ -293,6 +296,7 @@ func NewSandboxRPCBridge(di do.Injector) (*adapters.SandboxRPCBridge, error) {
 		do.MustInvoke[*appconfig.Config](di),
 		do.MustInvoke[*sessionstore.Store](di),
 		do.MustInvoke[*configstore.ConfigStore](di),
+		do.MustInvoke[workspaces.WorkspaceEnsurer](di),
 		do.MustInvoke[*adapters.SandboxDriver](di),
 		do.MustInvoke[adapters.RuntimeProvider](di),
 		do.MustInvoke[*loaders.Bus](di),
@@ -305,6 +309,14 @@ func NewSandboxRPCBridge(di do.Injector) (*adapters.SandboxRPCBridge, error) {
 
 func NewConfigStore(di do.Injector) (*configstore.ConfigStore, error) {
 	return configstore.NewConfigStore(di)
+}
+
+func NewWorkspaceProvisioner(di do.Injector) (*workspaces.Provisioner, error) {
+	return workspaces.NewProvisioner(
+		do.MustInvoke[*appconfig.Config](di),
+		do.MustInvoke[*configstore.ConfigStore](di),
+		do.MustInvoke[*sessionstore.Store](di),
+	), nil
 }
 
 func NewCapabilityProvider(di do.Injector) (capabilities.Provider, error) {

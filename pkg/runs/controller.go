@@ -109,21 +109,22 @@ type SandboxRuntimeStore interface {
 }
 
 type Controller struct {
-	config       *appconfig.Config
-	store        SandboxRuntimeStore
-	configDB     ControllerStore
-	driver       SandboxDriver
-	executor     AgentExecutor
-	runtime      RuntimeProvider
-	images       images.Backend
-	loaderEngine loaders.LoaderEngine
-	cap          capabilities.Provider
-	volumes      VolumeResolver
-	streams      *sessions.StreamBroker
-	bus          TopicPublisher
-	dashboard    DashboardNotifier
-	capTokens    CapabilitySandboxIndexer
-	runLogs      *RunLogHub
+	config           *appconfig.Config
+	store            SandboxRuntimeStore
+	configDB         ControllerStore
+	workspaceEnsurer workspaces.WorkspaceEnsurer
+	driver           SandboxDriver
+	executor         AgentExecutor
+	runtime          RuntimeProvider
+	images           images.Backend
+	loaderEngine     loaders.LoaderEngine
+	cap              capabilities.Provider
+	volumes          VolumeResolver
+	streams          *sessions.StreamBroker
+	bus              TopicPublisher
+	dashboard        DashboardNotifier
+	capTokens        CapabilitySandboxIndexer
+	runLogs          *RunLogHub
 }
 
 type llmFacadeTokenDeleter interface {
@@ -136,40 +137,42 @@ type llmFacadeStore interface {
 }
 
 type ControllerDependencies struct {
-	Config       *appconfig.Config
-	Store        SandboxRuntimeStore
-	ConfigDB     ControllerStore
-	Driver       SandboxDriver
-	Executor     AgentExecutor
-	Runtime      RuntimeProvider
-	Images       images.Backend
-	LoaderEngine loaders.LoaderEngine
-	Cap          capabilities.Provider
-	Volumes      VolumeResolver
-	Streams      *sessions.StreamBroker
-	Bus          TopicPublisher
-	Dashboard    DashboardNotifier
-	CapTokens    CapabilitySandboxIndexer
-	RunLogs      *RunLogHub
+	Config           *appconfig.Config
+	Store            SandboxRuntimeStore
+	ConfigDB         ControllerStore
+	WorkspaceEnsurer workspaces.WorkspaceEnsurer
+	Driver           SandboxDriver
+	Executor         AgentExecutor
+	Runtime          RuntimeProvider
+	Images           images.Backend
+	LoaderEngine     loaders.LoaderEngine
+	Cap              capabilities.Provider
+	Volumes          VolumeResolver
+	Streams          *sessions.StreamBroker
+	Bus              TopicPublisher
+	Dashboard        DashboardNotifier
+	CapTokens        CapabilitySandboxIndexer
+	RunLogs          *RunLogHub
 }
 
 func NewController(deps ControllerDependencies) *Controller {
 	return &Controller{
-		config:       deps.Config,
-		store:        deps.Store,
-		configDB:     deps.ConfigDB,
-		driver:       deps.Driver,
-		executor:     deps.Executor,
-		runtime:      deps.Runtime,
-		images:       deps.Images,
-		loaderEngine: deps.LoaderEngine,
-		cap:          deps.Cap,
-		volumes:      deps.Volumes,
-		streams:      deps.Streams,
-		bus:          deps.Bus,
-		dashboard:    deps.Dashboard,
-		capTokens:    deps.CapTokens,
-		runLogs:      deps.RunLogs,
+		config:           deps.Config,
+		store:            deps.Store,
+		configDB:         deps.ConfigDB,
+		workspaceEnsurer: deps.WorkspaceEnsurer,
+		driver:           deps.Driver,
+		executor:         deps.Executor,
+		runtime:          deps.Runtime,
+		images:           deps.Images,
+		loaderEngine:     deps.LoaderEngine,
+		cap:              deps.Cap,
+		volumes:          deps.Volumes,
+		streams:          deps.Streams,
+		bus:              deps.Bus,
+		dashboard:        deps.Dashboard,
+		capTokens:        deps.CapTokens,
+		runLogs:          deps.RunLogs,
 	}
 }
 
@@ -2089,7 +2092,7 @@ func (c *Controller) startProjectRunSandbox(ctx context.Context, sandbox *domain
 	if sandbox == nil {
 		return fmt.Errorf("sandbox is required")
 	}
-	if err := workspaces.PrepareSessionWorkspace(ctx, c.config, c.configDB, sandbox); err != nil {
+	if err := c.workspaceEnsurer.Ensure(ctx, sandbox); err != nil {
 		sandbox.Summary.VMStatus = domain.VMStatusFailed
 		_ = c.store.UpdateSandbox(ctx, sandbox)
 		return err

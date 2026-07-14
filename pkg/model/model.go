@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,11 @@ const (
 
 	SandboxTypeManual = "manual"
 	SandboxTypeScript = "script"
+
+	SandboxWorkspaceProvisioningVersion       = 1
+	SandboxWorkspaceProvisioningStatusPending = "pending"
+	SandboxWorkspaceProvisioningStatusReady   = "ready"
+	SandboxWorkspaceProvisioningStatusFailed  = "failed"
 )
 
 type SandboxTag struct {
@@ -151,15 +157,90 @@ type SandboxWorkspace struct {
 	ConfigJSON string `json:"config_json,omitempty"`
 }
 
+type SandboxWorkspaceProvisioning struct {
+	Version   int       `json:"version"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Sandbox struct {
-	Summary          SandboxSummary       `json:"summary"`
-	BaseWorkspace    string               `json:"base_workspace,omitempty"`
-	WorkspaceID      string               `json:"workspace_id,omitempty"`
-	Workspace        *SandboxWorkspace    `json:"workspace,omitempty"`
-	EnvItems         []SandboxEnvVar      `json:"env_items,omitempty"`
-	VolumeMounts     []SandboxVolumeMount `json:"volume_mounts,omitempty"`
-	RuntimeEnvItems  []SandboxEnvVar      `json:"-"`
-	ProviderEnvItems []SandboxEnvVar      `json:"-"`
+	Summary               SandboxSummary                `json:"summary"`
+	BaseWorkspace         string                        `json:"base_workspace,omitempty"`
+	WorkspaceID           string                        `json:"workspace_id,omitempty"`
+	Workspace             *SandboxWorkspace             `json:"workspace,omitempty"`
+	WorkspaceProvisioning *SandboxWorkspaceProvisioning `json:"workspace_provisioning,omitempty"`
+	EnvItems              []SandboxEnvVar               `json:"env_items,omitempty"`
+	VolumeMounts          []SandboxVolumeMount          `json:"volume_mounts,omitempty"`
+	RuntimeEnvItems       []SandboxEnvVar               `json:"-"`
+	ProviderEnvItems      []SandboxEnvVar               `json:"-"`
+}
+
+func ValidateSandboxWorkspaceProvisioning(provisioning *SandboxWorkspaceProvisioning) error {
+	if provisioning == nil {
+		return fmt.Errorf("%w: workspace provisioning is nil", ErrInvalidArgument)
+	}
+	if provisioning.Version != SandboxWorkspaceProvisioningVersion {
+		return fmt.Errorf(
+			"%w: unsupported workspace provisioning version %d",
+			ErrInvalidArgument,
+			provisioning.Version,
+		)
+	}
+	if !validSandboxWorkspaceProvisioningStatus(provisioning.Status) {
+		return fmt.Errorf(
+			"%w: unknown workspace provisioning status %q",
+			ErrInvalidArgument,
+			provisioning.Status,
+		)
+	}
+	return nil
+}
+
+func TransitionSandboxWorkspaceProvisioning(sandbox *Sandbox, nextStatus string) error {
+	if sandbox == nil {
+		return fmt.Errorf("%w: sandbox is nil", ErrInvalidArgument)
+	}
+	if err := ValidateSandboxWorkspaceProvisioning(sandbox.WorkspaceProvisioning); err != nil {
+		return err
+	}
+	if !validSandboxWorkspaceProvisioningStatus(nextStatus) {
+		return fmt.Errorf(
+			"%w: unknown workspace provisioning target status %q",
+			ErrInvalidArgument,
+			nextStatus,
+		)
+	}
+
+	currentStatus := sandbox.WorkspaceProvisioning.Status
+	allowed := currentStatus == SandboxWorkspaceProvisioningStatusPending &&
+		(nextStatus == SandboxWorkspaceProvisioningStatusReady || nextStatus == SandboxWorkspaceProvisioningStatusFailed) ||
+		currentStatus == SandboxWorkspaceProvisioningStatusFailed &&
+			nextStatus == SandboxWorkspaceProvisioningStatusPending
+	if !allowed {
+		return fmt.Errorf(
+			"%w: workspace provisioning transition %q -> %q is not allowed",
+			ErrFailedPrecondition,
+			currentStatus,
+			nextStatus,
+		)
+	}
+
+	next := *sandbox.WorkspaceProvisioning
+	next.Status = nextStatus
+	next.UpdatedAt = time.Now().UTC()
+	sandbox.WorkspaceProvisioning = &next
+	return nil
+}
+
+func validSandboxWorkspaceProvisioningStatus(status string) bool {
+	switch status {
+	case SandboxWorkspaceProvisioningStatusPending,
+		SandboxWorkspaceProvisioningStatusReady,
+		SandboxWorkspaceProvisioningStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func RestoreSandboxTransientFields(dst, src *Sandbox) {

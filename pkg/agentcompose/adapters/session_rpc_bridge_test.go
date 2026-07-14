@@ -21,16 +21,24 @@ import (
 	"agent-compose/pkg/sessions"
 	"agent-compose/pkg/storage/configstore"
 	"agent-compose/pkg/storage/sessionstore"
+	"agent-compose/pkg/workspaces"
 )
 
 type fakeRPCSandboxDriver struct {
-	startCalls []string
-	stopCalls  []string
+	startCalls    []string
+	startSessions []*domain.Sandbox
+	onStart       func(*domain.Sandbox)
+	startErr      error
+	stopCalls     []string
 }
 
 func (d *fakeRPCSandboxDriver) StartSandboxVM(_ context.Context, session *domain.Sandbox) error {
 	d.startCalls = append(d.startCalls, session.Summary.ID)
-	return nil
+	d.startSessions = append(d.startSessions, session)
+	if d.onStart != nil {
+		d.onStart(session)
+	}
+	return d.startErr
 }
 
 func (d *fakeRPCSandboxDriver) StopSandboxVM(_ context.Context, session *domain.Sandbox) error {
@@ -336,6 +344,7 @@ func newTestSandboxRPCBridge(t *testing.T) (*SandboxRPCBridge, *fakeRPCSandboxDr
 		config,
 		store,
 		configDB,
+		workspaces.NewProvisioner(config, configDB, store),
 		driver,
 		nil,
 		nil,

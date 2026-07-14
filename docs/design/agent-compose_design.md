@@ -262,8 +262,8 @@ Workspace providers currently supported during project run preparation:
 
 - `local`: materialize a relative path under the project source path into a file
   workspace snapshot.
-- `git`: generate a Git workspace config that is later cloned by existing
-  workspace provisioning.
+- `git`: generate a Git workspace snapshot that is cloned during the sandbox's
+  one-time workspace provisioning.
 
 ## API Boundaries
 
@@ -617,7 +617,9 @@ data/agent-compose/
     ├── runtime/
     ├── state/
     │   ├── cells.json
-    │   └── events.jsonl
+    │   ├── events.jsonl
+    │   └── workspace-provisioning/
+    │       └── attempt-<id>/
     ├── logs/
     ├── vm/
     │   └── runtime.json
@@ -672,23 +674,106 @@ currently supported:
 The default driver is controlled by `RUNTIME_DRIVER`; when empty, it is
 `docker`. The default guest image is `debian:bookworm-slim`.
 
-Current sandbox creation flow (v1-compatible `CreateSession` delegates to this):
+### Workspace Provisioning And Resume
+
+A Workspace Source is the one-time seed for a sandbox workspace. File workspace
+content, a project-local file workspace snapshot, or the Git configuration saved
+in the sandbox snapshot is consulted and materialized only by initial
+provisioning attempts before that sandbox first reaches `ready`. The resulting
+`<sandbox>/workspace` is an independent, writable copy; it is not kept
+synchronized with its source.
+
+Sandbox metadata persists workspace provisioning version 1 with one of these
+states:
+
+- `pending`: a workspace-bearing sandbox exists but its initial provisioning has
+  not completed.
+- `failed`: the most recent initial provisioning attempt failed before the
+  runtime started; a later start can retry it through `pending`.
+- `ready`: provisioning completed, or a legacy sandbox was accepted as already
+  initialized. This is terminal for the lifetime of the sandbox.
+
+The allowed transitions are `pending -> ready|failed` and `failed -> pending`.
+Every successful transition updates the UTC `updated_at` timestamp. Unknown
+versions or states fail closed without changing the workspace. The record is an
+internal `workspace_provisioning` field in sandbox `metadata.json`; it is not
+exposed through `SandboxSummary`, the public API, or list filters.
+
+The process-level `Provisioner` is shared by every lifecycle path that can start
+or restart a workspace-backed sandbox: v1 session create/resume,
+`sessions.Lifecycle.ResumeLoaded` and Jupyter `EnsureProxyReady`, loader sandbox
+create/sticky resume, and project-run sandbox create/reuse. It reloads persisted
+metadata and makes the decision from provisioning state, rather than from a
+create/resume flag or workspace directory contents. For `pending` and `failed`,
+it materializes into a same-filesystem staging directory, promotes the result,
+and persists `ready` before the runtime driver is allowed to start. A
+provisioning or state-persistence error prevents the driver from starting.
+
+Calls for the same sandbox ID are serialized in-process with `singleflight`.
+The shared operation reloads authoritative metadata before deciding what to do,
+and every caller reloads it again before returning, so a stale caller cannot
+overwrite the final state. Callers waiting on the same attempt may cancel their
+own context without canceling the shared operation; different sandboxes can be
+provisioned concurrently. This is not a distributed lock for multiple daemon
+processes sharing one `SANDBOX_ROOT`.
+
+For `pending` and retrying `failed` sandboxes, providers receive only a staging
+workspace under
+`<sandbox>/state/workspace-provisioning/attempt-<id>`. The Provisioner removes
+only stale `attempt-*` entries, materializes the complete source there, and
+promotes it to the authoritative `<sandbox>/workspace` with a same-filesystem
+rename. It requires the stored workspace path to equal that authoritative path
+and rejects symlinked sandbox, state, or provisioning roots. Provider code
+therefore cannot write the formal workspace before promotion. Sandbox metadata
+updates use a synced temporary file and same-directory rename, so a failed save
+does not truncate the previous metadata.
+
+Materialization, staging, or promotion failures persist `failed`; a later start
+first transitions it back to `pending` and retries from a fresh attempt. If
+persisting either the failure state or `ready` also fails, the returned error
+preserves the state-write failure, and the runtime still does not start. A
+runtime-driver failure after `ready` is different: provisioning remains
+`ready`, and the next resume retries only runtime startup.
+
+For `ready`, the Provisioner returns without resolving the workspace config,
+reading or inspecting the Workspace Source or sandbox workspace, or invoking a
+provider materializer. Stop/resume and daemon restart with the same data and
+sandbox roots therefore preserve edits, deletions, generated files, symlinks,
+and other workspace state. Later source or config changes, source deletion, and
+Git remote changes do not refresh an existing sandbox. Sandbox changes are not
+copied back to file/local sources and are not automatically committed or pushed
+to Git.
+
+A legacy workspace-bearing sandbox whose metadata has no provisioning state is
+migrated directly to `ready` before runtime start. Migration does not resolve
+its config, inspect workspace contents, infer from runtime status, or attempt to
+rebuild it. New sandboxes remain independent and use the latest source captured
+by their current snapshot or config for their own initial provisioning. Source
+changes therefore affect newly created sandboxes, not existing `ready`
+sandboxes. Removing a sandbox deletes its sandbox directory, including the
+writable workspace, provisioning metadata, and any provisioning staging
+attempts.
+
+Current sandbox startup flow, used by v1-compatible `CreateSession` and the
+other creation paths:
 
 1. Resolve env, tags, workspace id, driver, and guest image from the request.
 2. Merge global env and request env.
 3. Create the sandbox directory and initialize metadata, VM state, and proxy
-   state.
-4. If workspace id is set, prepare that workspace.
-5. Start runtime through the driver.
-6. Mark sandbox as `RUNNING`.
-7. Record sandbox-created state. Loader lifecycle events use
+   state. A workspace id or snapshot initializes provisioning as `pending`.
+4. Run the shared Provisioner. It either establishes and persists `ready`,
+   migrates legacy metadata, or returns an error before runtime startup.
+5. Prepare managed capability, runtime, state, and home resources.
+6. Start runtime through the driver.
+7. Mark sandbox as `RUNNING`.
+8. Record sandbox-created state. Loader lifecycle events use
    `loader.sandbox.*`; the historical `agent-compose.session.*` topic prefix is
    retained only where the v1 compatibility event bus still emits it.
 
-`ResumeSession` is the v1-compatible resume method; internally it prepares the
-workspace again and starts the sandbox runtime. `StopSession` is the
-v1-compatible stop method; internally it stops runtime and marks the sandbox
-`STOPPED`.
+`ResumeSession` is the v1-compatible resume method. It loads the same sandbox,
+runs the shared Provisioner, and starts its runtime; a `ready` workspace is left
+untouched. `StopSession` stops runtime and marks the sandbox `STOPPED` without
+changing its workspace or provisioning state.
 
 Startup reconciles persisted sandbox runtime state. `GetSession`,
 `ListSessions`, and `StopSession` also trigger reconciliation logic.

@@ -270,11 +270,12 @@ func TestRunsControllerRunProjectAgentSuccessWorkflow(t *testing.T) {
 	bus := &fakeControllerPublisher{}
 	dashboard := &fakeControllerDashboard{}
 	controller := NewController(ControllerDependencies{
-		Config:   config,
-		Store:    store,
-		ConfigDB: configDB,
-		Driver:   driver,
-		Executor: executor,
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           driver,
+		Executor:         executor,
 		Runtime: func(*domain.Sandbox) (Runtime, error) {
 			return &fakeControllerRuntime{}, nil
 		},
@@ -368,12 +369,13 @@ func TestRunsControllerRunProjectAgentResolvesJupyterConfig(t *testing.T) {
 		runs:  map[string]domain.ProjectRunRecord{},
 	}
 	controller := NewController(ControllerDependencies{
-		Config:   config,
-		Store:    store,
-		ConfigDB: configDB,
-		Driver:   &fakeControllerDriver{store: store},
-		Executor: &fakeControllerExecutor{},
-		Images:   fakeControllerImages{},
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           &fakeControllerDriver{store: store},
+		Executor:         &fakeControllerExecutor{},
+		Images:           fakeControllerImages{},
 	})
 	run, execErr, err := controller.RunProjectAgent(ctx, RunAgentRequest{
 		ProjectID:       "project-1",
@@ -504,10 +506,11 @@ func TestRunsControllerRunProjectAgentCommandWorkflow(t *testing.T) {
 	}
 	runtime := &fakeControllerRuntime{}
 	controller := NewController(ControllerDependencies{
-		Config:   config,
-		Store:    store,
-		ConfigDB: configDB,
-		Driver:   &fakeControllerDriver{store: store},
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           &fakeControllerDriver{store: store},
 		Runtime: func(*domain.Sandbox) (Runtime, error) {
 			return runtime, nil
 		},
@@ -619,10 +622,11 @@ func TestRunsControllerRunProjectAgentCommandNonZeroExitPreservesOutput(t *testi
 		Success:  false,
 	}}
 	controller := NewController(ControllerDependencies{
-		Config:   config,
-		Store:    store,
-		ConfigDB: configDB,
-		Driver:   &fakeControllerDriver{store: store},
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           &fakeControllerDriver{store: store},
 		Runtime: func(*domain.Sandbox) (Runtime, error) {
 			return runtime, nil
 		},
@@ -1328,14 +1332,15 @@ func newControllerRunFixture(t *testing.T) *controllerRunFixture {
 	executor := &fakeControllerExecutor{}
 	dashboard := &fakeControllerDashboard{}
 	controller := NewController(ControllerDependencies{
-		Config:       config,
-		Store:        store,
-		ConfigDB:     configDB,
-		Driver:       driver,
-		Executor:     executor,
-		Images:       fakeControllerImages{},
-		LoaderEngine: &loaders.QJSLoaderEngine{},
-		Dashboard:    dashboard,
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           driver,
+		Executor:         executor,
+		Images:           fakeControllerImages{},
+		LoaderEngine:     &loaders.QJSLoaderEngine{},
+		Dashboard:        dashboard,
 	})
 	return &controllerRunFixture{
 		ctx:        ctx,
@@ -2374,10 +2379,11 @@ func newTestRunAttachController(t *testing.T, frames []driverpkg.RuntimeOutputFr
 	}
 	runtime := &fakeRunAttachRuntime{frames: frames}
 	controller := NewController(ControllerDependencies{
-		Config:   config,
-		Store:    store,
-		ConfigDB: configDB,
-		Driver:   &fakeControllerDriver{store: store},
+		Config:           config,
+		Store:            store,
+		ConfigDB:         configDB,
+		WorkspaceEnsurer: &controllerWorkspaceEnsurer{},
+		Driver:           &fakeControllerDriver{store: store},
 		Runtime: func(*domain.Sandbox) (Runtime, error) {
 			return runtime, nil
 		},

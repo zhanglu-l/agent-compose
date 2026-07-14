@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,11 +15,14 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/samber/do/v2"
 
+	"agent-compose/pkg/agentcompose/adapters"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/projects"
+	"agent-compose/pkg/runs"
 	"agent-compose/pkg/volumes"
+	"agent-compose/pkg/workspaces"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
@@ -75,6 +79,54 @@ func TestSetupRegistersServiceGraph(t *testing.T) {
 	app.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("proxy route status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+}
+
+func TestAppWorkspaceProvisionerSingletonAndRequired(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("DATA_ROOT", root)
+	t.Setenv("SANDBOX_ROOT", filepath.Join(root, "sandboxes"))
+	t.Setenv("RUNTIME_DRIVER", driverpkg.RuntimeDriverDocker)
+	t.Setenv("DOCKER_IMAGE", "guest:latest")
+	t.Setenv("LLM_API_ENDPOINT", "")
+
+	di := do.New()
+	appconfig.Setup(di)
+	do.ProvideValue(di, context.Background())
+	do.ProvideValue(di, slog.Default())
+	RegisterDependencies(di)
+
+	provisioner := do.MustInvoke[*workspaces.Provisioner](di)
+	if provisioner == nil {
+		t.Fatal("workspace Provisioner was not registered")
+	}
+	if again := do.MustInvoke[*workspaces.Provisioner](di); again != provisioner {
+		t.Fatalf("Provisioner singleton changed: first=%p second=%p", provisioner, again)
+	}
+	ensurer := do.MustInvoke[workspaces.WorkspaceEnsurer](di)
+	if ensurer != provisioner {
+		t.Fatalf("WorkspaceEnsurer = %p, want Provisioner %p", ensurer, provisioner)
+	}
+	if again := do.MustInvoke[workspaces.WorkspaceEnsurer](di); again != ensurer {
+		t.Fatalf("WorkspaceEnsurer singleton changed: first=%p second=%p", ensurer, again)
+	}
+
+	if bridge := do.MustInvoke[*adapters.SandboxRPCBridge](di); bridge == nil {
+		t.Fatal("SandboxRPCBridge did not resolve with WorkspaceEnsurer")
+	}
+	if runner := do.MustInvoke[*adapters.LoaderSandboxRunner](di); runner == nil {
+		t.Fatal("LoaderSandboxRunner did not resolve with WorkspaceEnsurer")
+	}
+	if controller := do.MustInvoke[*runs.Controller](di); controller == nil {
+		t.Fatal("runs.Controller did not resolve with WorkspaceEnsurer")
+	}
+
+	contract := reflect.TypeOf((*workspaces.WorkspaceEnsurer)(nil)).Elem()
+	if contract.NumMethod() != 1 || contract.Method(0).Name != "Ensure" {
+		t.Fatalf("WorkspaceEnsurer methods = %v, want only Ensure", contract)
+	}
+	if err := do.As[*workspaces.Provisioner, workspaces.WorkspaceEnsurer](do.New()); err == nil {
+		t.Fatal("WorkspaceEnsurer alias registered without a Provisioner")
 	}
 }
 
