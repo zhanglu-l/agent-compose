@@ -6,7 +6,6 @@ docker-compose.override.yml
 
 # agent-compose runtime state
 /data/
-/playground/data/
 /.state/
 
 # Local git worktrees and agent scratch

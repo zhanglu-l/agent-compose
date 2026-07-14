@@ -147,7 +147,6 @@ func TestDockerComposeKVMOverlayContract(t *testing.T) {
 		}
 	}
 	assertComposeKVMOverlayKeys(t, overlayData)
-	assertPlaygroundComposeSymlink(t, root)
 }
 
 func assertComposeKVMOverlayKeys(t *testing.T, data []byte) {
@@ -189,25 +188,6 @@ func composeContractServiceKeys(t *testing.T, data []byte, name string) map[stri
 		t.Fatalf("%s agent-compose = %#v, want mapping", name, services["agent-compose"])
 	}
 	return service
-}
-
-func assertPlaygroundComposeSymlink(t *testing.T, root string) {
-	t.Helper()
-	path := filepath.Join(root, "playground", "docker-compose.yml")
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatalf("lstat playground Compose source: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("playground/docker-compose.yml mode = %v, want symlink", info.Mode())
-	}
-	target, err := os.Readlink(path)
-	if err != nil {
-		t.Fatalf("read playground Compose symlink: %v", err)
-	}
-	if target != "../docker-compose.yml" {
-		t.Fatalf("playground Compose symlink target = %q, want ../docker-compose.yml", target)
-	}
 }
 
 func repoRootForComposeEnvTest(t *testing.T) string {

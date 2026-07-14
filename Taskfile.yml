@@ -351,16 +351,3 @@ tasks:
     deps: ['prepare:boxlite-dev', 'prepare:microsandbox-dev']
     cmds:
       - IMAGE_NAME={{default "agent-compose:latest" .IMAGE_NAME}} DOCKERFILE=Dockerfile.agent-compose-local BUILD_CONTEXT={{.TASKFILE_DIR}} VERSION={{.VERSION}} HTTP_PROXY={{.BUILD_HTTP_PROXY}} HTTPS_PROXY={{.BUILD_HTTPS_PROXY}} ALL_PROXY={{.BUILD_ALL_PROXY}} REGISTRY_MIRROR={{.BUILD_REGISTRY_MIRROR}} GOPROXY={{.BUILD_GOPROXY}} ./scripts/build-agent-compose.sh
-
-  playground:up:
-    desc: Build images and start the local playground service
-    dir: '{{.TASKFILE_DIR}}/playground'
-    deps: ['image:agent-compose', 'image:agent-compose-guest']
-    cmds:
-      - docker compose up -d agent-compose
-
-  playground:down:
-    desc: Stop the local playground service
-    dir: '{{.TASKFILE_DIR}}/playground'
-    cmds:
-      - docker compose down

@@ -32,14 +32,13 @@ changes clearly, and include tests for user-visible behavior.
 - **Docker Engine** for Docker-backed workflows and Linux full-binary artifact
   preparation. Install it from the
   [official Docker Engine documentation](https://docs.docker.com/engine/install/).
-  The playground also requires the
+  Deployment workflows and deterministic Compose checks also require the
   [Docker Compose plugin](https://docs.docker.com/compose/install/). A working
   Docker daemon is required to:
 
   - run sandboxes with the default `docker` runtime driver;
   - build the guest image (`task image:agent-compose-guest`);
-  - build daemon images or start the playground (`task image:agent-compose`,
-    `task playground:up`, or `task all`); and
+  - build daemon images (`task image:agent-compose` or `task all`); and
   - export BoxLite/Microsandbox development artifacts used by Linux
     `task build`, daemon image builds, and runtime smoke tests.
 
