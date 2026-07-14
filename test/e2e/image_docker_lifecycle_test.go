@@ -134,21 +134,29 @@ func TestE2EImageDockerSandboxLifecycle(t *testing.T) {
 		Spec: &agentcomposev2.ProjectSpec{
 			Name: "image-docker-e2e",
 			Agents: []*agentcomposev2.AgentSpec{{
-				Name:     "worker",
+				Name:     "lifecycle",
 				Provider: "codex",
 				Image:    guestImage,
-				Driver:   &agentcomposev2.DriverSpec{Name: "docker", Docker: &agentcomposev2.DockerDriverSpec{}},
+				Driver: &agentcomposev2.DriverSpec{
+					Name:   "docker",
+					Docker: &agentcomposev2.DockerDriverSpec{},
+				},
 			}},
 		},
-		Source: &agentcomposev2.ProjectSource{ComposePath: "/data/agent-compose.yml", ProjectDir: "/data"},
+		Source: &agentcomposev2.ProjectSource{
+			ComposePath: "/data/image-docker-e2e/agent-compose.yml",
+			ProjectDir:  "/data/image-docker-e2e",
+		},
 	}))
 	if err != nil {
 		failImageDockerFixture(t, fixture, "ApplyProject returned error: %v", err)
 	}
-	projectID := projectResp.Msg.GetProject().GetSummary().GetProjectId()
+	if !projectResp.Msg.GetApplied() || projectResp.Msg.GetProject().GetSummary().GetProjectId() == "" {
+		failImageDockerFixture(t, fixture, "ApplyProject response = %#v; issues: %s", projectResp.Msg, formatE2EProjectIssues(projectResp.Msg.GetIssues()))
+	}
 	runResp, err := runClient.RunAgent(ctx, connect.NewRequest(&agentcomposev2.RunAgentRequest{
-		ProjectId:       projectID,
-		AgentName:       "worker",
+		ProjectId:       projectResp.Msg.GetProject().GetSummary().GetProjectId(),
+		AgentName:       "lifecycle",
 		Command:         "true",
 		Source:          agentcomposev2.RunSource_RUN_SOURCE_API,
 		CleanupPolicy:   agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING,
@@ -157,14 +165,18 @@ func TestE2EImageDockerSandboxLifecycle(t *testing.T) {
 	if err != nil {
 		failImageDockerFixture(t, fixture, "RunAgent returned error: %v", err)
 	}
-	fixture.sandboxID = runResp.Msg.GetRun().GetSummary().GetSandboxId()
-	getResp, err := sandboxClient.GetSandbox(ctx, connect.NewRequest(&agentcomposev2.GetSandboxRequest{SandboxId: fixture.sandboxID}))
-	if err != nil {
-		failImageDockerFixture(t, fixture, "GetSandbox after RunAgent returned error: %v", err)
+	runSummary := runResp.Msg.GetRun().GetSummary()
+	fixture.sandboxID = runSummary.GetSandboxId()
+	if fixture.sandboxID == "" || runSummary.GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED {
+		failImageDockerFixture(t, fixture, "RunAgent summary = %#v", runSummary)
 	}
-	sandbox := getResp.Msg.GetSandbox()
-	if fixture.sandboxID == "" || sandbox.GetDriver() != "docker" || sandbox.GetStatus() != domain.VMStatusRunning {
-		failImageDockerFixture(t, fixture, "created sandbox = %#v", sandbox)
+	sandboxResp, err := sandboxClient.GetSandbox(ctx, connect.NewRequest(&agentcomposev2.GetSandboxRequest{SandboxId: fixture.sandboxID}))
+	if err != nil {
+		failImageDockerFixture(t, fixture, "GetSandbox returned error: %v", err)
+	}
+	summary := sandboxResp.Msg.GetSandbox()
+	if summary.GetDriver() != "docker" || summary.GetStatus() != domain.VMStatusRunning {
+		failImageDockerFixture(t, fixture, "GetSandbox summary = %#v", summary)
 	}
 	initialContainer := inspectImageDockerSandboxContainer(t, ctx, fixture)
 	if initialContainer.State == nil || !initialContainer.State.Running {
