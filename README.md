@@ -1,4 +1,7 @@
-# agent-compose
+<p align="center">
+  <img src="agent-composelogo.png" alt="OctoBus" width="240">
+</p>
+
 
 [![CI](https://github.com/chaitin/agent-compose/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/chaitin/agent-compose/actions/workflows/ci.yml)
 [![Images & Release](https://github.com/chaitin/agent-compose/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/chaitin/agent-compose/actions/workflows/images.yml)
