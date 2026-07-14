@@ -278,17 +278,6 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Generate release notes
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --latest --strip header
-        env:
-          OUTPUT: release-notes.md
-          GITHUB_REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
       - name: Build installer assets
         env:
           VERSION: ${{ github.ref_name }}
@@ -306,5 +295,5 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" upload/* \
               --repo "${GITHUB_REPOSITORY}" \
               --title "agent-compose ${GITHUB_REF_NAME}" \
-              --notes-file release-notes.md
+              --generate-notes
           fi
