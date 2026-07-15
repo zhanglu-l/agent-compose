@@ -155,12 +155,15 @@ func TestEnsureSessionAgentRuntimeConfigClaudeAndOpenCodeWorkflows(t *testing.T)
 	if env, err := EnsureSessionLLMFacadeConfig(ctx, nil, store, session, "codex", "", "", ""); err != nil || env != nil {
 		t.Fatalf("nil config env=%#v err=%v", env, err)
 	}
+	if !HasAnthropicProviderKey(ctx, config, store) {
+		t.Fatalf("expected anthropic provider key")
+	}
 	if got := firstNonEmpty(" \t", "value"); got != "value" {
 		t.Fatalf("firstNonEmpty = %q, want value", got)
 	}
 }
 
-func TestEnsureSessionAgentRuntimeConfigClaudeRequiresResolvedProvider(t *testing.T) {
+func TestEnsureSessionAgentRuntimeConfigClaudePreservesProviderlessCompatibilityToken(t *testing.T) {
 	isolateLLMEnv(t)
 
 	ctx := context.Background()
@@ -168,7 +171,7 @@ func TestEnsureSessionAgentRuntimeConfigClaudeRequiresResolvedProvider(t *testin
 	config := &appconfig.Config{
 		DataRoot:       root,
 		DbAddr:         filepath.Join(root, "data.db"),
-		LLMAPIKey:      "key-without-anthropic-model",
+		LLMAPIKey:      "generic-provider-key",
 		RuntimeBaseURL: "http://agent-compose.test:7410",
 	}
 	di := do.New()
@@ -177,10 +180,22 @@ func TestEnsureSessionAgentRuntimeConfigClaudeRequiresResolvedProvider(t *testin
 	if err != nil {
 		t.Fatalf("NewConfigStore returned error: %v", err)
 	}
-	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-claude-missing-provider", Driver: driverpkg.RuntimeDriverDocker}}
+	session := &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-claude-compat", Driver: driverpkg.RuntimeDriverDocker}}
 
-	if _, err := EnsureSessionAgentRuntimeConfig(ctx, config, store, session, "claude", "", "test", "run-1"); err == nil {
-		t.Fatal("EnsureSessionAgentRuntimeConfig returned nil error without a resolved provider")
+	runtimeConfig, err := EnsureSessionAgentRuntimeConfig(ctx, config, store, session, "claude", "", "test", "run-compat")
+	if err != nil {
+		t.Fatalf("EnsureSessionAgentRuntimeConfig returned error: %v", err)
+	}
+	rawToken := runtimeConfig.Env["AGENT_COMPOSE_SANDBOX_TOKEN"]
+	if rawToken == "" {
+		t.Fatal("AGENT_COMPOSE_SANDBOX_TOKEN is empty")
+	}
+	token, err := store.GetLLMFacadeToken(ctx, rawToken)
+	if err != nil {
+		t.Fatalf("GetLLMFacadeToken returned error: %v", err)
+	}
+	if token.ProviderID != "" || token.Model != "" {
+		t.Fatalf("compatibility token = %#v", token)
 	}
 }
 

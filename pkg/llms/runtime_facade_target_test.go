@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestResolveRuntimeLLMFacadeTargetRoutesRequestedModelThroughPinnedProvider(t *testing.T) {
+func TestResolveRuntimeLLMProviderTargetRoutesRequestedModelThroughPinnedProvider(t *testing.T) {
 	ctx := context.Background()
 	store := &runtimeFacadeTargetStore{
 		providers: []Provider{
@@ -36,9 +36,12 @@ func TestResolveRuntimeLLMFacadeTargetRoutesRequestedModelThroughPinnedProvider(
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			target, err := ResolveRuntimeLLMFacadeTarget(ctx, store, tc.model, "provider-1")
+			target, ok, err := resolveRuntimeLLMProviderTarget(ctx, store, tc.model, "provider-1")
 			if err != nil {
-				t.Fatalf("ResolveRuntimeLLMFacadeTarget returned error: %v", err)
+				t.Fatalf("resolveRuntimeLLMProviderTarget returned error: %v", err)
+			}
+			if !ok {
+				t.Fatal("resolveRuntimeLLMProviderTarget did not find provider")
 			}
 			if target.Provider.ID != "provider-1" || target.Model.ID != tc.model || target.Model.Name != tc.model {
 				t.Fatalf("target identity = %#v", target)
@@ -53,54 +56,44 @@ func TestResolveRuntimeLLMFacadeTargetRoutesRequestedModelThroughPinnedProvider(
 	}
 }
 
-func TestResolveRuntimeLLMFacadeTargetUsesAnthropicProviderForUnknownModel(t *testing.T) {
+func TestResolveRuntimeLLMProviderTargetUsesAnthropicProviderForUnknownModel(t *testing.T) {
 	store := &runtimeFacadeTargetStore{
 		providers: []Provider{{ID: "anthropic-1", ProviderType: ProviderFamilyAnthropic, DefaultWireAPI: APIProtocolMessages, BaseURL: "https://anthropic.test", Enabled: true}},
 	}
-	target, err := ResolveRuntimeLLMFacadeTarget(context.Background(), store, "upstream-only-model", "anthropic-1")
+	target, ok, err := resolveRuntimeLLMProviderTarget(context.Background(), store, "upstream-only-model", "anthropic-1")
 	if err != nil {
-		t.Fatalf("ResolveRuntimeLLMFacadeTarget returned error: %v", err)
+		t.Fatalf("resolveRuntimeLLMProviderTarget returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("resolveRuntimeLLMProviderTarget did not find provider")
 	}
 	if target.Provider.ID != "anthropic-1" || target.Model.Name != "upstream-only-model" || target.WireAPI != APIProtocolMessages || !strings.HasSuffix(target.Endpoint, "/v1/messages") {
 		t.Fatalf("target = %#v", target)
 	}
 }
 
-func TestResolveRuntimeLLMFacadeTargetFailsClosed(t *testing.T) {
+func TestResolveRuntimeLLMProviderTargetReturnsStoreErrors(t *testing.T) {
 	ctx := context.Background()
 	store := &runtimeFacadeTargetStore{
 		providers: []Provider{{ID: "provider-1", ProviderType: ProviderFamilyOpenAI, DefaultWireAPI: APIProtocolResponses, BaseURL: "https://provider.test", Enabled: true}},
 	}
-
-	for _, tc := range []struct {
-		name       string
-		model      string
-		providerID string
-	}{
-		{name: "missing model", providerID: "provider-1"},
-		{name: "missing token provider", model: "gpt"},
-		{name: "unknown token provider", model: "gpt", providerID: "provider-2"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ResolveRuntimeLLMFacadeTarget(ctx, store, tc.model, tc.providerID); err == nil {
-				t.Fatal("ResolveRuntimeLLMFacadeTarget returned nil error")
-			}
-		})
+	if _, ok, err := resolveRuntimeLLMProviderTarget(ctx, store, "gpt", "missing-provider"); err != nil || ok {
+		t.Fatalf("missing provider ok=%v err=%v", ok, err)
 	}
 
 	store.providersErr = errors.New("provider store failed")
-	if _, err := ResolveRuntimeLLMFacadeTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.providersErr) {
+	if _, _, err := resolveRuntimeLLMProviderTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.providersErr) {
 		t.Fatalf("provider store error = %v", err)
 	}
 	store.providersErr = nil
 	store.modelsErr = errors.New("model store failed")
-	if _, err := ResolveRuntimeLLMFacadeTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.modelsErr) {
+	if _, _, err := resolveRuntimeLLMProviderTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.modelsErr) {
 		t.Fatalf("model store error = %v", err)
 	}
 	store.modelsErr = nil
 	store.models = []Model{{ID: "gpt", Name: "gpt", Enabled: true}}
 	store.wireAPIErr = errors.New("wire api store failed")
-	if _, err := ResolveRuntimeLLMFacadeTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.wireAPIErr) {
+	if _, _, err := resolveRuntimeLLMProviderTarget(ctx, store, "gpt", "provider-1"); !errors.Is(err, store.wireAPIErr) {
 		t.Fatalf("wire api store error = %v", err)
 	}
 }

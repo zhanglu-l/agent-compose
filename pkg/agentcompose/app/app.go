@@ -471,7 +471,7 @@ func registerRuntimeLLMFacadeRoutes(app *echo.Echo, di do.Injector) {
 		Tokens:    configDB,
 		Sandboxes: do.MustInvoke[*sessionstore.Store](di),
 		ResolveTarget: func(ctx context.Context, requestedModel, providerID string) (llms.ResolvedTarget, error) {
-			return llms.ResolveRuntimeLLMFacadeTarget(ctx, configDB, requestedModel, providerID)
+			return llms.ResolveRuntimeLLMTarget(ctx, config, configDB, requestedModel, providerID)
 		},
 		Client: &http.Client{Timeout: config.LLMTimeout},
 	})

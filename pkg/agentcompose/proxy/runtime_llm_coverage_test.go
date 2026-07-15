@@ -222,6 +222,14 @@ func TestRuntimeLLMFacadeRejectsInvalidSecurityContext(t *testing.T) {
 		want     int
 	}{
 		{
+			name:    "providerless token model mismatch",
+			path:    "/api/runtime/sandboxes/sandbox-1/llm/openai/v1/responses",
+			body:    `{"model":"other","input":"hi"}`,
+			token:   llms.FacadeToken{SandboxID: "sandbox-1", Model: "gpt", WireAPI: llms.APIProtocolResponses, ExpiresAt: time.Now().Add(time.Hour)},
+			session: &domain.Sandbox{Summary: domain.SandboxSummary{ID: "sandbox-1", VMStatus: domain.VMStatusRunning}},
+			want:    http.StatusForbidden,
+		},
+		{
 			name:    "expired token",
 			path:    "/api/runtime/sandboxes/sandbox-1/llm/openai/v1/responses",
 			body:    `{"model":"gpt","input":"hi"}`,
