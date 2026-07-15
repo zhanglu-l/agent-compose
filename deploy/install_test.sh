@@ -89,6 +89,7 @@ FAKE_BIN="$TMP_ROOT/fake-bin"
 FAKE_DOCKER_LOG="$TMP_ROOT/fake-docker.log"
 FAKE_DOCKER_COUNTER="$TMP_ROOT/fake-docker.counter"
 FAKE_DOCKER_STATE="$TMP_ROOT/fake-docker.state"
+REAL_MKTEMP=$(command -v mktemp)
 mkdir -p "$FAKE_BIN"
 cat >"$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
@@ -128,24 +129,17 @@ case ${2:-} in
     exit 0
     ;;
   pull)
-    if [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == pull-lock ]]; then
-      chmod a-w .
-      exit 44
-    fi
     [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == pull ]] && exit 42
     exit 0
     ;;
   up)
     [[ ${3:-} == -d ]] || exit 93
-    if [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once || ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once-down-fails || ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once-restore-fails ]]; then
+    if [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once || ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once-down-fails ]]; then
       count=$(cat "$FAKE_DOCKER_COUNTER" 2>/dev/null || printf '0')
       if [[ $count -eq 0 ]]; then
         printf '1\n' >"$FAKE_DOCKER_COUNTER"
         mkdir -p data/agent-compose
         printf 'partial\n' >data/agent-compose/fake-partial
-        if [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once-restore-fails ]]; then
-          chmod a-w .
-        fi
         exit 43
       fi
     fi
@@ -164,7 +158,19 @@ case ${2:-} in
     ;;
 esac
 EOF
-chmod +x "$FAKE_BIN/docker"
+cat >"$FAKE_BIN/mktemp" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Restoration creates temporary files beside managed destinations. Inject that
+# boundary failure directly so the test behaves consistently for root (which
+# may bypass directory write bits) and ordinary users.
+if [[ ${FAKE_MKTEMP_FAIL_RESTORE:-0} == 1 && ${1:-} == *.installer-restore.XXXXXX ]]; then
+  exit 73
+fi
+exec "$REAL_MKTEMP" "$@"
+EOF
+chmod +x "$FAKE_BIN/docker" "$FAKE_BIN/mktemp"
 
 make_bundle() { # $1=name $2=with-overlay(0|1)
   BUNDLE="$TMP_ROOT/$1-bundle"
@@ -204,6 +210,7 @@ RUN_STATUS=0
 FAKE_DOCKER_FAIL_COMMAND=''
 FAKE_DOCKER_VERSION_SYMLINK_TARGET=''
 FAKE_DOCKER_VERSION_SYMLINK_VICTIM=''
+FAKE_MKTEMP_FAIL_RESTORE=0
 
 run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
   local bundle=$1 install_dir=$2 kvm_path=$3
@@ -222,6 +229,8 @@ run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
     FAKE_DOCKER_FAIL_COMMAND="$FAKE_DOCKER_FAIL_COMMAND" \
     FAKE_DOCKER_VERSION_SYMLINK_TARGET="$FAKE_DOCKER_VERSION_SYMLINK_TARGET" \
     FAKE_DOCKER_VERSION_SYMLINK_VICTIM="$FAKE_DOCKER_VERSION_SYMLINK_VICTIM" \
+    FAKE_MKTEMP_FAIL_RESTORE="$FAKE_MKTEMP_FAIL_RESTORE" \
+    REAL_MKTEMP="$REAL_MKTEMP" \
     AGENT_COMPOSE_KVM_DETECT_PATH="$kvm_path" \
     AGENT_COMPOSE_YES=1 \
     COMPOSE_FILE=hostile-parent.yml \
@@ -571,9 +580,11 @@ cp "$ROOT_DIR/docker-compose.yml" "$incomplete_install/docker-compose.yml"
 printf '%s\n' '# recovery source installer' >"$incomplete_install/install.sh"
 write_user_env "$incomplete_install/.env"
 printf '%s\n' 'COMPOSE_FILE=docker-compose.yml' >>"$incomplete_install/.env"
-FAKE_DOCKER_FAIL_COMMAND=pull-lock
+FAKE_DOCKER_FAIL_COMMAND=pull
+FAKE_MKTEMP_FAIL_RESTORE=1
 run_installer "$BUNDLE" "$incomplete_install" "$PRESENT_KVM"
 FAKE_DOCKER_FAIL_COMMAND=''
+FAKE_MKTEMP_FAIL_RESTORE=0
 assert_failure
 assert_contains "$RUN_STDERR" 'recovery was incomplete'
 preserved_backup=$(sed -n 's/^.*backups retained at //p' "$RUN_STDERR" | tail -n1)
@@ -583,8 +594,6 @@ PRESERVED_BACKUPS+=("$preserved_backup")
 [[ -f $preserved_backup/docker-compose.yml ]] || fail 'retained backup lacks original Compose file'
 [[ -f $preserved_backup/.env.present ]] || fail 'retained backup lacks .env presence marker'
 [[ -f $preserved_backup/.env ]] || fail 'retained backup lacks original .env'
-chmod u+w "$incomplete_install"
-
 FAKE_DOCKER_FAIL_COMMAND=up-once
 run_installer "$BUNDLE" "$rollback_install" "$PRESENT_KVM"
 FAKE_DOCKER_FAIL_COMMAND=''
@@ -611,9 +620,11 @@ printf '%s\n' '# old restore-failure installer' >"$restore_failure_install/insta
 write_user_env "$restore_failure_install/.env"
 printf '%s\n' 'COMPOSE_FILE=docker-compose.yml' >>"$restore_failure_install/.env"
 restore_failure_before=$(sha256sum "$restore_failure_install/.env" | cut -d' ' -f1)
-FAKE_DOCKER_FAIL_COMMAND=up-once-restore-fails
+FAKE_DOCKER_FAIL_COMMAND=up-once
+FAKE_MKTEMP_FAIL_RESTORE=1
 run_installer "$BUNDLE" "$restore_failure_install" "$PRESENT_KVM"
 FAKE_DOCKER_FAIL_COMMAND=''
+FAKE_MKTEMP_FAIL_RESTORE=0
 assert_failure
 assert_contains "$RUN_STDERR" 'recovery was incomplete'
 assert_installed_sequence "$restore_failure_install" $'compose config --quiet\ncompose pull\ncompose up -d'
@@ -622,8 +633,6 @@ preserved_backup=$(sed -n 's/^.*backups retained at //p' "$RUN_STDERR" | tail -n
 [[ -n $preserved_backup && -d $preserved_backup ]] || fail 'failed restoration backup was not retained'
 PRESERVED_BACKUPS+=("$preserved_backup")
 [[ $(sha256sum "$preserved_backup/.env" | cut -d' ' -f1) == "$restore_failure_before" ]] || fail 'retained backup lacks original existing .env'
-chmod u+w "$restore_failure_install"
-
 make_bundle new-up-failure 1
 new_up_failure="$TMP_ROOT/new-up-failure"
 FAKE_DOCKER_FAIL_COMMAND=up-once
