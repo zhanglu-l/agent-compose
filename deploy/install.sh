@@ -41,10 +41,10 @@ Usage: install.sh [options]
 Options:
   --dir <path>           Install directory (default: ./agent-compose)
   --port <port>          Host port for the web UI (default: 80)
-  --version <vX.Y.Z>     Release version to install in remote mode (default: latest)
+  --version <vX.Y.Z>     Release version to install (default: latest)
   --image-prefix <ref>   Pull images from this prefix (mirror / private registry)
                          instead of the default registry
-  --upgrade              Update installer-managed image refs to this version
+  --upgrade              Update an existing install to the latest release
   --no-start             Lay down files but do not pull images or start
   -y, --yes              Run without the interactive confirmation prompt
   -h, --help             Show this help
@@ -346,8 +346,15 @@ trap cleanup EXIT
 
 # images/manifest.env only exists in a real installer bundle, so it
 # disambiguates from a source checkout that also has a docker-compose.yml.
+# An ordinary install uses that adjacent bundle. Upgrade always downloads the
+# selected release so an old extracted installer cannot silently reinstall
+# itself.
+ADJACENT_BUNDLE=0
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/docker-compose.yml" ] \
    && [ -f "$SCRIPT_DIR/images/manifest.env" ]; then
+  ADJACENT_BUNDLE=1
+fi
+if [ "$ADJACENT_BUNDLE" -eq 1 ] && [ "$UPGRADE" -eq 0 ]; then
   BUNDLE_SRC="$SCRIPT_DIR"
   log "Running from extracted bundle: $BUNDLE_SRC"
 else

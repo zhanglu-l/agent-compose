@@ -90,7 +90,35 @@ FAKE_DOCKER_LOG="$TMP_ROOT/fake-docker.log"
 FAKE_DOCKER_COUNTER="$TMP_ROOT/fake-docker.counter"
 FAKE_DOCKER_STATE="$TMP_ROOT/fake-docker.state"
 REAL_MKTEMP=$(command -v mktemp)
+FAKE_REMOTE_DIR="$TMP_ROOT/fake-release"
 mkdir -p "$FAKE_BIN"
+cat >"$FAKE_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+output=''
+url=''
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -o)
+      output=${2:?missing curl output}
+      shift 2
+      ;;
+    -*) shift ;;
+    *)
+      url=$1
+      shift
+      ;;
+  esac
+done
+case $url in
+  */agent-compose-installer.tar.gz) cp "$FAKE_REMOTE_ARCHIVE" "$output" ;;
+  */SHASUMS256.txt) cp "$FAKE_REMOTE_SHASUMS" "$output" ;;
+  *) exit 22 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN/curl"
+
 cat >"$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -220,6 +248,14 @@ FAKE_MKTEMP_FAIL_RESTORE=0
 run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
   local bundle=$1 install_dir=$2 kvm_path=$3
   shift 3
+  rm -rf "$FAKE_REMOTE_DIR"
+  mkdir -p "$FAKE_REMOTE_DIR"
+  tar -czf "$FAKE_REMOTE_DIR/agent-compose-installer.tar.gz" \
+    -C "$(dirname "$bundle")" "$(basename "$bundle")"
+  (
+    cd "$FAKE_REMOTE_DIR"
+    sha256sum agent-compose-installer.tar.gz >SHASUMS256.txt
+  )
   : >"$RUN_STDOUT"
   : >"$RUN_STDERR"
   : >"$FAKE_DOCKER_LOG"
@@ -236,6 +272,8 @@ run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
     FAKE_DOCKER_VERSION_SYMLINK_VICTIM="$FAKE_DOCKER_VERSION_SYMLINK_VICTIM" \
     FAKE_MKTEMP_FAIL_RESTORE="$FAKE_MKTEMP_FAIL_RESTORE" \
     REAL_MKTEMP="$REAL_MKTEMP" \
+    FAKE_REMOTE_ARCHIVE="$FAKE_REMOTE_DIR/agent-compose-installer.tar.gz" \
+    FAKE_REMOTE_SHASUMS="$FAKE_REMOTE_DIR/SHASUMS256.txt" \
     AGENT_COMPOSE_KVM_DETECT_PATH="$kvm_path" \
     AGENT_COMPOSE_YES=1 \
     COMPOSE_FILE=hostile-parent.yml \

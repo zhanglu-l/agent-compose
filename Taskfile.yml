@@ -118,6 +118,7 @@ tasks:
     dir: '{{.TASKFILE_DIR}}'
     cmds:
       - ./deploy/install_test.sh
+      - ./deploy/install_upgrade_test.sh
       - ./scripts/test-compose-kvm-config.sh
       - ./scripts/test-installer-assets.sh
 
