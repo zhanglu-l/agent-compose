@@ -67,7 +67,8 @@ once. Its summary includes the URL to use after the UI profile is enabled:
 ./install.sh --dir /opt/agent-compose --port 8080
 ./install.sh --version v1.2.3         # specific release (remote mode)
 ./install.sh --image-prefix registry.example.com/agent-compose   # mirror / private registry
-./install.sh --upgrade                # update an existing install to this release
+./install.sh --upgrade                # update an existing install to the latest release
+./install.sh --upgrade --version v1.2.3  # update to a specific release
 ./install.sh --no-start               # write files but don't pull images or start
 ./install.sh --yes                    # skip the confirmation prompt
 ```
@@ -132,10 +133,19 @@ Configuration lives in `<install-dir>/.env`; edit and re-run
 before exposing the daemon beyond a trusted network.
 
 Re-running the installer refreshes the Compose files and fills missing secrets
-or image refs. `--upgrade` updates image refs only when they still match values
+or image refs. `--upgrade` downloads the latest release bundle by default, even
+when invoked from an older extracted bundle. Add `--version vX.Y.Z` to select a
+specific release. Upgrade updates image refs only when they still match values
 recorded as installer-managed; custom or otherwise user-managed refs in `.env`
-remain unchanged. Use `--upgrade` with a newer installer to update an existing
-installation to that release and restart the stack.
+remain unchanged.
+
+The host data mount is persisted as `AGENT_COMPOSE_DATA_DIR` in the installed
+`.env`. New installations use `./data`. When upgrading an installation whose
+database exists only under the earlier `./data/agent-compose` layout, the
+installer preserves that path instead of moving data. If databases exist in
+both locations, the installer stops before changing files; set
+`AGENT_COMPOSE_DATA_DIR=./data` or `./data/agent-compose` after identifying the
+authoritative database, then retry the upgrade.
 
 Before changing the installation directory, the installer prints a deployment
 plan and asks for confirmation. Use `--yes` or `AGENT_COMPOSE_YES=1` for

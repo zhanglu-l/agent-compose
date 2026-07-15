@@ -41,10 +41,10 @@ Usage: install.sh [options]
 Options:
   --dir <path>           Install directory (default: ./agent-compose)
   --port <port>          Host port for the web UI (default: 80)
-  --version <vX.Y.Z>     Release version to install in remote mode (default: latest)
+  --version <vX.Y.Z>     Release version to install (default: latest)
   --image-prefix <ref>   Pull images from this prefix (mirror / private registry)
                          instead of the default registry
-  --upgrade              Update installer-managed image refs to this version
+  --upgrade              Update an existing install to the latest release
   --no-start             Lay down files but do not pull images or start
   -y, --yes              Run without the interactive confirmation prompt
   -h, --help             Show this help
@@ -165,6 +165,33 @@ truthy() {
   esac
 }
 
+select_data_dir() {
+  local configured current_db legacy_db
+  current_db="$INSTALL_DIR/data/data.db"
+  legacy_db="$INSTALL_DIR/data/agent-compose/data.db"
+
+  if has_active_env "$EXISTING_ENV_FILE" AGENT_COMPOSE_DATA_DIR; then
+    configured="$(get_env "$EXISTING_ENV_FILE" AGENT_COMPOSE_DATA_DIR)"
+    case "$configured" in
+      ./data|data) DATA_DIR_REL=./data ;;
+      ./data/agent-compose|data/agent-compose) DATA_DIR_REL=./data/agent-compose ;;
+      *)
+        die "AGENT_COMPOSE_DATA_DIR must be ./data or ./data/agent-compose when using the installer"
+        ;;
+    esac
+  elif [ -f "$current_db" ] && [ -f "$legacy_db" ]; then
+    die "both current and legacy data stores exist; set AGENT_COMPOSE_DATA_DIR to ./data or ./data/agent-compose in $EXISTING_ENV_FILE before retrying"
+  elif [ -f "$legacy_db" ]; then
+    DATA_DIR_REL=./data/agent-compose
+    warn "legacy data detected at $INSTALL_DIR/data/agent-compose; preserving its mount path"
+  else
+    DATA_DIR_REL=./data
+  fi
+
+  DATA_DIR_PATH="$INSTALL_DIR/${DATA_DIR_REL#./}"
+  [ ! -d "$DATA_DIR_PATH" ] || DATA_DIR_EXISTED=1
+}
+
 apply_image_refs() { # $1=file $2=mode(install|set-missing|upgrade) $3=managed-state
   local file="$1" mode="$2" state_file="$3" key value pair current managed
   if [ -n "$IMAGE_PREFIX" ]; then
@@ -223,6 +250,8 @@ INSTALL_SUCCEEDED=0
 INSTALL_DIR_EXISTED=0
 INSTALL_DIR_CREATED=0
 INSTALL_DIR_CREATED_PATH=""
+DATA_DIR_REL=""
+DATA_DIR_PATH=""
 DATA_DIR_EXISTED=0
 PREVIOUS_INSTALL=0
 UP_ATTEMPTED=0
@@ -262,8 +291,10 @@ restore_installation() {
     if [ -L "$INSTALL_DIR_ABS/data" ] || [ -L "$INSTALL_DIR_ABS/data/agent-compose" ]; then
       restore_status=1
     else
-      rm -rf "$INSTALL_DIR_ABS/data/agent-compose" || restore_status=1
-      rmdir "$INSTALL_DIR_ABS/data" 2>/dev/null || true
+      rm -rf "$DATA_DIR_PATH" || restore_status=1
+      if [ "$DATA_DIR_REL" = "./data/agent-compose" ]; then
+        rmdir "$INSTALL_DIR_ABS/data" 2>/dev/null || true
+      fi
     fi
   fi
   if [ "$INSTALL_DIR_EXISTED" -eq 0 ]; then
@@ -315,8 +346,15 @@ trap cleanup EXIT
 
 # images/manifest.env only exists in a real installer bundle, so it
 # disambiguates from a source checkout that also has a docker-compose.yml.
+# An ordinary install uses that adjacent bundle. Upgrade always downloads the
+# selected release so an old extracted installer cannot silently reinstall
+# itself.
+ADJACENT_BUNDLE=0
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/docker-compose.yml" ] \
    && [ -f "$SCRIPT_DIR/images/manifest.env" ]; then
+  ADJACENT_BUNDLE=1
+fi
+if [ "$ADJACENT_BUNDLE" -eq 1 ] && [ "$UPGRADE" -eq 0 ]; then
   BUNDLE_SRC="$SCRIPT_DIR"
   log "Running from extracted bundle: $BUNDLE_SRC"
 else
@@ -390,7 +428,6 @@ if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
 fi
 [ -d "$INSTALL_DIR" ] && INSTALL_DIR_EXISTED=1
 validate_data_paths
-[ -d "$INSTALL_DIR/data/agent-compose" ] && DATA_DIR_EXISTED=1
 for name in "${managed_files[@]}"; do
   target="$INSTALL_DIR/$name"
   if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
@@ -406,6 +443,7 @@ if [ -f "$BUNDLE_SRC/docker-compose.kvm.yml" ] || [ -f "$INSTALL_DIR/docker-comp
 fi
 
 EXISTING_ENV_FILE="$INSTALL_DIR/.env"
+select_data_dir
 COMPOSE_SELECTION_EXPLICIT=0
 if has_active_env "$EXISTING_ENV_FILE" COMPOSE_FILE; then
   COMPOSE_SELECTION_EXPLICIT=1
@@ -462,7 +500,7 @@ cat <<EOF
 agent-compose deployment plan
   Source:       $BUNDLE_SRC
   Target dir:   $INSTALL_DIR
-  Data dir:     $INSTALL_DIR/data/agent-compose
+  Data dir:     $DATA_DIR_PATH
   Config:       $ENV_STATE
   Compose:      $COMPOSE_STATE
   Images:       $IMAGE_STATE
@@ -544,6 +582,8 @@ else
   [ -n "$PORT" ] && set_env "$CANDIDATE_ENV" AGENT_COMPOSE_HTTP_PORT "$PORT"
 fi
 
+set_env "$CANDIDATE_ENV" AGENT_COMPOSE_DATA_DIR "$DATA_DIR_REL"
+
 if [ "$COMPOSE_SELECTION_EXPLICIT" -eq 0 ]; then
   if [ "$KVM_AVAILABLE" -eq 1 ]; then
     set_env "$CANDIDATE_ENV" COMPOSE_FILE "docker-compose.yml:docker-compose.kvm.yml"
@@ -584,6 +624,7 @@ INSTALL_DIR_ABS="$(cd -P -- "$INSTALL_DIR" && pwd)"
   || die "refusing install path changed during creation: $INSTALL_DIR"
 INSTALL_DIR="$INSTALL_DIR_ABS"
 ENV_FILE="$INSTALL_DIR/.env"
+DATA_DIR_PATH="$INSTALL_DIR/${DATA_DIR_REL#./}"
 for name in "${managed_files[@]}"; do
   target="$INSTALL_DIR/$name"
   if [ -f "$target" ]; then
@@ -606,7 +647,7 @@ fi
 atomic_install_file "$CANDIDATE_ENV" "$ENV_FILE" 600 1
 atomic_install_file "$CANDIDATE_STATE" "$INSTALL_DIR/.installer-state.env" 600 1
 validate_data_paths
-mkdir -p "$INSTALL_DIR/data/agent-compose"
+mkdir -p "$DATA_DIR_PATH"
 if [ ! -f "$ROLLBACK_DIR/.env.present" ]; then
   log "Created $ENV_FILE"
 fi

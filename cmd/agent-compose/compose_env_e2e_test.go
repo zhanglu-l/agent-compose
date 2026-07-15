@@ -49,7 +49,7 @@ func TestE2EDockerComposeSandboxEnvContract(t *testing.T) {
 			t.Fatalf("compose service still exposes legacy session root env %q", key)
 		}
 	}
-	for _, volume := range []string{"/var/run/docker.sock:/var/run/docker.sock", "./data:/data", "./.env:/data/work/.env:ro"} {
+	for _, volume := range []string{"/var/run/docker.sock:/var/run/docker.sock", "${AGENT_COMPOSE_DATA_DIR:-./data}:/data", "./.env:/data/work/.env:ro"} {
 		if !stringSliceContains(service.Volumes, volume) {
 			t.Fatalf("agent-compose volumes = %#v, want %q", service.Volumes, volume)
 		}
@@ -59,6 +59,7 @@ func TestE2EDockerComposeSandboxEnvContract(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		"AGENT_COMPOSE_DATA_DIR=./data",
 		"# SANDBOX_ROOT=/data/sandboxes",
 		"# DOCKER_HOST_SANDBOX_ROOT=/absolute/host/path/to/data/sandboxes",
 		"SESSION_ROOT, DOCKER_HOST_SESSION_ROOT, SESSION_START_TIMEOUT, and",

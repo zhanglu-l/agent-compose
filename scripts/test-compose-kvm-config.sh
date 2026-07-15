@@ -19,6 +19,7 @@ compose_config() {
     -u AGENT_COMPOSE_IMAGE \
     -u AGENT_COMPOSE_FRONTEND_IMAGE \
     -u AGENT_COMPOSE_RUNTIME_BASE_URL \
+    -u AGENT_COMPOSE_DATA_DIR \
     docker compose \
       --project-directory "$ROOT_DIR" \
       --env-file "$ROOT_DIR/.env.example" \
@@ -30,13 +31,13 @@ base_json=$(compose_config -f "$ROOT_DIR/docker-compose.yml")
 kvm_json=$(compose_config -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/docker-compose.kvm.yml")
 local_json=$(compose_config -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/docker-compose.override.yml.example")
 
-jq -e '
+jq -e --arg data_source "$ROOT_DIR/data" '
   .services["agent-compose"] as $service |
   $service.privileged != true and
   (($service.devices // []) | length == 0) and
   $service.build == null and
   any($service.volumes[]; .source == "/var/run/docker.sock" and .target == "/var/run/docker.sock") and
-  any($service.volumes[]; .target == "/data") and
+  any($service.volumes[]; .source == $data_source and .target == "/data") and
   any($service.volumes[]; .target == "/data/work/.env" and .read_only == true) and
   any($service.ports[]; .host_ip == "127.0.0.1" and .target == 7410 and .published == "7410")
 ' >/dev/null <<<"$base_json"

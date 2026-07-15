@@ -90,7 +90,35 @@ FAKE_DOCKER_LOG="$TMP_ROOT/fake-docker.log"
 FAKE_DOCKER_COUNTER="$TMP_ROOT/fake-docker.counter"
 FAKE_DOCKER_STATE="$TMP_ROOT/fake-docker.state"
 REAL_MKTEMP=$(command -v mktemp)
+FAKE_REMOTE_DIR="$TMP_ROOT/fake-release"
 mkdir -p "$FAKE_BIN"
+cat >"$FAKE_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+output=''
+url=''
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -o)
+      output=${2:?missing curl output}
+      shift 2
+      ;;
+    -*) shift ;;
+    *)
+      url=$1
+      shift
+      ;;
+  esac
+done
+case $url in
+  */agent-compose-installer.tar.gz) cp "$FAKE_REMOTE_ARCHIVE" "$output" ;;
+  */SHASUMS256.txt) cp "$FAKE_REMOTE_SHASUMS" "$output" ;;
+  *) exit 22 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN/curl"
+
 cat >"$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -105,6 +133,11 @@ if [[ -f .env ]]; then
   fi
 fi
 process_selection=${COMPOSE_FILE-<unset>}
+data_dir=./data
+if [[ -f .env ]]; then
+  value=$(grep -E '^(export[[:space:]]+)?AGENT_COMPOSE_DATA_DIR=' .env 2>/dev/null | tail -n1 || true)
+  [[ -z $value ]] || data_dir=${value#*=}
+fi
 {
   printf 'cwd=%s|process=%s|file=%s|args=' "$PWD" "$process_selection" "$selection"
   printf '%s ' "$@"
@@ -138,19 +171,19 @@ case ${2:-} in
       count=$(cat "$FAKE_DOCKER_COUNTER" 2>/dev/null || printf '0')
       if [[ $count -eq 0 ]]; then
         printf '1\n' >"$FAKE_DOCKER_COUNTER"
-        mkdir -p data/agent-compose
-        printf 'partial\n' >data/agent-compose/fake-partial
+        mkdir -p "$data_dir"
+        printf 'partial\n' >"$data_dir/fake-partial"
         exit 43
       fi
     fi
-    rm -f data/agent-compose/fake-partial
+    rm -f ./data/fake-partial ./data/agent-compose/fake-partial
     printf 'running\n' >"$FAKE_DOCKER_STATE"
     exit 0
     ;;
   down)
     [[ ${3:-} == --remove-orphans ]] || exit 96
     [[ ${FAKE_DOCKER_FAIL_COMMAND:-} == up-once-down-fails ]] && exit 45
-    rm -f data/agent-compose/fake-partial "$FAKE_DOCKER_STATE"
+    rm -f ./data/fake-partial ./data/agent-compose/fake-partial "$FAKE_DOCKER_STATE"
     exit 0
     ;;
   *)
@@ -215,6 +248,14 @@ FAKE_MKTEMP_FAIL_RESTORE=0
 run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
   local bundle=$1 install_dir=$2 kvm_path=$3
   shift 3
+  rm -rf "$FAKE_REMOTE_DIR"
+  mkdir -p "$FAKE_REMOTE_DIR"
+  tar -czf "$FAKE_REMOTE_DIR/agent-compose-installer.tar.gz" \
+    -C "$(dirname "$bundle")" "$(basename "$bundle")"
+  (
+    cd "$FAKE_REMOTE_DIR"
+    sha256sum agent-compose-installer.tar.gz >SHASUMS256.txt
+  )
   : >"$RUN_STDOUT"
   : >"$RUN_STDERR"
   : >"$FAKE_DOCKER_LOG"
@@ -231,6 +272,8 @@ run_installer() { # $1=bundle $2=install-dir $3=kvm-path, remaining=args
     FAKE_DOCKER_VERSION_SYMLINK_VICTIM="$FAKE_DOCKER_VERSION_SYMLINK_VICTIM" \
     FAKE_MKTEMP_FAIL_RESTORE="$FAKE_MKTEMP_FAIL_RESTORE" \
     REAL_MKTEMP="$REAL_MKTEMP" \
+    FAKE_REMOTE_ARCHIVE="$FAKE_REMOTE_DIR/agent-compose-installer.tar.gz" \
+    FAKE_REMOTE_SHASUMS="$FAKE_REMOTE_DIR/SHASUMS256.txt" \
     AGENT_COMPOSE_KVM_DETECT_PATH="$kvm_path" \
     AGENT_COMPOSE_YES=1 \
     COMPOSE_FILE=hostile-parent.yml \
@@ -263,6 +306,7 @@ base_install="$TMP_ROOT/install base"
 run_installer "$BUNDLE" "$base_install" "$MISSING_KVM" --no-start
 assert_success
 assert_env "$base_install/.env" COMPOSE_FILE docker-compose.yml
+assert_env "$base_install/.env" AGENT_COMPOSE_DATA_DIR ./data
 assert_mode "$base_install/.env" 600
 assert_mode "$base_install/.installer-state.env" 600
 assert_mode "$base_install/docker-compose.yml" 644
@@ -278,8 +322,56 @@ assert_contains "$FAKE_DOCKER_LOG" "cwd=$base_install|process=<unset>|file=docke
 assert_not_contains "$FAKE_DOCKER_LOG" 'args=compose pull '
 assert_not_contains "$FAKE_DOCKER_LOG" 'args=compose up -d '
 assert_installed_sequence "$base_install" 'compose config --quiet'
+[[ -d $base_install/data ]] || fail 'new install did not create the current data directory'
+[[ ! -e $base_install/data/agent-compose ]] || fail 'new install unexpectedly created the legacy data directory'
 base_json=$(real_compose_json "$base_install")
 jq -e '.services["agent-compose"].privileged != true and ((.services["agent-compose"].devices // []) | length == 0)' >/dev/null <<<"$base_json"
+jq -e --arg source "$base_install/data" 'any(.services["agent-compose"].volumes[]; .source == $source and .target == "/data")' >/dev/null <<<"$base_json"
+
+# Upgrades preserve the only populated layout and persist it so later Compose
+# runs cannot silently switch databases. Ambiguous dual-database installs stop
+# before mutation until the operator selects the authoritative store.
+make_bundle data-layout 1
+legacy_data_install="$TMP_ROOT/legacy-data-layout"
+mkdir -p "$legacy_data_install/data/agent-compose"
+printf 'legacy-db\n' >"$legacy_data_install/data/agent-compose/data.db"
+write_user_env "$legacy_data_install/.env"
+printf '%s\n' 'COMPOSE_FILE=docker-compose.yml' >>"$legacy_data_install/.env"
+run_installer "$BUNDLE" "$legacy_data_install" "$MISSING_KVM" --upgrade --no-start
+assert_success
+assert_env "$legacy_data_install/.env" AGENT_COMPOSE_DATA_DIR ./data/agent-compose
+assert_contains "$RUN_STDERR" 'legacy data detected'
+assert_contains "$RUN_STDOUT" "Data dir:     $legacy_data_install/data/agent-compose"
+assert_contains "$legacy_data_install/data/agent-compose/data.db" legacy-db
+legacy_data_json=$(real_compose_json "$legacy_data_install")
+jq -e --arg source "$legacy_data_install/data/agent-compose" 'any(.services["agent-compose"].volumes[]; .source == $source and .target == "/data")' >/dev/null <<<"$legacy_data_json"
+
+current_data_install="$TMP_ROOT/current-data-layout"
+mkdir -p "$current_data_install/data"
+printf 'current-db\n' >"$current_data_install/data/data.db"
+write_user_env "$current_data_install/.env"
+printf '%s\n' 'COMPOSE_FILE=docker-compose.yml' >>"$current_data_install/.env"
+run_installer "$BUNDLE" "$current_data_install" "$MISSING_KVM" --upgrade --no-start
+assert_success
+assert_env "$current_data_install/.env" AGENT_COMPOSE_DATA_DIR ./data
+assert_contains "$current_data_install/data/data.db" current-db
+
+ambiguous_data_install="$TMP_ROOT/ambiguous-data-layout"
+mkdir -p "$ambiguous_data_install/data/agent-compose"
+printf 'current-db\n' >"$ambiguous_data_install/data/data.db"
+printf 'legacy-db\n' >"$ambiguous_data_install/data/agent-compose/data.db"
+write_user_env "$ambiguous_data_install/.env"
+printf '%s\n' 'COMPOSE_FILE=docker-compose.yml' >>"$ambiguous_data_install/.env"
+ambiguous_env_before=$(sha256sum "$ambiguous_data_install/.env")
+run_installer "$BUNDLE" "$ambiguous_data_install" "$MISSING_KVM" --upgrade --no-start
+assert_failure
+assert_contains "$RUN_STDERR" 'both current and legacy data stores exist'
+[[ $(sha256sum "$ambiguous_data_install/.env") == "$ambiguous_env_before" ]] || fail 'ambiguous data preflight changed .env'
+[[ ! -e $ambiguous_data_install/docker-compose.yml ]] || fail 'ambiguous data preflight installed Compose files'
+printf '%s\n' 'AGENT_COMPOSE_DATA_DIR=./data/agent-compose' >>"$ambiguous_data_install/.env"
+run_installer "$BUNDLE" "$ambiguous_data_install" "$MISSING_KVM" --upgrade --no-start
+assert_success
+assert_env "$ambiguous_data_install/.env" AGENT_COMPOSE_DATA_DIR ./data/agent-compose
 
 # New KVM install uses the dual persisted selection for config, pull, and up.
 make_bundle new-kvm 1
@@ -546,6 +638,7 @@ assert_contains "$RUN_STDERR" 'restored managed files'
 make_bundle rollback 1
 rollback_install="$TMP_ROOT/rollback"
 mkdir -p "$rollback_install/data/agent-compose"
+printf 'legacy-db\n' >"$rollback_install/data/agent-compose/data.db"
 cp "$ROOT_DIR/docker-compose.yml" "$rollback_install/docker-compose.yml"
 printf '%s\n' '# old installer' >"$rollback_install/install.sh"
 chmod 700 "$rollback_install/install.sh"
@@ -576,6 +669,7 @@ fi
 # out-of-tree backup instead of deleting the only recovery copy.
 incomplete_install="$TMP_ROOT/incomplete-rollback"
 mkdir -p "$incomplete_install/data/agent-compose"
+printf 'legacy-db\n' >"$incomplete_install/data/agent-compose/data.db"
 cp "$ROOT_DIR/docker-compose.yml" "$incomplete_install/docker-compose.yml"
 printf '%s\n' '# recovery source installer' >"$incomplete_install/install.sh"
 write_user_env "$incomplete_install/.env"
@@ -615,6 +709,7 @@ assert_installed_sequence "$rollback_install" $'compose config --quiet\ncompose 
 # managed-file restoration itself is incomplete.
 restore_failure_install="$TMP_ROOT/restore-failure"
 mkdir -p "$restore_failure_install/data/agent-compose"
+printf 'legacy-db\n' >"$restore_failure_install/data/agent-compose/data.db"
 cp "$ROOT_DIR/docker-compose.yml" "$restore_failure_install/docker-compose.yml"
 printf '%s\n' '# old restore-failure installer' >"$restore_failure_install/install.sh"
 write_user_env "$restore_failure_install/.env"
@@ -655,7 +750,7 @@ assert_contains "$RUN_STDERR" 'recovery was incomplete'
 assert_installed_sequence "$new_down_failure" $'compose config --quiet\ncompose pull\ncompose up -d\ncompose down --remove-orphans'
 assert_env "$new_down_failure/.env" COMPOSE_FILE 'docker-compose.yml:docker-compose.kvm.yml'
 [[ -f $new_down_failure/docker-compose.yml && -f $new_down_failure/docker-compose.kvm.yml ]] || fail 'failed cleanup removed candidate Compose files'
-[[ -e $new_down_failure/data/agent-compose/fake-partial ]] || fail 'failed cleanup repro did not retain partial runtime marker'
+[[ -e $new_down_failure/data/fake-partial ]] || fail 'failed cleanup repro did not retain partial runtime marker'
 preserved_backup=$(sed -n 's/^.*backups retained at //p' "$RUN_STDERR" | tail -n1)
 [[ -n $preserved_backup && -d $preserved_backup/recovery-install ]] || fail 'failed cleanup recovery snapshot was not retained'
 PRESERVED_BACKUPS+=("$preserved_backup")
