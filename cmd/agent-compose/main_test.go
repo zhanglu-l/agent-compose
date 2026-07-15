@@ -3156,6 +3156,7 @@ agents:
           prompt: review nightly
 `)
 	runID := identity.NewRandomID(identity.ResourceRun)
+	legacyRunID := "550e8400-e29b-41d4-a716-446655440000"
 	errorRunID := identity.NewRandomID(identity.ResourceRun)
 	sandboxID := identity.NewRandomID(identity.ResourceSandbox)
 	getRunCalls := 0
@@ -3182,11 +3183,11 @@ agents:
 				if req.Msg.GetRunId() == errorRunID {
 					return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("run store unavailable"))
 				}
-				if req.Msg.GetRunId() != runID {
+				if req.Msg.GetRunId() != runID && req.Msg.GetRunId() != legacyRunID {
 					return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("run not found"))
 				}
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: &agentcomposev2.RunDetail{Summary: &agentcomposev2.RunSummary{
-					RunId: runID, AgentName: "reviewer", Source: agentcomposev2.RunSource_RUN_SOURCE_SCHEDULER, SchedulerId: "scheduler-reviewer",
+					RunId: req.Msg.GetRunId(), AgentName: "reviewer", Source: agentcomposev2.RunSource_RUN_SOURCE_SCHEDULER, SchedulerId: "scheduler-reviewer",
 					TriggerId: "nightly", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SandboxId: sandboxID,
 					StartedAt: "2026-07-15T01:00:00Z", CompletedAt: "2026-07-15T01:00:02Z", DurationMs: 2000,
 				}}}), nil
@@ -3230,12 +3231,17 @@ agents:
 		t.Fatalf("scheduler inspect run code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
 	}
 
+	jsonOut, jsonErr, _, jsonCode = executeCLICommand("scheduler", "inspect", legacyRunID, "--json", "--host", server.URL, "--file", composePath)
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, legacyRunID) {
+		t.Fatalf("scheduler inspect legacy UUID run code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+
 	jsonOut, jsonErr, _, jsonCode = executeCLICommand("scheduler", "inspect", "reviewer", "--json", "--host", server.URL, "--file", composePath)
 	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"resource": "scheduler"`) || !strings.Contains(jsonOut, `"agent_name": "reviewer"`) {
 		t.Fatalf("scheduler inspect scheduler code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
 	}
-	if getRunCalls != 2 {
-		t.Fatalf("GetRun calls = %d, want 2; scheduler name inspection must not probe runs", getRunCalls)
+	if getRunCalls != 3 {
+		t.Fatalf("GetRun calls = %d, want 3; scheduler name inspection must not probe runs", getRunCalls)
 	}
 
 	_, stderr, _, exitCode = executeCLICommand("scheduler", "inspect", errorRunID, "--host", server.URL, "--file", composePath)

@@ -28,6 +28,7 @@ import (
 	"unicode"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -2312,7 +2313,7 @@ func getComposeSchedulerRun(ctx context.Context, clients cliServiceClients, norm
 
 func resolveSchedulerRunID(ctx context.Context, client agentcomposev2connect.ResourceServiceClient, projectID, runRef string) (string, error) {
 	runRef = strings.TrimSpace(runRef)
-	if identity.IsID(runRef) {
+	if identity.IsID(runRef) || isLegacySchedulerRunID(runRef) {
 		return runRef, nil
 	}
 	if strings.Contains(runRef, "-") {
@@ -2341,6 +2342,12 @@ func resolveSchedulerRunID(ctx context.Context, client agentcomposev2connect.Res
 		return "", commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("scheduler run reference %q is ambiguous", runRef)}
 	}
 	return matches[0], nil
+}
+
+func isLegacySchedulerRunID(runID string) bool {
+	runID = strings.TrimSpace(runID)
+	parsed, err := uuid.Parse(runID)
+	return err == nil && parsed.String() == strings.ToLower(runID)
 }
 
 func shouldResolveSchedulerRunRef(ref string) bool {
