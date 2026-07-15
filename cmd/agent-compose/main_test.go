@@ -3140,6 +3140,79 @@ func TestNormalizeComposeSchedulerTriggerOptionsPayload(t *testing.T) {
 	}
 }
 
+func TestIntegrationCLISchedulerRunsLogsAndInspectResources(t *testing.T) {
+	composePath := writeComposeFile(t, t.TempDir(), `
+name: cli-scheduler-observability
+agents:
+  reviewer:
+    provider: codex
+    scheduler:
+      triggers:
+        - name: nightly
+          cron: "0 2 * * *"
+          prompt: review nightly
+`)
+	runID := "scheduler-run-1234567890"
+	sandboxID := "sandbox-scheduler-1234567890"
+	server := newComposeServiceStubServer(t, composeServiceStubs{
+		project: projectServiceStub{
+			getProject: func(ctx context.Context, req *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error) {
+				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: testCLIProject(req.Msg.GetProject().GetProjectId(), "cli-scheduler-observability", composePath)}), nil
+			},
+		},
+		run: runServiceStub{
+			getRun: func(_ context.Context, req *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error) {
+				if req.Msg.GetRunId() != runID[:12] {
+					return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("run not found"))
+				}
+				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: &agentcomposev2.RunDetail{Summary: &agentcomposev2.RunSummary{
+					RunId: runID, AgentName: "reviewer", Source: agentcomposev2.RunSource_RUN_SOURCE_SCHEDULER,
+					TriggerId: "nightly", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SandboxId: sandboxID,
+					StartedAt: "2026-07-15T01:00:00Z", CompletedAt: "2026-07-15T01:00:02Z", DurationMs: 2000,
+				}}}), nil
+			},
+			listRuns: func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+				return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{{
+					RunId: runID, TriggerId: "nightly", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SandboxId: sandboxID,
+					StartedAt: "2026-07-15T01:00:00Z", CompletedAt: "2026-07-15T01:00:02Z", DurationMs: 2000,
+				}}}), nil
+			},
+			listRunEvents: func(context.Context, *connect.Request[agentcomposev2.ListRunEventsRequest]) (*connect.Response[agentcomposev2.ListRunEventsResponse], error) {
+				return connect.NewResponse(&agentcomposev2.ListRunEventsResponse{Events: []*agentcomposev2.RunEvent{
+					{Id: "event-2", RunId: runID, Kind: agentcomposev2.RunEventKind_RUN_EVENT_KIND_AGENT_ACTIVITY, Text: "done", CreatedAt: timestamppb.New(time.Date(2026, 7, 15, 1, 0, 2, 0, time.UTC))},
+					{Id: "event-1", RunId: runID, Kind: agentcomposev2.RunEventKind_RUN_EVENT_KIND_STATUS, Text: "started", CreatedAt: timestamppb.New(time.Date(2026, 7, 15, 1, 0, 0, 0, time.UTC))},
+				}}), nil
+			},
+		},
+	})
+	defer server.Close()
+
+	stdout, stderr, _, exitCode := executeCLICommand("scheduler", "runs", "--host", server.URL, "--file", composePath)
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "scheduler-") || !strings.Contains(stdout, "sandbox-") || !strings.Contains(stdout, "reviewer") {
+		t.Fatalf("scheduler runs code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("scheduler", "runs", "--json", "--host", server.URL, "--file", composePath)
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"sandbox_ids": [`) || !strings.Contains(jsonOut, sandboxID) {
+		t.Fatalf("scheduler runs --json code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+
+	stdout, stderr, _, exitCode = executeCLICommand("scheduler", "logs", runID[:12], "--host", server.URL, "--file", composePath)
+	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "scheduler.status") || !strings.Contains(stdout, "scheduler.agent.activity") || strings.Index(stdout, "started") > strings.Index(stdout, "done") {
+		t.Fatalf("scheduler logs code/stdout/stderr = %d / %q / %q", exitCode, stdout, stderr)
+	}
+
+	jsonOut, jsonErr, _, jsonCode = executeCLICommand("scheduler", "inspect", runID[:12], "--json", "--host", server.URL, "--file", composePath)
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"resource": "run"`) || !strings.Contains(jsonOut, sandboxID) {
+		t.Fatalf("scheduler inspect run code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+
+	jsonOut, jsonErr, _, jsonCode = executeCLICommand("scheduler", "inspect", "reviewer", "--json", "--host", server.URL, "--file", composePath)
+	if jsonCode != 0 || jsonErr != "" || !strings.Contains(jsonOut, `"resource": "scheduler"`) || !strings.Contains(jsonOut, `"agent_name": "reviewer"`) {
+		t.Fatalf("scheduler inspect scheduler code/stdout/stderr = %d / %q / %q", jsonCode, jsonOut, jsonErr)
+	}
+}
+
 func TestIntegrationCLISchedulerTriggerUsesRunAgentTriggerID(t *testing.T) {
 	composePath := writeComposeFile(t, t.TempDir(), `
 name: cli-scheduler-trigger
@@ -9439,6 +9512,7 @@ type runServiceStub struct {
 	runAttach      func(context.Context, *connect.BidiStream[agentcomposev2.RunAttachRequest, agentcomposev2.RunAttachResponse]) error
 	getRun         func(context.Context, *connect.Request[agentcomposev2.GetRunRequest]) (*connect.Response[agentcomposev2.GetRunResponse], error)
 	listRuns       func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error)
+	listRunEvents  func(context.Context, *connect.Request[agentcomposev2.ListRunEventsRequest]) (*connect.Response[agentcomposev2.ListRunEventsResponse], error)
 	followRunLogs  func(context.Context, *connect.Request[agentcomposev2.FollowRunLogsRequest], *connect.ServerStream[agentcomposev2.RunLogChunk]) error
 
 	agentcomposev2connect.UnimplementedRunServiceHandler
@@ -9477,6 +9551,13 @@ func (s runServiceStub) ListRuns(ctx context.Context, req *connect.Request[agent
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListRuns stub is not configured"))
 	}
 	return s.listRuns(ctx, req)
+}
+
+func (s runServiceStub) ListRunEvents(ctx context.Context, req *connect.Request[agentcomposev2.ListRunEventsRequest]) (*connect.Response[agentcomposev2.ListRunEventsResponse], error) {
+	if s.listRunEvents == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListRunEvents stub is not configured"))
+	}
+	return s.listRunEvents(ctx, req)
 }
 
 func (s runServiceStub) FollowRunLogs(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
@@ -9923,7 +10004,7 @@ func newComposeServiceStubServer(t *testing.T, stubs composeServiceStubs) *httpt
 		path, handler := agentcomposev2connect.NewProjectServiceHandler(stubs.project)
 		mux.Handle(path, handler)
 	}
-	if stubs.run.startRun != nil || stubs.run.runAgentStream != nil || stubs.run.getRun != nil || stubs.run.listRuns != nil || stubs.run.followRunLogs != nil {
+	if stubs.run.startRun != nil || stubs.run.runAgentStream != nil || stubs.run.getRun != nil || stubs.run.listRuns != nil || stubs.run.listRunEvents != nil || stubs.run.followRunLogs != nil {
 		path, handler := agentcomposev2connect.NewRunServiceHandler(stubs.run)
 		mux.Handle(path, handler)
 	}

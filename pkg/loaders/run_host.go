@@ -180,6 +180,7 @@ func (h *RuntimeHost) Agent(ctx context.Context, prompt string, request domain.L
 	if h.useProjectManagedAgentRun(request) {
 		return h.ProjectAgent(ctx, prompt, request)
 	}
+	request.SchedulerRunID = h.run.ID
 	session, eventType, err := h.deps.Sessions.Ensure(ctx, h.loader, request, true)
 	if err != nil {
 		return domain.LoaderAgentResult{}, err
