@@ -127,7 +127,7 @@ scheduler.on("news.ready", "on-news", function onNews() {});
 	if len(result.Agents) != 1 || !strings.HasPrefix(result.Agents[0].AgentName, "legacy-agent-") {
 		t.Fatalf("projected Chinese agents = %#v", result.Agents)
 	}
-	if result.Project.SourcePath != filepath.Clean(root) || result.RevisionSpec == nil || len(result.RevisionSpec.Workspaces) != 1 || len(result.RevisionSpec.Agents) != 1 {
+	if result.Project.SourcePath != "" || result.RevisionSpec == nil || len(result.RevisionSpec.Workspaces) != 1 || len(result.RevisionSpec.Agents) != 1 {
 		t.Fatalf("projected file workspace project = %#v, spec = %#v", result.Project, result.RevisionSpec)
 	}
 	projectedAgent := result.RevisionSpec.Agents[0]
@@ -156,6 +156,14 @@ scheduler.on("news.ready", "on-news", function onNews() {});
 	project, err := store.GetProject(ctx, projectID)
 	if err != nil {
 		t.Fatalf("load legacy project: %v", err)
+	}
+	resolved, err := controller.ResolveProjectRef(ctx, projects.ProjectRef{Name: result.Project.Name, SourcePath: result.Project.SourcePath})
+	if err != nil || resolved.ID != project.ID {
+		t.Fatalf("resolve returned legacy project ref = %#v, err = %v", resolved, err)
+	}
+	managedAgent, err := store.GetAgentDefinition(ctx, result.Agents[0].ManagedAgentID)
+	if err != nil || managedAgent.WorkspaceID != workspace.ID {
+		t.Fatalf("managed legacy agent workspace = %#v, err = %v", managedAgent, err)
 	}
 	page, err := store.ListProjectSchedulersPage(ctx, "", "", 10)
 	if err != nil {
@@ -202,7 +210,7 @@ scheduler.on("news.ready", "on-news", function onNews() {});
 	if err != nil || len(page) != 1 || page[0].Revision != project.CurrentRevision || page[0].ManagedLoaderID != loader.Summary.ID || page[0].RunCount != 1 || !strings.Contains(page[0].SpecJSON, `"display_name":"资讯推送任务"`) {
 		t.Fatalf("scheduler page after presentation upgrade = %#v, err = %v", page, err)
 	}
-	managedAgent, err := store.GetAgentDefinition(ctx, result.Agents[0].ManagedAgentID)
+	managedAgent, err = store.GetAgentDefinition(ctx, result.Agents[0].ManagedAgentID)
 	if err != nil || managedAgent.Name != result.Agents[0].AgentName || managedAgent.ManagedAgentName != result.Agents[0].AgentName || managedAgent.Description != "每日推送最新的 AI 资讯" {
 		t.Fatalf("managed agent after presentation upgrade = %#v, err = %v", managedAgent, err)
 	}

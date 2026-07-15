@@ -10,7 +10,6 @@ import (
 	"agent-compose/pkg/compose"
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
-	"agent-compose/pkg/identity"
 	"agent-compose/pkg/images"
 	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
@@ -36,10 +35,6 @@ type NormalizedProject struct {
 	// projection. It lets that boundary adopt an existing loader ID so runs,
 	// events, trigger state, and enablement survive the project migration.
 	managedLoaderOverrides map[string]domain.Loader
-
-	// legacyProjectID keeps the synthetic legacy project identity independent
-	// from the data-root source path used by migrated file workspaces.
-	legacyProjectID string
 }
 
 type ProjectRef struct {
@@ -169,10 +164,6 @@ func (c *Controller) ApplyProject(ctx context.Context, req ApplyRequest) (ApplyR
 	project, err := NewRecordFromSpec(normalized.Spec, normalized.SourcePath)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("%w: apply project: %w", ErrInvalidRequest, err)
-	}
-	if legacyProjectID := strings.TrimSpace(normalized.legacyProjectID); legacyProjectID != "" {
-		project.ID = legacyProjectID
-		project.ShortID = identity.ShortID(legacyProjectID)
 	}
 	if issues := c.validateManagedAgentDefinitions(normalized); len(issues) > 0 {
 		return ApplyResult{Issues: issues, RevisionSpec: normalized.Spec}, nil
@@ -446,6 +437,9 @@ func (c *Controller) projectArtifacts(ctx context.Context, project domain.Projec
 	}
 	agentDefinitions, err := NewAgentDefinitionsFromSpec(project, revision, spec)
 	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if err := c.bindLegacyFileWorkspaces(ctx, project, spec, agentDefinitions); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	schedulerRecords, managedLoaders, err := c.projectManagedSchedulersFromSpec(ctx, project, revision, spec)

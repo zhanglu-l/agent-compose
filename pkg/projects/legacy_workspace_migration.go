@@ -22,7 +22,6 @@ type legacyWorkspaceConfigStore interface {
 type legacyWorkspaceProjection struct {
 	workspaces map[string]compose.WorkspaceSpec
 	nameByID   map[string]string
-	sourcePath string
 }
 
 func (c *Controller) loadLegacyWorkspaceProjection(ctx context.Context, agents []domain.AgentDefinition, loaders []domain.Loader) (legacyWorkspaceProjection, error) {
@@ -49,28 +48,14 @@ func (c *Controller) loadLegacyWorkspaceProjection(ctx context.Context, agents [
 
 	nameByID := legacyProjectWorkspaceNames(configs)
 	projectWorkspaces := make(map[string]compose.WorkspaceSpec, len(configs))
-	usesLocalWorkspace := false
 	for _, config := range configs {
-		workspace, local, err := mapLegacyWorkspaceConfig(c.config, config)
+		workspace, err := mapLegacyWorkspaceConfig(c.config, config)
 		if err != nil {
 			return legacyWorkspaceProjection{}, err
 		}
 		projectWorkspaces[nameByID[config.ID]] = workspace
-		usesLocalWorkspace = usesLocalWorkspace || local
 	}
-
-	projection := legacyWorkspaceProjection{workspaces: projectWorkspaces, nameByID: nameByID}
-	if usesLocalWorkspace {
-		if c.config == nil || strings.TrimSpace(c.config.DataRoot) == "" {
-			return legacyWorkspaceProjection{}, fmt.Errorf("map legacy file workspace presets: data root is required")
-		}
-		root, err := filepath.Abs(c.config.DataRoot)
-		if err != nil {
-			return legacyWorkspaceProjection{}, fmt.Errorf("resolve legacy workspace source root: %w", err)
-		}
-		projection.sourcePath = filepath.Clean(root)
-	}
-	return projection, nil
+	return legacyWorkspaceProjection{workspaces: projectWorkspaces, nameByID: nameByID}, nil
 }
 
 func legacyReferencedWorkspaceIDs(agents []domain.AgentDefinition, loaders []domain.Loader) []string {
@@ -134,52 +119,55 @@ func legacyProjectWorkspaceNames(configs []domain.WorkspaceConfig) map[string]st
 	return names
 }
 
-func mapLegacyWorkspaceConfig(config *appconfig.Config, workspace domain.WorkspaceConfig) (compose.WorkspaceSpec, bool, error) {
+func mapLegacyWorkspaceConfig(config *appconfig.Config, workspace domain.WorkspaceConfig) (compose.WorkspaceSpec, error) {
 	switch strings.ToLower(strings.TrimSpace(workspace.Type)) {
 	case "git":
 		var legacy workspaces.GitWorkspaceConfig
 		if err := json.Unmarshal([]byte(workspace.ConfigJSON), &legacy); err != nil {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("decode legacy git workspace preset %s: %w", workspace.ID, err)
+			return compose.WorkspaceSpec{}, fmt.Errorf("decode legacy git workspace preset %s: %w", workspace.ID, err)
 		}
 		if strings.TrimSpace(legacy.Commit) != "" {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("legacy git workspace preset %s pins commit %s, which cannot be mapped to a v2 workspace branch", workspace.ID, legacy.Commit)
+			return compose.WorkspaceSpec{}, fmt.Errorf("legacy git workspace preset %s pins commit %s, which cannot be mapped to a v2 workspace branch", workspace.ID, legacy.Commit)
 		}
 		cloneTarget, err := workspaces.NormalizeGitCloneTarget(workspace.ID, legacy.CloneTarget)
 		if err != nil {
-			return compose.WorkspaceSpec{}, false, err
+			return compose.WorkspaceSpec{}, err
 		}
 		cloneURL := workspaces.ApplyGitCredentials(legacy.URL, legacy)
 		if strings.TrimSpace(cloneURL) == "" {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("legacy git workspace preset %s has no url", workspace.ID)
+			return compose.WorkspaceSpec{}, fmt.Errorf("legacy git workspace preset %s has no url", workspace.ID)
 		}
 		return compose.WorkspaceSpec{
 			Provider: "git",
 			URL:      cloneURL,
 			Branch:   strings.TrimSpace(legacy.Branch),
 			Path:     cloneTarget,
-		}, false, nil
+		}, nil
 	case "file":
+		// Keep a valid v2 shape in the returned spec. The synthetic-project
+		// artifact boundary recognizes this canonical storage path and restores
+		// the original preset ID instead of treating DATA_ROOT as project source.
 		if config == nil || strings.TrimSpace(config.DataRoot) == "" {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("map legacy file workspace preset %s: data root is required", workspace.ID)
+			return compose.WorkspaceSpec{}, fmt.Errorf("map legacy file workspace preset %s: data root is required", workspace.ID)
 		}
 		root, err := workspaces.FileWorkspaceContentRoot(config, workspace)
 		if err != nil {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("map legacy file workspace preset %s: %w", workspace.ID, err)
+			return compose.WorkspaceSpec{}, fmt.Errorf("map legacy file workspace preset %s: %w", workspace.ID, err)
 		}
 		dataRoot, err := filepath.Abs(config.DataRoot)
 		if err != nil {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("resolve data root for legacy file workspace preset %s: %w", workspace.ID, err)
+			return compose.WorkspaceSpec{}, fmt.Errorf("resolve data root for legacy file workspace preset %s: %w", workspace.ID, err)
 		}
 		relative, err := filepath.Rel(filepath.Clean(dataRoot), filepath.Clean(root))
 		if err != nil {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("map legacy file workspace preset %s path: %w", workspace.ID, err)
+			return compose.WorkspaceSpec{}, fmt.Errorf("map legacy file workspace preset %s path: %w", workspace.ID, err)
 		}
 		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return compose.WorkspaceSpec{}, false, fmt.Errorf("legacy file workspace preset %s content is outside the data root", workspace.ID)
+			return compose.WorkspaceSpec{}, fmt.Errorf("legacy file workspace preset %s content is outside the data root", workspace.ID)
 		}
-		return compose.WorkspaceSpec{Provider: "local", Path: filepath.ToSlash(relative)}, true, nil
+		return compose.WorkspaceSpec{Provider: "local", Path: filepath.ToSlash(relative)}, nil
 	default:
-		return compose.WorkspaceSpec{}, false, fmt.Errorf("legacy workspace preset %s has unsupported type %q", workspace.ID, workspace.Type)
+		return compose.WorkspaceSpec{}, fmt.Errorf("legacy workspace preset %s has unsupported type %q", workspace.ID, workspace.Type)
 	}
 }
 
@@ -196,7 +184,7 @@ func (p legacyWorkspaceProjection) reference(workspaceID string) (*compose.Works
 }
 
 func removeImplicitLegacyWorkspaceDefault(spec *compose.NormalizedProjectSpec) {
-	if spec == nil || len(spec.Workspaces) != 1 {
+	if spec == nil || len(spec.Workspaces) == 0 {
 		return
 	}
 	hasWorkspaceLessAgent := false

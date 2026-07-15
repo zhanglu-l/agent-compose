@@ -89,6 +89,15 @@ func PrepareProjectRun(ctx context.Context, store PreparationStore, resolver Wor
 		return Preparation{}, fmt.Errorf("list project volumes %s: %w", project.ID, err)
 	}
 	prepared.ProjectVolumes = projectVolumes
+	legacyWorkspaceConfig, legacyWorkspace, bound, err := prepareLegacyFileWorkspace(ctx, store, project, spec, agentSpec, agent)
+	if err != nil {
+		return Preparation{}, err
+	}
+	if bound {
+		prepared.WorkspaceConfig = legacyWorkspaceConfig
+		prepared.Workspace = legacyWorkspace
+		return prepared, nil
+	}
 	if resolver == nil {
 		return prepared, nil
 	}

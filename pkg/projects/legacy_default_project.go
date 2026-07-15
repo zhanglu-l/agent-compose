@@ -46,13 +46,9 @@ func (c *Controller) SyncLegacyDefaultProject(ctx context.Context) (ApplyResult,
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	normalized.SourcePath = workspaceProjection.sourcePath
-	if normalized.SourcePath != "" {
-		normalized.legacyProjectID, err = domain.StableProjectID(LegacyDefaultProjectName, "")
-		if err != nil {
-			return ApplyResult{}, fmt.Errorf("resolve legacy default project id: %w", err)
-		}
-	}
+	// Uploaded v1 file presets are stored snapshots, not project source trees.
+	// Keep the synthetic source empty so project identity and relative bind
+	// resolution retain their v1 behavior; project artifacts carry preset IDs.
 	return c.ApplyProject(ctx, ApplyRequest{Normalized: normalized})
 }
 
@@ -294,11 +290,11 @@ func projectLegacyLoaderWorkspace(spec *compose.NormalizedProjectSpec, loader do
 	if err != nil {
 		return -1, fmt.Errorf("map legacy loader %s workspace: %w", loader.Summary.ID, err)
 	}
+	existing := spec.Agents[targetIndex].Workspace
 	if workspace == nil {
 		return targetIndex, nil
 	}
-	existing := spec.Agents[targetIndex].Workspace
-	if targetCreated || existing == nil || existing.Name == workspace.Name {
+	if targetCreated || existing != nil && existing.Name == workspace.Name {
 		spec.Agents[targetIndex].Workspace = workspace
 		return targetIndex, nil
 	}
