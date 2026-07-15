@@ -2231,9 +2231,6 @@ func (c *Controller) cleanupProjectRunSandboxByPolicy(ctx context.Context, sandb
 		if err := c.store.RemoveSandbox(ctx, sandbox.Summary.ID); err != nil {
 			return err
 		}
-		if c.capTokens != nil {
-			c.capTokens.RevokeSandbox(sandbox.Summary.ID)
-		}
 		if c.dashboard != nil {
 			c.dashboard.Notify("sandbox_removed")
 		}

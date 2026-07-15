@@ -133,6 +133,28 @@ func TestProjectRunCapabilityTokenLifecycle(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("fallback remove revokes exactly once", func(t *testing.T) {
+		fixture := newControllerRunFixture(t)
+		indexer := &recordingCapabilitySandboxIndexer{}
+		fixture.controller.capTokens = indexer
+		sandbox := newProjectRunCapabilitySandbox(t, fixture, domain.VMStatusRunning)
+
+		err := fixture.controller.cleanupProjectRunSandboxByPolicy(
+			fixture.ctx,
+			SandboxResult{Sandbox: sandbox, Created: true},
+			agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_REMOVE_ON_COMPLETION,
+		)
+		if err != nil {
+			t.Fatalf("cleanupProjectRunSandboxByPolicy: %v", err)
+		}
+		if len(indexer.revoked) != 1 || indexer.revoked[0] != sandbox.Summary.ID {
+			t.Fatalf("revoked = %v, want [%s]", indexer.revoked, sandbox.Summary.ID)
+		}
+		if _, err := fixture.store.GetSandbox(fixture.ctx, sandbox.Summary.ID); err == nil {
+			t.Fatal("removed sandbox is still present")
+		}
+	})
 }
 
 func newProjectRunCapabilitySandbox(t *testing.T, fixture *controllerRunFixture, status string) *domain.Sandbox {
