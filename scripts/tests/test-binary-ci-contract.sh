@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 CI_WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
 IMAGES_WORKFLOW="$ROOT_DIR/.github/workflows/images.yml"
 INSTALLER_BUILDER="$ROOT_DIR/scripts/build-installer-assets.sh"
-INSTALLER_TEST="$ROOT_DIR/scripts/test-installer-assets.sh"
+INSTALLER_TEST="$ROOT_DIR/scripts/tests/test-installer-assets.sh"
 DAEMON_SMOKE="$ROOT_DIR/scripts/test-agent-compose-daemon-startup.sh"
 TEST_ROOT=$(mktemp -d)
 trap 'rm -rf -- "$TEST_ROOT"' EXIT
@@ -185,7 +185,7 @@ if [[ -n $release_job ]]; then
 fi
 
 [[ -x $INSTALLER_BUILDER ]] || fail 'executable scripts/build-installer-assets.sh'
-[[ -x $INSTALLER_TEST ]] || fail 'executable scripts/test-installer-assets.sh'
+[[ -x $INSTALLER_TEST ]] || fail 'executable scripts/tests/test-installer-assets.sh'
 if [[ -f $INSTALLER_TEST ]]; then
   require_regex "$(<"$INSTALLER_TEST")" 'build-installer-assets\.sh' \
     'installer asset test coverage of release builder'

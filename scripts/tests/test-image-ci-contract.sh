@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 WORKFLOW="$ROOT_DIR/.github/workflows/images.yml"
 INSTALLER_BUILDER="$ROOT_DIR/scripts/build-installer-assets.sh"
-INSTALLER_TEST="$ROOT_DIR/scripts/test-installer-assets.sh"
+INSTALLER_TEST="$ROOT_DIR/scripts/tests/test-installer-assets.sh"
 IMAGE_E2E="$ROOT_DIR/scripts/test-image-docker-e2e.sh"
 DAEMON_BUILDER="$ROOT_DIR/scripts/build-agent-compose.sh"
 GUEST_BUILDER="$ROOT_DIR/scripts/build-agent-compose-guest.sh"
 
 failures=0
+TEST_ROOT=$(mktemp -d)
+trap 'rm -rf -- "$TEST_ROOT"' EXIT
 
 fail() {
   printf 'test-image-ci-contract: %s\n' "$*" >&2
@@ -97,7 +99,7 @@ load_job release release_job
 
 if [[ -n $setup_job ]]; then
   require_regex "$setup_job" 'actions/checkout@v4' 'setup checkout for contract audit'
-  require_regex "$setup_job" '(\./)?scripts/test-image-ci-contract\.sh' \
+  require_regex "$setup_job" '(\./)?scripts/tests/test-image-ci-contract\.sh' \
     'setup execution of image CI contract test'
 fi
 
@@ -270,7 +272,7 @@ if [[ -n $release_job ]]; then
 fi
 
 [[ -x $INSTALLER_BUILDER ]] || fail 'executable scripts/build-installer-assets.sh'
-[[ -x $INSTALLER_TEST ]] || fail 'executable scripts/test-installer-assets.sh'
+[[ -x $INSTALLER_TEST ]] || fail 'executable scripts/tests/test-installer-assets.sh'
 if [[ -f $INSTALLER_TEST ]]; then
   require_regex "$(<"$INSTALLER_TEST")" 'build-installer-assets\.sh' \
     'installer asset test coverage of release builder'
@@ -291,6 +293,112 @@ if [[ -f $GUEST_BUILDER ]]; then
     'loadable Docker build in guest image helper'
   require_regex "$guest_builder_source" 'Dockerfile\.agent-compose-guest' \
     'guest Dockerfile selection in image helper'
+fi
+
+FAKE_BIN="$TEST_ROOT/fake-bin"
+FAKE_DOCKER_LOG="$TEST_ROOT/docker.log"
+mkdir -p "$FAKE_BIN"
+cat >"$FAKE_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${1:-} == build ]]
+shift
+printf '%s\n' "$@" >"$FAKE_DOCKER_LOG"
+EOF
+chmod +x "$FAKE_BIN/docker"
+
+run_daemon_builder() { # remaining arguments are environment overrides
+  : >"$FAKE_DOCKER_LOG"
+  env \
+    PATH="$FAKE_BIN:$PATH" \
+    FAKE_DOCKER_LOG="$FAKE_DOCKER_LOG" \
+    IMAGE_NAME=agent-compose:contract \
+    DOCKERFILE=Dockerfile \
+    BUILD_CONTEXT="$ROOT_DIR" \
+    VERSION=contract \
+    HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY= no_proxy= \
+    REGISTRY_MIRROR= GOPROXY= \
+    "$@" \
+    "$DAEMON_BUILDER" >/dev/null
+}
+
+run_guest_builder() { # remaining arguments are environment overrides
+  : >"$FAKE_DOCKER_LOG"
+  env \
+    PATH="$FAKE_BIN:$PATH" \
+    FAKE_DOCKER_LOG="$FAKE_DOCKER_LOG" \
+    GUEST_IMAGE_DOCKERFILE="$ROOT_DIR/guest-images/Dockerfile.agent-compose-guest" \
+    IMAGE_TAG=agent-compose-guest:contract \
+    REGISTRY_MIRROR= PYPI_INDEX_URL= PYPI_TRUSTED_HOST= GOPROXY= \
+    GO_VERSION= GRPCURL_VERSION= PROTOC_GEN_GO_VERSION= PROTOC_GEN_GO_GRPC_VERSION= \
+    "$@" \
+    "$GUEST_BUILDER" >/dev/null
+}
+
+if ! run_daemon_builder; then
+  fail 'daemon image helper default build invocation'
+else
+  require_regex "$(<"$FAKE_DOCKER_LOG")" '^VERSION=contract$' 'daemon VERSION build argument'
+  for omitted in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY REGISTRY_MIRROR GOPROXY; do
+    forbid_regex "$(<"$FAKE_DOCKER_LOG")" "^$omitted=" "empty daemon $omitted build argument"
+  done
+fi
+
+if ! run_daemon_builder \
+  HTTP_PROXY=http://http-proxy.invalid:8080 \
+  HTTPS_PROXY=http://https-proxy.invalid:8443 \
+  ALL_PROXY=socks5://all-proxy.invalid:1080 \
+  NO_PROXY=localhost,.example.invalid \
+  REGISTRY_MIRROR=registry.example.invalid \
+  GOPROXY=https://go-proxy.example.invalid,direct; then
+  fail 'daemon image helper override build invocation'
+else
+  daemon_log=$(<"$FAKE_DOCKER_LOG")
+  for forwarded in \
+    'HTTP_PROXY=http://http-proxy.invalid:8080' \
+    'HTTPS_PROXY=http://https-proxy.invalid:8443' \
+    'ALL_PROXY=socks5://all-proxy.invalid:1080' \
+    'NO_PROXY=localhost,.example.invalid' \
+    'REGISTRY_MIRROR=registry.example.invalid' \
+    'GOPROXY=https://go-proxy.example.invalid,direct'; do
+    require_regex "$daemon_log" "^$forwarded$" "daemon $forwarded build argument"
+  done
+fi
+
+if ! run_guest_builder; then
+  fail 'guest image helper default build invocation'
+else
+  guest_log=$(<"$FAKE_DOCKER_LOG")
+  for omitted in \
+    REGISTRY_MIRROR PYPI_INDEX_URL PYPI_TRUSTED_HOST GOPROXY GO_VERSION \
+    GRPCURL_VERSION PROTOC_GEN_GO_VERSION PROTOC_GEN_GO_GRPC_VERSION; do
+    forbid_regex "$guest_log" "^$omitted=" "empty guest $omitted build argument"
+  done
+fi
+
+if ! run_guest_builder \
+  REGISTRY_MIRROR=registry.example.invalid \
+  PYPI_INDEX_URL=https://python.example.invalid/simple \
+  PYPI_TRUSTED_HOST=python.example.invalid \
+  GOPROXY=https://go-proxy.example.invalid,direct \
+  GO_VERSION=1.99.0 \
+  GRPCURL_VERSION=v9.9.1 \
+  PROTOC_GEN_GO_VERSION=v9.9.2 \
+  PROTOC_GEN_GO_GRPC_VERSION=v9.9.3; then
+  fail 'guest image helper override build invocation'
+else
+  guest_log=$(<"$FAKE_DOCKER_LOG")
+  for forwarded in \
+    'REGISTRY_MIRROR=registry.example.invalid' \
+    'PYPI_INDEX_URL=https://python.example.invalid/simple' \
+    'PYPI_TRUSTED_HOST=python.example.invalid' \
+    'GOPROXY=https://go-proxy.example.invalid,direct' \
+    'GO_VERSION=1.99.0' \
+    'GRPCURL_VERSION=v9.9.1' \
+    'PROTOC_GEN_GO_VERSION=v9.9.2' \
+    'PROTOC_GEN_GO_GRPC_VERSION=v9.9.3'; do
+    require_regex "$guest_log" "^$forwarded$" "guest $forwarded build argument"
+  done
 fi
 
 if ((failures > 0)); then

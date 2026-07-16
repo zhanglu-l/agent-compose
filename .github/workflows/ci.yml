@@ -69,7 +69,7 @@ jobs:
             (cd "$directory" && npm ci)
           done
       - name: Validate coverage contract
-        run: ./scripts/test-coverage-contract.sh
+        run: ./scripts/tests/test-coverage-contract.sh
       - name: Run coverage thresholds
         run: ./scripts/test-coverage.sh
 
@@ -114,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate binary CI contract
-        run: ./scripts/test-binary-ci-contract.sh
+        run: ./scripts/tests/test-binary-ci-contract.sh
       - id: platforms
         env:
           EVENT_NAME: ${{ github.event_name }}

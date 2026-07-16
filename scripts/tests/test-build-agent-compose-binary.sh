@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 SOURCE_HELPER="$ROOT_DIR/scripts/build-agent-compose-binary.sh"
-SOURCE_BOXLITE_EXPORTER="$ROOT_DIR/scripts/export-boxlite-dev-artifact.sh"
-SOURCE_MICROSANDBOX_EXPORTER="$ROOT_DIR/scripts/export-microsandbox-dev-artifact.sh"
+SOURCE_RUNTIME_EXPORTER="$ROOT_DIR/scripts/export-runtime-dev-artifact.sh"
 
 fail() {
   printf 'test-build-agent-compose-binary: %s\n' "$*" >&2
@@ -81,8 +80,7 @@ trap 'rm -rf -- "$TMP_DIR"' EXIT
 TEST_ROOT="$TMP_DIR/repo"
 mkdir -p "$TEST_ROOT/scripts"
 cp "$SOURCE_HELPER" "$TEST_ROOT/scripts/build-agent-compose-binary.sh"
-cp "$SOURCE_BOXLITE_EXPORTER" "$TEST_ROOT/scripts/export-boxlite-dev-artifact.sh"
-cp "$SOURCE_MICROSANDBOX_EXPORTER" "$TEST_ROOT/scripts/export-microsandbox-dev-artifact.sh"
+cp "$SOURCE_RUNTIME_EXPORTER" "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh"
 cp "$ROOT_DIR/scripts/with-go-toolchain.sh" "$TEST_ROOT/scripts/with-go-toolchain.sh"
 chmod +x "$TEST_ROOT/scripts/with-go-toolchain.sh"
 HELPER="$TEST_ROOT/scripts/build-agent-compose-binary.sh"
@@ -490,18 +488,18 @@ assert_build_arg "-X 'agent-compose/pkg/config.BuildVersion=$injection_version'"
 # Artifact exporter stamps bind complete fixtures to source inputs and target
 # architecture without invoking Docker. A source or architecture change must
 # invalidate the cached set.
-for exporter_and_dir in \
-  'export-boxlite-dev-artifact.sh build/boxlite' \
-  'export-microsandbox-dev-artifact.sh build/microsandbox'; do
-  exporter=${exporter_and_dir%% *}
-  artifact_dir=${exporter_and_dir#* }
+for driver_and_dir in \
+  'boxlite build/boxlite' \
+  'microsandbox build/microsandbox'; do
+  driver=${driver_and_dir%% *}
+  artifact_dir=${driver_and_dir#* }
   env \
     PATH="$FAKE_BIN:$PATH" \
     GO="$FAKE_GO" \
     FAKE_GOROOT="$FAKE_GOROOT" \
     TARGETARCH=amd64 \
     AGENT_COMPOSE_ADOPT_EXISTING_ARTIFACTS=1 \
-    "$TEST_ROOT/scripts/$exporter" "$TEST_ROOT/$artifact_dir" >/dev/null
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$TEST_ROOT/$artifact_dir" >/dev/null
 
   env \
     PATH="$FAKE_BIN:$PATH" \
@@ -509,14 +507,14 @@ for exporter_and_dir in \
     FAKE_GOROOT="$FAKE_GOROOT" \
     TARGETARCH=amd64 \
     AGENT_COMPOSE_ARTIFACT_STATUS_ONLY=1 \
-    "$TEST_ROOT/scripts/$exporter" "$TEST_ROOT/$artifact_dir"
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$TEST_ROOT/$artifact_dir"
 
   env \
     PATH="$FAKE_BIN:$PATH" \
     GO="$FAKE_GO" \
     FAKE_GOROOT="$FAKE_GOROOT" \
     TARGETARCH=amd64 \
-    "$TEST_ROOT/scripts/$exporter" "$TEST_ROOT/$artifact_dir" >/dev/null
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$TEST_ROOT/$artifact_dir" >/dev/null
 
   if env \
     PATH="$FAKE_BIN:$PATH" \
@@ -524,26 +522,165 @@ for exporter_and_dir in \
     FAKE_GOROOT="$FAKE_GOROOT" \
     TARGETARCH=arm64 \
     AGENT_COMPOSE_ARTIFACT_STATUS_ONLY=1 \
-    "$TEST_ROOT/scripts/$exporter" "$TEST_ROOT/$artifact_dir"; then
-    fail "$exporter accepted an artifact stamp for the wrong architecture"
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$TEST_ROOT/$artifact_dir"; then
+    fail "$driver exporter accepted an artifact stamp for the wrong architecture"
   fi
 done
 
 printf '# fingerprint change\n' >>"$TEST_ROOT/Dockerfile"
-for exporter_and_dir in \
-  'export-boxlite-dev-artifact.sh build/boxlite' \
-  'export-microsandbox-dev-artifact.sh build/microsandbox'; do
-  exporter=${exporter_and_dir%% *}
-  artifact_dir=${exporter_and_dir#* }
+for driver_and_dir in \
+  'boxlite build/boxlite' \
+  'microsandbox build/microsandbox'; do
+  driver=${driver_and_dir%% *}
+  artifact_dir=${driver_and_dir#* }
   if env \
     PATH="$FAKE_BIN:$PATH" \
     GO="$FAKE_GO" \
     FAKE_GOROOT="$FAKE_GOROOT" \
     TARGETARCH=amd64 \
     AGENT_COMPOSE_ARTIFACT_STATUS_ONLY=1 \
-    "$TEST_ROOT/scripts/$exporter" "$TEST_ROOT/$artifact_dir"; then
-    fail "$exporter accepted an artifact stamp after its source changed"
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$TEST_ROOT/$artifact_dir"; then
+    fail "$driver exporter accepted an artifact stamp after its source changed"
   fi
 done
+
+# Docker-backed exporter invocations use Dockerfile defaults when overrides are
+# empty and forward every non-empty override without changing its value.
+FAKE_DOCKER_LOG="$TMP_DIR/fake-docker.log"
+FAKE_DOCKER_STATE="$TMP_DIR/fake-docker-state"
+cat >"$FAKE_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command=${1:-}
+shift || true
+case "$command" in
+  build)
+    iidfile=
+    target=
+    while [[ $# -gt 0 ]]; do
+      printf 'ARG=%s\n' "$1" >>"$FAKE_DOCKER_LOG"
+      case "$1" in
+        --iidfile)
+          iidfile=${2:-}
+          shift 2
+          ;;
+        --target)
+          target=${2:-}
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    [[ -n "$iidfile" && -n "$target" ]]
+    printf 'fake-image\n' >"$iidfile"
+    printf '%s\n' "$target" >"$FAKE_DOCKER_STATE"
+    ;;
+  create)
+    printf 'fake-container\n'
+    ;;
+  cp)
+    destination=${2:?}
+    case "$(<"$FAKE_DOCKER_STATE")" in
+      boxlite-build)
+        mkdir -p "$destination/include" "$destination/lib" "$destination/runtime"
+        printf 'fixture\n' >"$destination/include/boxlite.h"
+        printf 'fixture\n' >"$destination/lib/libboxlite.a"
+        printf 'fixture\n' >"$destination/lib/libboxlite.so"
+        printf '#!/usr/bin/env sh\n' >"$destination/runtime/boxlite-guest"
+        printf '#!/usr/bin/env sh\n' >"$destination/runtime/boxlite-shim"
+        chmod +x "$destination/runtime/boxlite-guest" "$destination/runtime/boxlite-shim"
+        ;;
+      microsandbox-fetch)
+        mkdir -p "$destination/bin" "$destination/lib"
+        printf '#!/usr/bin/env sh\n' >"$destination/bin/msb"
+        printf '#!/usr/bin/env sh\n' >"$destination/bin/agentd"
+        chmod +x "$destination/bin/msb" "$destination/bin/agentd"
+        printf 'fixture\n' >"$destination/lib/libkrunfw.so"
+        printf 'fixture\n' >"$destination/lib/libmicrosandbox_go_ffi.so"
+        ;;
+      *)
+        exit 94
+        ;;
+    esac
+    ;;
+  rm)
+    ;;
+  *)
+    printf 'unexpected fake docker command: %s\n' "$command" >&2
+    exit 95
+    ;;
+esac
+EOF
+chmod +x "$FAKE_BIN/docker"
+
+run_exporter() {
+  local driver=$1
+  local output=$2
+  : >"$RUN_STDOUT"
+  : >"$RUN_STDERR"
+  : >"$FAKE_DOCKER_LOG"
+  rm -f "$FAKE_DOCKER_STATE"
+  set +e
+  env \
+    PATH="$FAKE_BIN:$PATH" \
+    GO="$FAKE_GO" \
+    FAKE_GOROOT="$FAKE_GOROOT" \
+    FAKE_DOCKER_LOG="$FAKE_DOCKER_LOG" \
+    FAKE_DOCKER_STATE="$FAKE_DOCKER_STATE" \
+    TARGETARCH="${EXPORT_TARGETARCH:-amd64}" \
+    HTTP_PROXY="${EXPORT_HTTP_PROXY:-}" \
+    HTTPS_PROXY="${EXPORT_HTTPS_PROXY:-}" \
+    ALL_PROXY="${EXPORT_ALL_PROXY:-}" \
+    NO_PROXY="${EXPORT_NO_PROXY:-}" \
+    no_proxy= \
+    REGISTRY_MIRROR="${EXPORT_REGISTRY_MIRROR:-}" \
+    "$TEST_ROOT/scripts/export-runtime-dev-artifact.sh" "$driver" "$output" \
+    >"$RUN_STDOUT" 2>"$RUN_STDERR"
+  RUN_STATUS=$?
+  set -e
+}
+
+EXPORT_TARGETARCH=amd64
+EXPORT_HTTP_PROXY=
+EXPORT_HTTPS_PROXY=
+EXPORT_ALL_PROXY=
+EXPORT_NO_PROXY=
+EXPORT_REGISTRY_MIRROR=
+run_exporter boxlite "$TEST_ROOT/export-defaults"
+assert_success
+assert_contains "$FAKE_DOCKER_STATE" 'boxlite-build'
+assert_contains "$FAKE_DOCKER_LOG" 'ARG=TARGETARCH=amd64'
+for omitted in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY REGISTRY_MIRROR; do
+  assert_not_contains "$FAKE_DOCKER_LOG" "ARG=$omitted="
+done
+
+EXPORT_HTTP_PROXY='http://http-proxy.invalid:8080'
+EXPORT_HTTPS_PROXY='http://https-proxy.invalid:8443'
+EXPORT_ALL_PROXY='socks5://all-proxy.invalid:1080'
+EXPORT_NO_PROXY='localhost,.example.invalid'
+EXPORT_REGISTRY_MIRROR='registry.example.invalid'
+run_exporter microsandbox "$TEST_ROOT/export-overrides"
+assert_success
+assert_contains "$FAKE_DOCKER_STATE" 'microsandbox-fetch'
+for forwarded in \
+  'HTTP_PROXY=http://http-proxy.invalid:8080' \
+  'HTTPS_PROXY=http://https-proxy.invalid:8443' \
+  'ALL_PROXY=socks5://all-proxy.invalid:1080' \
+  'NO_PROXY=localhost,.example.invalid' \
+  'REGISTRY_MIRROR=registry.example.invalid'; do
+  assert_contains "$FAKE_DOCKER_LOG" "ARG=$forwarded"
+done
+
+run_exporter future "$TEST_ROOT/export-unknown"
+assert_status 2
+assert_contains "$RUN_STDERR" 'unknown runtime driver: future'
+
+EXPORT_TARGETARCH=386
+run_exporter boxlite "$TEST_ROOT/export-bad-arch"
+assert_status 2
+assert_contains "$RUN_STDERR" 'unsupported BoxLite target arch: 386'
 
 printf 'test-build-agent-compose-binary: all checks passed\n'

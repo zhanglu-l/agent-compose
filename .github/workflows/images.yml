@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate image CI contract
-        run: ./scripts/test-image-ci-contract.sh
+        run: ./scripts/tests/test-image-ci-contract.sh
       - id: platforms
         env:
           EVENT_NAME: ${{ github.event_name }}

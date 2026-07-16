@@ -42,7 +42,7 @@ write_go_profile() {
 
   go tool covdata textfmt -i="$covdata_dirs" -o "$raw_profile"
   filter_go_profile "$raw_profile" "$profile"
-  "$root/scripts/validate-go-coverprofile.sh" "$profile"
+  go tool cover -func="$profile" >/dev/null
 }
 
 run_sdk_build() {

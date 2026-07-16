@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ "${AGENT_COMPOSE_GO_TOOLCHAIN_READY:-0}" != "1" ]]; then
   export AGENT_COMPOSE_GO_TOOLCHAIN_READY=1
   exec "$root/scripts/with-go-toolchain.sh" "$0" "$@"
@@ -74,9 +74,9 @@ EOF
   go tool covdata textfmt -i="$module/shape-two" -o "$module/shape-two.out"
   go tool covdata textfmt -i="$module/shape-one,$module/shape-two" -o "$module/combined.out"
 
-  "$root/scripts/validate-go-coverprofile.sh" "$module/shape-one.out"
-  "$root/scripts/validate-go-coverprofile.sh" "$module/shape-two.out"
-  "$root/scripts/validate-go-coverprofile.sh" "$module/combined.out"
+  go tool cover -func="$module/shape-one.out" >/dev/null
+  go tool cover -func="$module/shape-two.out" >/dev/null
+  go tool cover -func="$module/combined.out" >/dev/null
 
   read -r one_covered one_total < <(profile_counts "$module/shape-one.out")
   read -r two_covered two_total < <(profile_counts "$module/shape-two.out")
@@ -94,7 +94,7 @@ EOF
     printf '%s %s %s\n' "$range" "$num_stmt" "$count"
     printf '%s %s %s\n' "$range" "$((num_stmt + 1))" "$count"
   } > "$module/conflict.out"
-  if "$root/scripts/validate-go-coverprofile.sh" "$module/conflict.out" >/dev/null 2>&1; then
+  if go tool cover -func="$module/conflict.out" >/dev/null 2>&1; then
     echo "conflicting Go coverage profile was accepted" >&2
     exit 1
   fi

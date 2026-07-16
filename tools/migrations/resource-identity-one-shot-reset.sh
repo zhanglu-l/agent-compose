@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/resource-identity-one-shot-reset.sh [options]
+  tools/migrations/resource-identity-one-shot-reset.sh [options]
 
 One-shot reset helper for the resource identity rollout.
 
@@ -26,8 +26,8 @@ Options:
   -h, --help            show this help
 
 Examples:
-  scripts/resource-identity-one-shot-reset.sh --yes --restart
-  scripts/resource-identity-one-shot-reset.sh --data-dir /data/agent-compose --yes
+  tools/migrations/resource-identity-one-shot-reset.sh --yes --restart
+  tools/migrations/resource-identity-one-shot-reset.sh --data-dir /data/agent-compose --yes
 EOF
 }
 
