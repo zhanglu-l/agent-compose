@@ -33,12 +33,15 @@ type orderedNamedWorkspace struct {
 	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
 	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
 	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Commit   string `yaml:"commit,omitempty" json:"commit,omitempty"`
 	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
 }
 
 type orderedAgentSpec struct {
 	Name         string                      `yaml:"name" json:"name"`
 	Status       string                      `yaml:"status,omitempty" json:"status,omitempty"`
+	DisplayName  string                      `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Description  string                      `yaml:"description,omitempty" json:"description,omitempty"`
 	Provider     string                      `yaml:"provider,omitempty" json:"provider,omitempty"`
 	Model        string                      `yaml:"model,omitempty" json:"model,omitempty"`
 	SystemPrompt string                      `yaml:"system_prompt,omitempty" json:"system_prompt,omitempty"`
@@ -132,6 +135,8 @@ func (s *NormalizedProjectSpec) ordered(redactSecrets bool) orderedProjectSpec {
 		agents = append(agents, orderedAgentSpec{
 			Name:         agent.Name,
 			Status:       agent.Status,
+			DisplayName:  agent.DisplayName,
+			Description:  agent.Description,
 			Provider:     agent.Provider,
 			Model:        agent.Model,
 			SystemPrompt: agent.SystemPrompt,
@@ -176,6 +181,8 @@ func (s *NormalizedProjectSpec) clone(redactSecrets bool) *NormalizedProjectSpec
 		cloned.Agents = append(cloned.Agents, NormalizedAgentSpec{
 			Name:         agent.Name,
 			Status:       agent.Status,
+			DisplayName:  agent.DisplayName,
+			Description:  agent.Description,
 			Provider:     agent.Provider,
 			Model:        agent.Model,
 			SystemPrompt: agent.SystemPrompt,
@@ -213,6 +220,7 @@ func orderedWorkspaces(values map[string]WorkspaceSpec) []orderedNamedWorkspace 
 			Provider: value.Provider,
 			URL:      value.URL,
 			Branch:   value.Branch,
+			Commit:   value.Commit,
 			Path:     value.Path,
 		})
 	}
@@ -230,6 +238,7 @@ func workspaceMapFromOrdered(values []orderedNamedWorkspace) map[string]Workspac
 			Provider: value.Provider,
 			URL:      value.URL,
 			Branch:   value.Branch,
+			Commit:   value.Commit,
 			Path:     value.Path,
 		}
 	}
@@ -418,6 +427,8 @@ func cloneNormalizedSchedulerSpec(value *NormalizedSchedulerSpec) *NormalizedSch
 	cloned := &NormalizedSchedulerSpec{
 		Enabled:       value.Enabled,
 		SandboxPolicy: value.SandboxPolicy,
+		DisplayName:   value.DisplayName,
+		Description:   value.Description,
 		Script:        value.Script,
 		scriptURL:     value.scriptURL,
 	}

@@ -45,6 +45,8 @@ func (s *EnvFileSpec) UnmarshalYAML(value *yaml.Node) error {
 
 type AgentSpec struct {
 	Status       string                `yaml:"status,omitempty" json:"status,omitempty"`
+	DisplayName  string                `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Description  string                `yaml:"description,omitempty" json:"description,omitempty"`
 	Provider     string                `yaml:"provider,omitempty" json:"provider,omitempty"`
 	Model        string                `yaml:"model,omitempty" json:"model,omitempty"`
 	SystemPrompt string                `yaml:"system_prompt,omitempty" json:"system_prompt,omitempty"`
@@ -130,6 +132,8 @@ type SkillSpec struct {
 type SchedulerSpec struct {
 	Enabled       *bool         `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	SandboxPolicy *string       `yaml:"sandbox_policy,omitempty" json:"sandbox_policy,omitempty"`
+	DisplayName   string        `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Description   string        `yaml:"description,omitempty" json:"description,omitempty"`
 	Triggers      []TriggerSpec `yaml:"triggers,omitempty" json:"triggers,omitempty"`
 	Script        ScriptSource  `yaml:"script,omitempty" json:"script,omitempty"`
 }
@@ -201,6 +205,7 @@ type WorkspaceSpec struct {
 	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
 	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
 	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Commit   string `yaml:"commit,omitempty" json:"commit,omitempty"`
 	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
 }
 
@@ -494,6 +499,8 @@ func validateAgentMap(node *yaml.Node, path string) error {
 func validateAgent(node *yaml.Node, path string) error {
 	return validateMapping(node, path, map[string]nodeValidator{
 		"status":        validateScalar,
+		"display_name":  validateScalar,
+		"description":   validateScalar,
 		"provider":      validateScalar,
 		"model":         validateScalar,
 		"system_prompt": validateScalar,
@@ -685,6 +692,8 @@ func validateScheduler(node *yaml.Node, path string) error {
 	return validateMapping(node, path, map[string]nodeValidator{
 		"enabled":        validateBool,
 		"sandbox_policy": validateScalar,
+		"display_name":   validateScalar,
+		"description":    validateScalar,
 		"triggers":       validateTriggerList,
 		"script":         validateScriptSource,
 	})
@@ -757,6 +766,7 @@ func validateWorkspace(node *yaml.Node, path string) error {
 		"provider": validateScalar,
 		"url":      validateScalar,
 		"branch":   validateScalar,
+		"commit":   validateScalar,
 		"path":     validateScalar,
 	})
 }

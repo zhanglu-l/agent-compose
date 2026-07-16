@@ -49,6 +49,8 @@ type NormalizedProjectSpec struct {
 type NormalizedAgentSpec struct {
 	Name         string                             `yaml:"name" json:"name"`
 	Status       string                             `yaml:"status,omitempty" json:"status,omitempty"`
+	DisplayName  string                             `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Description  string                             `yaml:"description,omitempty" json:"description,omitempty"`
 	Provider     string                             `yaml:"provider,omitempty" json:"provider,omitempty"`
 	Model        string                             `yaml:"model,omitempty" json:"model,omitempty"`
 	SystemPrompt string                             `yaml:"system_prompt,omitempty" json:"system_prompt,omitempty"`
@@ -122,6 +124,8 @@ type NormalizedDriverSpec struct {
 type NormalizedSchedulerSpec struct {
 	Enabled       bool                    `yaml:"enabled" json:"enabled"`
 	SandboxPolicy string                  `yaml:"sandbox_policy" json:"sandbox_policy"`
+	DisplayName   string                  `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Description   string                  `yaml:"description,omitempty" json:"description,omitempty"`
 	Script        string                  `yaml:"script,omitempty" json:"script,omitempty"`
 	Triggers      []NormalizedTriggerSpec `yaml:"triggers,omitempty" json:"triggers,omitempty"`
 
@@ -284,6 +288,8 @@ func normalizeAgent(name string, agent AgentSpec, options NormalizeOptions, proj
 	return NormalizedAgentSpec{
 		Name:         name,
 		Status:       status,
+		DisplayName:  strings.TrimSpace(agent.DisplayName),
+		Description:  strings.TrimSpace(agent.Description),
 		Provider:     strings.TrimSpace(agent.Provider),
 		Model:        model,
 		SystemPrompt: agent.SystemPrompt,
@@ -358,7 +364,7 @@ func resolveAgentWorkspace(path string, spec *WorkspaceSpec, globals map[string]
 	}
 	trimmed := cloneWorkspaceSpec(spec)
 	hasName := trimmed.Name != ""
-	hasInline := trimmed.Provider != "" || trimmed.URL != "" || trimmed.Branch != "" || trimmed.Path != ""
+	hasInline := trimmed.Provider != "" || trimmed.URL != "" || trimmed.Branch != "" || trimmed.Commit != "" || trimmed.Path != ""
 	switch {
 	case hasName && !hasInline:
 		workspace, ok := globals[trimmed.Name]
@@ -395,6 +401,9 @@ func normalizeInlineWorkspaceSpec(path string, spec *WorkspaceSpec, defaultName 
 		if strings.TrimSpace(workspace.Branch) != "" {
 			return nil, &ValidationError{Path: path + ".branch", Message: "local workspace does not support branch"}
 		}
+		if strings.TrimSpace(workspace.Commit) != "" {
+			return nil, &ValidationError{Path: path + ".commit", Message: "local workspace does not support commit"}
+		}
 		if _, err := cleanComposeLocalWorkspacePath(workspace.Path); err != nil {
 			return nil, &ValidationError{Path: path + ".path", Message: err.Error()}
 		}
@@ -412,6 +421,8 @@ func normalizeInlineWorkspaceSpec(path string, spec *WorkspaceSpec, defaultName 
 			workspace.Path = "."
 		}
 		workspace.URL = strings.TrimSpace(workspace.URL)
+		workspace.Branch = strings.TrimSpace(workspace.Branch)
+		workspace.Commit = strings.TrimSpace(workspace.Commit)
 	default:
 		return nil, &ValidationError{Path: path + ".provider", Message: fmt.Sprintf("unsupported workspace provider %q", workspace.Provider)}
 	}
@@ -1084,7 +1095,13 @@ func normalizeSchedulerSpec(path string, scheduler *SchedulerSpec, options Norma
 	if err != nil {
 		return nil, err
 	}
-	normalized := &NormalizedSchedulerSpec{Enabled: enabled, SandboxPolicy: sandboxPolicy, Script: script}
+	normalized := &NormalizedSchedulerSpec{
+		Enabled:       enabled,
+		SandboxPolicy: sandboxPolicy,
+		DisplayName:   strings.TrimSpace(scheduler.DisplayName),
+		Description:   strings.TrimSpace(scheduler.Description),
+		Script:        script,
+	}
 	if scriptURL != "" {
 		if !options.ResolveScriptURLs {
 			normalized.scriptURL = scriptURL
@@ -1313,6 +1330,7 @@ func cloneWorkspaceSpec(value *WorkspaceSpec) *WorkspaceSpec {
 	cloned.Provider = strings.TrimSpace(cloned.Provider)
 	cloned.URL = strings.TrimSpace(cloned.URL)
 	cloned.Branch = strings.TrimSpace(cloned.Branch)
+	cloned.Commit = strings.TrimSpace(cloned.Commit)
 	cloned.Path = strings.TrimSpace(cloned.Path)
 	return &cloned
 }

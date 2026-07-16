@@ -165,6 +165,10 @@ func (c *Controller) ApplyProject(ctx context.Context, req ApplyRequest) (ApplyR
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("%w: apply project: %w", ErrInvalidRequest, err)
 	}
+	normalized, err = c.preserveLegacyManagedLoaderIdentities(ctx, project, normalized)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply project %s: preserve legacy scheduler identities: %w", normalized.Spec.Name, err)
+	}
 	if issues := c.validateManagedAgentDefinitions(normalized); len(issues) > 0 {
 		return ApplyResult{Issues: issues, RevisionSpec: normalized.Spec}, nil
 	}
@@ -437,6 +441,9 @@ func (c *Controller) projectArtifacts(ctx context.Context, project domain.Projec
 	}
 	agentDefinitions, err := NewAgentDefinitionsFromSpec(project, revision, spec)
 	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if err := c.bindLegacyFileWorkspaces(ctx, project, spec, agentDefinitions); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	schedulerRecords, managedLoaders, err := c.projectManagedSchedulersFromSpec(ctx, project, revision, spec)
