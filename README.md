@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="agent-composelogo.png" alt="Agent-compose" width="240">
+  <img src="images/agent-compose-logo.png" alt="Agent-compose" width="384">
   <div align="center">
   <a href="https://github.com/chaitin/agent-compose/actions/workflows/ci.yml">
     <img src="https://github.com/chaitin/agent-compose/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
