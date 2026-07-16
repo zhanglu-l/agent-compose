@@ -9114,7 +9114,12 @@ func fetchDaemonVersion(ctx context.Context, clientConfig cliClientConfig) ([]by
 		return nil, fmt.Errorf("read daemon response from %s %q: %w", clientConfig.Source, clientConfig.SourceValue, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("daemon via %s %q returned HTTP %d: %s", clientConfig.Source, clientConfig.SourceValue, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, daemonHTTPStatusError{
+			Source:      clientConfig.Source,
+			SourceValue: clientConfig.SourceValue,
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+		}
 	}
 	return body, nil
 }

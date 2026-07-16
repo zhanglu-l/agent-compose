@@ -56,7 +56,7 @@ agent-compose --host https://compose.example.com status
 第一条命令会先向 daemon 验证 Token，成功后写入
 `~/.config/agent-compose/config.yml`（或当前平台的用户配置目录）。后续命令会
 根据规范化后的 `--host` 或 `AGENT_COMPOSE_HOST` 自动加载对应 Token。配置文件
-仅允许当前用户读写。可通过 `agent-compose auth list` 查看已保存的站点，通过
+仅允许当前用户读写。可通过 `agent-compose auth ls` 查看已保存的站点，通过
 `agent-compose --host <site> auth logout` 删除站点凭据。
 
 当前仍支持 HTTP，包括宿主机访问容器回环映射的场景；但明文 HTTP 中的 Bearer

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -45,7 +46,7 @@ func newCLIAuthCommand(options *cliOptions) *cobra.Command {
 		},
 	}
 	listCmd := &cobra.Command{
-		Use:   "list",
+		Use:   "ls",
 		Short: "List authenticated daemon sites",
 		Args:  cobra.NoArgs,
 		RunE:  runCLIAuthList,
@@ -68,6 +69,10 @@ func runCLIAuthLogin(cmd *cobra.Command, hostFlag string, options cliAuthLoginOp
 	}
 	clientConfig.AuthToken = token
 	if _, err := fetchDaemonVersion(cmd.Context(), clientConfig); err != nil {
+		var statusErr daemonHTTPStatusError
+		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("authentication failed for %s: token was rejected (HTTP %d)", clientConfig.BaseURL, statusErr.StatusCode)
+		}
 		return fmt.Errorf("authenticate daemon %s: %w", clientConfig.BaseURL, err)
 	}
 	path, err := clientconfig.DefaultPath()
@@ -113,8 +118,15 @@ func runCLIAuthList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if len(hosts) == 0 {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "No authenticated Agent-Compose sites.")
+		return err
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Authenticated Agent-Compose sites:"); err != nil {
+		return err
+	}
 	for _, host := range hosts {
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), host); err != nil {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", host); err != nil {
 			return err
 		}
 	}

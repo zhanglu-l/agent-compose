@@ -39,8 +39,9 @@ func TestCLIAuthLoginPersistsAndReusesToken(t *testing.T) {
 		t.Fatalf("status stdout/stderr/code = %q / %q / %d", stdout, stderr, exitCode)
 	}
 
-	stdout, stderr, _, exitCode = executeCLICommand("auth", "list")
-	if exitCode != 0 || stderr != "" || strings.TrimSpace(stdout) != server.URL {
+	stdout, stderr, _, exitCode = executeCLICommand("auth", "ls")
+	wantList := "Authenticated Agent-Compose sites:\n- " + server.URL + "\n"
+	if exitCode != 0 || stderr != "" || stdout != wantList {
 		t.Fatalf("list stdout/stderr/code = %q / %q / %d", stdout, stderr, exitCode)
 	}
 
@@ -50,17 +51,32 @@ func TestCLIAuthLoginPersistsAndReusesToken(t *testing.T) {
 	}
 }
 
+func TestCLIAuthListReportsWhenNoSitesAreAuthenticated(t *testing.T) {
+	t.Setenv("AGENT_COMPOSE_CONFIG", filepath.Join(t.TempDir(), "config.yml"))
+
+	stdout, stderr, _, exitCode := executeCLICommand("auth", "ls")
+	want := "No authenticated Agent-Compose sites.\n"
+	if exitCode != 0 || stderr != "" || stdout != want {
+		t.Fatalf("list stdout/stderr/code = %q / %q / %d, want %q / empty / 0", stdout, stderr, exitCode, want)
+	}
+}
+
 func TestCLIAuthLoginFailureDoesNotPersistToken(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yml")
 	t.Setenv("AGENT_COMPOSE_CONFIG", configPath)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"err":"Unknown","msg":"daemon authentication required, code=401, message=daemon authentication required"}`)
 	}))
 	defer server.Close()
 
-	_, _, _, exitCode := executeCLICommand("auth", "login", "--host", server.URL, "--token", "wrong")
+	_, stderr, _, exitCode := executeCLICommand("auth", "login", "--host", server.URL, "--token", "wrong")
 	if exitCode == 0 {
 		t.Fatal("login exit code = 0, want failure")
+	}
+	wantError := "authentication failed for " + server.URL + ": token was rejected (HTTP 401)\n"
+	if stderr != wantError {
+		t.Fatalf("login stderr = %q, want %q", stderr, wantError)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("config stat error = %v, want not exist", err)

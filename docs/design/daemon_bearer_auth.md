@@ -57,7 +57,7 @@ agent-compose --host https://compose.example.com auth login --token '<token>'
 
 Login sends the supplied token to the protected `/api/version` endpoint. The
 credential is persisted only after a successful response. `auth logout`
-removes one site and `auth list` prints site names without tokens.
+removes one site and `auth ls` prints site names without tokens.
 
 The default store is the platform user configuration directory at
 `agent-compose/config.yml`. On standard Linux systems this is

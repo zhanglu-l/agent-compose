@@ -57,7 +57,7 @@ The first command verifies the token against the daemon before saving it under
 `~/.config/agent-compose/config.yml` (or the platform user configuration
 directory). Later commands automatically load the token associated with the
 normalized `--host` or `AGENT_COMPOSE_HOST` value. The file is written with
-owner-only permissions. Use `agent-compose auth list` to list saved sites and
+owner-only permissions. Use `agent-compose auth ls` to list saved sites and
 `agent-compose --host <site> auth logout` to remove one.
 
 HTTP remains supported, including loopback container port mappings, but a
