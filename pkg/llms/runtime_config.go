@@ -34,6 +34,7 @@ func WriteCodexRuntimeConfig(session *domain.Sandbox, model, baseURL, wireAPI st
 	}
 	payload := fmt.Sprintf(`model_provider = "agent_compose"
 model = %q
+check_for_update_on_startup = false
 
 [model_providers.agent_compose]
 name = "agent-compose"
@@ -43,6 +44,15 @@ wire_api = %q
 request_max_retries = 30
 stream_max_retries = 50
 stream_idle_timeout_ms = 120000
+
+# Codex otherwise clones the official curated plugin marketplace on startup, and
+# a fresh sandbox has no ~/.codex/plugins cache to hit. Keep in sync with
+# assets/.codex/config.toml, which seeds the same defaults for devbox images.
+[features]
+plugins = false
+plugin_hooks = false
+remote_plugin = false
+plugin_sharing = false
 
 [sandbox_workspace_write]
 exclude_tmpdir_env_var = false

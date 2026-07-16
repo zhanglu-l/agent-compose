@@ -1,3 +1,14 @@
+check_for_update_on_startup = false
+
+# Codex otherwise clones the official curated plugin marketplace on startup, and
+# a fresh container has no ~/.codex/plugins cache to hit. Keep in sync with the
+# payload in pkg/llms/runtime_config.go, which overwrites this file for agent runs.
+[features]
+plugins = false
+plugin_hooks = false
+remote_plugin = false
+plugin_sharing = false
+
 [sandbox_workspace_write]
 exclude_tmpdir_env_var = false
 exclude_slash_tmp = false
