@@ -90,6 +90,7 @@ func testNewConfigParsesEnvironment(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("DATA_ROOT", filepath.Join(root, "data"))
 	t.Setenv("HTTP_LISTEN", "127.0.0.1:9000")
+	t.Setenv("AGENT_COMPOSE_AUTH_TOKEN", "daemon-token")
 	t.Setenv("AGENT_COMPOSE_SOCKET", filepath.Join(root, "agent-compose.sock"))
 	t.Setenv("AGENT_COMPOSE_HOST", "https://agent-compose.example")
 	t.Setenv("LLM_API_ENDPOINT", "https://llm.example")
@@ -131,6 +132,9 @@ func testNewConfigParsesEnvironment(t *testing.T) {
 
 	if config.HttpListen != "127.0.0.1:9000" || config.RuntimeDriver != RuntimeDriverDocker {
 		t.Fatalf("listen/driver = %q/%q", config.HttpListen, config.RuntimeDriver)
+	}
+	if config.DaemonAuthToken != "daemon-token" {
+		t.Fatalf("daemon auth token = %q", config.DaemonAuthToken)
 	}
 	if config.AgentComposeSocket != filepath.Join(root, "agent-compose.sock") || config.AgentComposeHost != "https://agent-compose.example" {
 		t.Fatalf("daemon endpoint config = %q/%q", config.AgentComposeSocket, config.AgentComposeHost)

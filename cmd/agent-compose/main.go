@@ -119,6 +119,7 @@ type cliClientConfig struct {
 	Source        string
 	SourceValue   string
 	UseUnixSocket bool
+	AuthToken     string
 }
 
 func NewEcho(di do.Injector) (*echo.Echo, error) {
@@ -195,6 +196,7 @@ func NewDaemonApp(ctx context.Context, opts DaemonOptions) (*DaemonApp, error) {
 func installDaemonMiddleware(app *echo.Echo, conf *config.Config) {
 	app.Use(middleware.RequestLogger())
 	app.Use(middleware.Recover())
+	app.Use(newDaemonAuthMiddleware(conf))
 }
 
 func (a *DaemonApp) StartBackground() error {
@@ -1018,7 +1020,8 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 		},
 	}
 
-	root.AddCommand(daemonCmd, versionCmd, statusCmd, configCmd, listCmd, upCmd, downCmd, runCmd, schedulerCmd, logsCmd, psCmd, statsCmd, sandboxCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, cacheCmd, volumeCmd, imageCmd, pullCmd, buildCmd, rmiCmd, inspectCmd)
+	authCmd := newCLIAuthCommand(&options)
+	root.AddCommand(daemonCmd, versionCmd, statusCmd, authCmd, configCmd, listCmd, upCmd, downCmd, runCmd, schedulerCmd, logsCmd, psCmd, statsCmd, sandboxCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, cacheCmd, volumeCmd, imageCmd, pullCmd, buildCmd, rmiCmd, inspectCmd)
 	return root
 }
 
@@ -9009,6 +9012,17 @@ func runDaemon(ctx context.Context) error {
 }
 
 func resolveCLIClientConfig(hostFlag string) (cliClientConfig, error) {
+	clientConfig, err := resolveCLIClientEndpoint(hostFlag)
+	if err != nil || clientConfig.UseUnixSocket {
+		return clientConfig, err
+	}
+	if err := applyStoredCLIAuth(&clientConfig); err != nil {
+		return cliClientConfig{}, commandExitError{Code: exitCodeUsage, Err: err}
+	}
+	return clientConfig, nil
+}
+
+func resolveCLIClientEndpoint(hostFlag string) (cliClientConfig, error) {
 	hostFlag = strings.TrimSpace(hostFlag)
 	if hostFlag != "" {
 		baseURL, err := normalizeCLIHost("--host", hostFlag)
@@ -9172,8 +9186,12 @@ func newDaemonAttachHTTPClient(clientConfig cliClientConfig) *http.Client {
 }
 
 func newDaemonHTTPClientWithTimeout(clientConfig cliClientConfig, timeout time.Duration) *http.Client {
+	roundTripper := http.RoundTripper(newDaemonBaseRoundTripper(clientConfig))
+	if !clientConfig.UseUnixSocket && clientConfig.AuthToken != "" {
+		roundTripper = bearerAuthRoundTripper{token: clientConfig.AuthToken, next: roundTripper}
+	}
 	return &http.Client{
-		Transport: newDaemonBaseRoundTripper(clientConfig),
+		Transport: roundTripper,
 		Timeout:   timeout,
 	}
 }
