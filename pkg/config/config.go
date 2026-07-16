@@ -41,6 +41,7 @@ type Config struct {
 	SandboxRoot                string
 	SandboxRootExplicit        bool
 	HttpListen                 string
+	DaemonAuthToken            string
 	AgentComposeSocket         string
 	AgentComposeHost           string
 	WebhookBodyLimitBytes      int64
@@ -136,6 +137,7 @@ func NewConfig(di do.Injector) (*Config, error) {
 			return nil, err
 		}
 	}
+	daemonAuthToken := strings.TrimSpace(os.Getenv("AGENT_COMPOSE_AUTH_TOKEN"))
 	agentComposeSocket, err := resolveAgentComposeSocket(os.Getenv("AGENT_COMPOSE_SOCKET"))
 	if err != nil {
 		return nil, err
@@ -436,6 +438,7 @@ func NewConfig(di do.Injector) (*Config, error) {
 		SandboxRoot:                sandboxRoot,
 		SandboxRootExplicit:        sandboxRootExplicit,
 		HttpListen:                 httpListen,
+		DaemonAuthToken:            daemonAuthToken,
 		AgentComposeSocket:         agentComposeSocket,
 		AgentComposeHost:           agentComposeHost,
 		WebhookBodyLimitBytes:      webhookBodyLimitBytes,

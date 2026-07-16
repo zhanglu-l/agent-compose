@@ -39,6 +39,41 @@ Rules:
 - `--host` only selects the daemon. Sandboxes run in the daemon environment.
 - Automation should use `--json` and avoid parsing human-readable tables.
 
+### Daemon authentication
+
+Set `AGENT_COMPOSE_AUTH_TOKEN` in the daemon environment to require a shared
+Bearer token for HTTP(S) control-plane requests. Leaving it empty keeps
+authentication disabled. Trusted local Unix socket connections do not use this
+authentication path.
+
+Verify and save a token for a daemon site:
+
+```bash
+agent-compose --host https://compose.example.com auth login --token '<token>'
+agent-compose --host https://compose.example.com status
+```
+
+The first command verifies the token against the daemon before saving it under
+`~/.config/agent-compose/config.yml` (or the platform user configuration
+directory). Later commands automatically load the token associated with the
+normalized `--host` or `AGENT_COMPOSE_HOST` value. The file is written with
+owner-only permissions. Use `agent-compose auth list` to list saved sites and
+`agent-compose --host <site> auth logout` to remove one.
+
+HTTP remains supported, including loopback container port mappings, but a
+Bearer token sent over plain HTTP can be observed and replayed. Use HTTPS, an
+SSH tunnel, a VPN, or another protected network when the CLI and daemon are on
+different machines.
+
+Health RPCs, the runtime LLM facade, Jupyter proxy traffic, and webhook
+ingestion retain their existing independent authentication or trust boundaries
+and do not consume the daemon token.
+
+The token protects the daemon control plane rather than identifying the CLI
+application. Any UI server or reverse proxy that calls the same control-plane
+APIs must also inject `Authorization: Bearer <token>` before daemon
+authentication is enabled.
+
 ### Project environment files
 
 A project can explicitly load one or more dotenv files. Relative paths are resolved from the directory containing the project config file:

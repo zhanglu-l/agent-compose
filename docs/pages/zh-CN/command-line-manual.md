@@ -40,6 +40,36 @@ agent-compose --host http://10.0.0.12:7410 ls --json
 - daemon 不再消费浏览器登录用的 `AUTH_*` / `OAUTH_*` 配置；UI 浏览器认证由 agent-compose-ui server 处理。
 - 自动化场景应使用 `--json`，不要解析人类可读表格。
 
+### Daemon 认证
+
+在 daemon 环境中设置 `AGENT_COMPOSE_AUTH_TOKEN` 后，HTTP(S) 控制面请求必须
+携带共享 Bearer Token；配置为空时认证默认关闭。受信任的本地 Unix Socket
+连接不走此认证路径。
+
+为 daemon 站点验证并保存 Token：
+
+```bash
+agent-compose --host https://compose.example.com auth login --token '<token>'
+agent-compose --host https://compose.example.com status
+```
+
+第一条命令会先向 daemon 验证 Token，成功后写入
+`~/.config/agent-compose/config.yml`（或当前平台的用户配置目录）。后续命令会
+根据规范化后的 `--host` 或 `AGENT_COMPOSE_HOST` 自动加载对应 Token。配置文件
+仅允许当前用户读写。可通过 `agent-compose auth list` 查看已保存的站点，通过
+`agent-compose --host <site> auth logout` 删除站点凭据。
+
+当前仍支持 HTTP，包括宿主机访问容器回环映射的场景；但明文 HTTP 中的 Bearer
+Token 可能被监听并重放。CLI 与 daemon 位于不同机器时，应使用 HTTPS、SSH
+隧道、VPN 或其他受保护网络。
+
+Health RPC、runtime LLM facade、Jupyter proxy 和 webhook ingestion 继续使用各自
+已有的认证或信任边界，不消费 daemon Token。
+
+该 Token 保护的是 daemon 控制面，并非只识别 CLI 程序。任何调用相同控制面 API
+的 UI server 或反向代理，也必须先配置注入 `Authorization: Bearer <token>`，再
+开启 daemon 认证。
+
 ### Project 环境文件
 
 配置可以显式指定一个或多个 dotenv 文件；相对路径以 project 配置文件所在目录为基准：

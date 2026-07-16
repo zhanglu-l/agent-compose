@@ -307,6 +307,7 @@ behavior.
 configuration reference.** At minimum, review these before exposing a deployment:
 
 - `AUTH_PASSWORD`, `AUTH_SECRET` — UI server login secrets (replace the examples).
+- `AGENT_COMPOSE_AUTH_TOKEN` — optional shared Bearer token for daemon HTTP(S) control-plane access.
 - `AGENT_COMPOSE_HTTP_PORT` — host port for the web UI / reverse proxy (`with-ui`).
 - `AGENT_COMPOSE_RUNTIME_BASE_URL` — guest-reachable daemon URL used for the LLM facade.
 - `RUNTIME_DRIVER` — default runtime driver.
@@ -329,6 +330,7 @@ deployment to a network:
 - Expose browser access through the agent-compose-ui server, not the daemon directly.
 - Set a stable, high-entropy `AUTH_SECRET`, and terminate HTTPS in production.
 - Keep the daemon TCP API (`HTTP_LISTEN`) behind container networking, a reverse proxy, or a VPN.
+- When daemon token authentication is enabled, use HTTPS or another protected tunnel across machines; plain HTTP does not prevent token capture and replay.
 - Do not expose guest Jupyter ports directly — reach them through the agent-compose proxy.
 - Treat Git credentials, uploaded workspaces, environment variables, and LLM API keys as secrets.
 
