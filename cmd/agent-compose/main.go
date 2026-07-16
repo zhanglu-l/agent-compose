@@ -503,36 +503,11 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	}
 	configCmd.Flags().BoolVar(&configOptions.Quiet, "quiet", false, "Only validate config")
 
-	listOptions := composeListProjectsOptions{}
-	listCmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List daemon projects",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeListProjectsCommand(cmd, options, listOptions)
-		},
-	}
-	listCmd.Flags().BoolVar(&listOptions.Verbose, "verbose", false, "Show more project details")
-	listCmd.Flags().Uint32Var(&listOptions.Limit, "limit", 0, "Maximum number of projects to return")
-	listCmd.Flags().Uint32Var(&listOptions.Offset, "offset", 0, "Project list offset")
-
-	upCmd := &cobra.Command{
-		Use:   "up",
-		Short: "Apply the current compose project to the daemon",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeUpCommand(cmd, options)
-		},
-	}
-
-	downCmd := &cobra.Command{
-		Use:   "down",
-		Short: "Stop project schedulers and running sandboxes",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runComposeDownCommand(cmd, options)
-		},
-	}
+	projectCmd := newCLIProjectCommand(&options)
+	agentCmd := newCLIAgentCommand(&options)
+	listCmd := newCLIAgentListCommand(&options)
+	upCmd := newCLIProjectUpCommand(&options)
+	downCmd := newCLIProjectDownCommand(&options)
 
 	runOptions := composeRunOptions{}
 	runCmd := &cobra.Command{
@@ -1021,7 +996,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 	}
 
 	authCmd := newCLIAuthCommand(&options)
-	root.AddCommand(daemonCmd, versionCmd, statusCmd, authCmd, configCmd, listCmd, upCmd, downCmd, runCmd, schedulerCmd, logsCmd, psCmd, statsCmd, sandboxCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, cacheCmd, volumeCmd, imageCmd, pullCmd, buildCmd, rmiCmd, inspectCmd)
+	root.AddCommand(daemonCmd, versionCmd, statusCmd, authCmd, configCmd, projectCmd, agentCmd, listCmd, upCmd, downCmd, runCmd, schedulerCmd, logsCmd, psCmd, statsCmd, sandboxCmd, stopCmd, resumeCmd, rmCmd, execCmd, imagesCmd, cacheCmd, volumeCmd, imageCmd, pullCmd, buildCmd, rmiCmd, inspectCmd)
 	return root
 }
 

@@ -107,20 +107,20 @@ agent-compose -f /path/to/project/agent-compose.yml logs --follow
 远程 daemon：
 
 ```bash
-agent-compose --host http://10.0.0.12:7410 ls
+agent-compose --host http://10.0.0.12:7410 project ls
 agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml up
 agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml logs --follow
 ```
 
-## `ls`：查看 project
+## `project ls`：查看 project
 
 查看当前 daemon 管理的所有 project。
 
 ```bash
-agent-compose ls
-agent-compose ls --limit 20 --offset 40
-agent-compose ls --verbose
-agent-compose ls --json
+agent-compose project ls
+agent-compose project ls --limit 20 --offset 40
+agent-compose project ls --verbose
+agent-compose project ls --json
 ```
 
 默认输出字段：
@@ -143,25 +143,41 @@ agent-compose ls --json
 | `--offset <n>` | 从指定 offset 开始读取 project。通常与 `--limit` 一起用于分页。 |
 | `--verbose` | 显示更多列。 |
 
-## `up`：启动或更新 project
+## `agent ls`：查看当前 project 的 agents
+
+查看当前已应用 project 下的所有 agents。顶级 `ls` 是 `agent ls` 的别名。
+
+```bash
+agent-compose agent ls
+agent-compose ls
+agent-compose agent ls --json
+```
+
+## `project up`：启动或更新 project
 
 读取配置文件，将 project 应用到 daemon，并启动或更新 project 中的 scheduler 和服务。
 
 ```bash
 agent-compose up
+agent-compose project up
 agent-compose -f /path/to/project/agent-compose.yml up
 ```
 
 当前 `up` 的行为是将 project 应用到 daemon 后返回，project 后续由 daemon 管理。它不会 attach project 日志，也不提供 `-d/--detach` 参数。
 
-## `down`：关闭 project
+顶级 `up` 是 `project up` 的别名。
+
+## `project down`：关闭 project
 
 关闭当前 project，停止 scheduler、服务和运行中的 sandbox。
 
 ```bash
 agent-compose down
+agent-compose project down
 agent-compose -f /path/to/project/agent-compose.yml down
 ```
+
+顶级 `down` 是 `project down` 的别名。
 
 注意事项：
 

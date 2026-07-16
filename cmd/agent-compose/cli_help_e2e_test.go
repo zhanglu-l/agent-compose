@@ -23,8 +23,13 @@ func TestE2ECLIHelpCoversUserWorkflowCommandSurface(t *testing.T) {
 		},
 		{
 			name: "list projects",
-			args: []string{"ls", "--help"},
+			args: []string{"project", "ls", "--help"},
 			want: []string{"List daemon projects", "--verbose", "--limit", "--offset"},
+		},
+		{
+			name: "list agents",
+			args: []string{"agent", "ls", "--help"},
+			want: []string{"List current project agents"},
 		},
 		{
 			name: "run",

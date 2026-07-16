@@ -1211,7 +1211,7 @@ func TestIntegrationCLIListProjectsClassifiesNotFoundAndUnsupported(t *testing.T
 			})
 			defer server.Close()
 
-			stdout, stderr, _, exitCode := executeCLICommand("ls", "--host", server.URL)
+			stdout, stderr, _, exitCode := executeCLICommand("project", "ls", "--host", server.URL)
 			if exitCode != tc.exit {
 				t.Fatalf("ls %s exit code = %d, want %d; stderr=%q", tc.name, exitCode, tc.exit, stderr)
 			}
@@ -8936,7 +8936,7 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("ls", "--host", server.URL)
+	stdout, stderr, _, exitCode := executeCLICommand("project", "ls", "--host", server.URL)
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("ls code/stderr = %d / %q", exitCode, stderr)
 	}
@@ -8946,7 +8946,7 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 		}
 	}
 
-	verboseOut, verboseErr, _, verboseCode := executeCLICommand("ls", "--host", server.URL, "--verbose")
+	verboseOut, verboseErr, _, verboseCode := executeCLICommand("project", "ls", "--host", server.URL, "--verbose")
 	if verboseCode != 0 || verboseErr != "" {
 		t.Fatalf("ls --verbose code/stderr = %d / %q", verboseCode, verboseErr)
 	}
@@ -8956,7 +8956,7 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 		}
 	}
 
-	jsonOut, jsonErr, _, jsonCode := executeCLICommand("ls", "--host", server.URL, "--json")
+	jsonOut, jsonErr, _, jsonCode := executeCLICommand("project", "ls", "--host", server.URL, "--json")
 	if jsonCode != 0 || jsonErr != "" {
 		t.Fatalf("ls --json code/stderr = %d / %q", jsonCode, jsonErr)
 	}
@@ -9000,7 +9000,7 @@ func TestIntegrationCLIListProjectsPaginationFlags(t *testing.T) {
 	})
 	defer server.Close()
 
-	stdout, stderr, _, exitCode := executeCLICommand("ls", "--host", server.URL, "--limit", "10", "--offset", "20", "--json")
+	stdout, stderr, _, exitCode := executeCLICommand("project", "ls", "--host", server.URL, "--limit", "10", "--offset", "20", "--json")
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("ls pagination code/stderr = %d / %q", exitCode, stderr)
 	}

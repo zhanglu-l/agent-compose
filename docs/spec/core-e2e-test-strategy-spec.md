@@ -314,7 +314,7 @@ BoxLite、Microsandbox 的 runtime path、library path 和 image registry 继续
 | `PRJ-001` | `config` 和 `ValidateProject` 对合法 compose 给出一致规范化结果 | 控制面一次 |
 | `PRJ-002` | 非法变量、driver、workspace、scheduler 配置返回稳定问题路径且不产生持久化副作用 | 控制面一次 |
 | `PRJ-003` | 首次 `up` 创建 project/agent/scheduler，重复 `up` 幂等，spec 修改产生新 revision | 控制面一次 |
-| `PRJ-004` | `ls`、`inspect project/agent` 与 API 状态一致；`down` 停止相关 sandbox 并禁用 scheduler | 三 driver |
+| `PRJ-004` | `project ls`、`agent ls`、`inspect project/agent` 与 API 状态一致；`project down` 停止相关 sandbox 并禁用 scheduler | 三 driver |
 | `PRJ-005` | global/project/agent/run env 按优先级合并，secret 不出现在 CLI、日志或持久化明文视图 | 三 driver |
 
 ### Run、Exec 和日志

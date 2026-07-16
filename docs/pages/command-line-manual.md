@@ -111,20 +111,20 @@ agent-compose -f /path/to/project/agent-compose.yml logs --follow
 Remote daemon:
 
 ```bash
-agent-compose --host http://10.0.0.12:7410 ls
+agent-compose --host http://10.0.0.12:7410 project ls
 agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml up
 agent-compose --host http://10.0.0.12:7410 -f /path/to/project/agent-compose.yml logs --follow
 ```
 
-## `ls`: List Projects
+## `project ls`: List Projects
 
 List projects known to the selected daemon.
 
 ```bash
-agent-compose ls
-agent-compose ls --limit 20 --offset 40
-agent-compose ls --verbose
-agent-compose ls --json
+agent-compose project ls
+agent-compose project ls --limit 20 --offset 40
+agent-compose project ls --verbose
+agent-compose project ls --json
 ```
 
 Default columns:
@@ -145,25 +145,41 @@ Default columns:
 | `--offset <n>` | Start from an offset. Usually used together with `--limit`. |
 | `--verbose` | Show additional columns. |
 
-## `up`: Apply a Project
+## `agent ls`: List Current Project Agents
+
+List the agents in the current applied project. The top-level `ls` command is an alias for `agent ls`.
+
+```bash
+agent-compose agent ls
+agent-compose ls
+agent-compose agent ls --json
+```
+
+## `project up`: Apply a Project
 
 Read the config file and apply the project to the daemon. This starts or updates project schedulers and daemon-managed state.
 
 ```bash
 agent-compose up
+agent-compose project up
 agent-compose -f /path/to/project/agent-compose.yml up
 ```
 
 Current `up` semantics are daemon-style: the command applies the project and returns. It does not attach project logs and does not support `-d/--detach`.
 
-## `down`: Stop a Project
+The top-level `up` command is an alias for `project up`.
+
+## `project down`: Stop a Project
 
 Stop the current project, including schedulers, services, and running sandboxes.
 
 ```bash
 agent-compose down
+agent-compose project down
 agent-compose -f /path/to/project/agent-compose.yml down
 ```
+
+The top-level `down` command is an alias for `project down`.
 
 Notes:
 
