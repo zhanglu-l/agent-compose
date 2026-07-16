@@ -1218,6 +1218,15 @@ func TestCommandExitErrorForConnectClassifiesRPCFailures(t *testing.T) {
 	}
 }
 
+func TestCommandExitCodeClassifiesSchedulerResourceNotFoundAsUsage(t *testing.T) {
+	notFound := schedulerResourceNotFoundError{kind: "run", ref: "missing"}
+	for _, err := range []error{notFound, fmt.Errorf("resolve scheduler run: %w", notFound)} {
+		if got := commandExitCode(err); got != exitCodeUsage {
+			t.Fatalf("exit code = %d, want %d; err=%v", got, exitCodeUsage, err)
+		}
+	}
+}
+
 func TestCommandExitErrorForConnectExplainsHTTP2AttachMismatch(t *testing.T) {
 	err := commandExitErrorForConnect(fmt.Errorf("run project demo attach: unavailable: http2: failed reading the frame payload: http2: frame too large, note that the frame header looked like an HTTP/1.1 header"))
 	if got := commandExitCode(err); got != exitCodeUnavailable {

@@ -8954,6 +8954,9 @@ func commandExitCode(err error) int {
 	if errors.As(err, &exitErr) && exitErr.Code > 0 {
 		return exitErr.Code
 	}
+	if isSchedulerResourceNotFound(err) {
+		return exitCodeUsage
+	}
 	return exitCodeGeneral
 }
 
