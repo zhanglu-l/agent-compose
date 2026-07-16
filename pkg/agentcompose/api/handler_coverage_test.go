@@ -718,7 +718,7 @@ func TestProjectAndRunHandlersStoreBackedWorkflows(t *testing.T) {
 		},
 		runEvents: []domain.ProjectRunEventRecord{{ID: "event-1", RunID: "run-1", Sequence: 1, Kind: domain.ProjectRunEventKindUserMessage, Text: "hello", CreatedAt: time.Unix(1, 0)}},
 	}
-	projectHandler := NewProjectHandler(nil, store)
+	projectHandler := NewProjectHandler(nil, store, nil)
 	projectResp, err := projectHandler.GetProject(ctx, connect.NewRequest(&agentcomposev2.GetProjectRequest{Project: &agentcomposev2.ProjectRef{Name: "Project"}, IncludeSpec: true}))
 	if err != nil {
 		t.Fatalf("GetProject returned error: %v", err)

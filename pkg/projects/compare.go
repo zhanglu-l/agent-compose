@@ -89,6 +89,7 @@ func NormalizeComparableLoaderTriggers(items []domain.LoaderTrigger) []domain.Lo
 func ManagedAgentDefinitionUnchanged(existing, current domain.AgentDefinition) bool {
 	return existing.Name == current.Name &&
 		existing.Description == current.Description &&
+		existing.Enabled == current.Enabled &&
 		existing.Provider == current.Provider &&
 		existing.Model == current.Model &&
 		existing.SystemPrompt == current.SystemPrompt &&

@@ -90,7 +90,11 @@ func RegisterDependencies(di do.Injector) {
 func RegisterRoutes(di do.Injector) {
 	app := do.MustInvoke[*echo.Echo](di)
 
-	projectHandler := api.NewProjectHandler(projectControllerDelegate{controller: do.MustInvoke[*projects.Controller](di)}, do.MustInvoke[*configstore.ConfigStore](di))
+	projectHandler := api.NewProjectHandler(
+		projectControllerDelegate{controller: do.MustInvoke[*projects.Controller](di)},
+		do.MustInvoke[*configstore.ConfigStore](di),
+		do.MustInvoke[*loaders.Controller](di),
+	)
 	path, handler := agentcomposev2connect.NewProjectServiceHandler(projectHandler)
 	app.Any(path+"*", echo.WrapHandler(handler))
 	runDelegate := runControllerDelegate{

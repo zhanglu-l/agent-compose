@@ -250,7 +250,7 @@ func ManagedAgentDefinitionChangeAction(existing domain.AgentDefinition, found b
 	if !found {
 		return ChangeActionCreated
 	}
-	if !existing.DeletedAt.IsZero() || !existing.Enabled {
+	if !existing.DeletedAt.IsZero() {
 		return ChangeActionUpdated
 	}
 	if ManagedAgentDefinitionUnchanged(existing, current) {

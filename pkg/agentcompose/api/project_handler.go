@@ -37,9 +37,12 @@ type ProjectStore interface {
 
 type ProjectLoaderStore interface {
 	GetLoader(context.Context, string) (domain.Loader, error)
-	SetLoaderEnabled(context.Context, string, bool) error
-	SetLoaderTriggerEnabled(context.Context, string, string, bool) error
 	ListLoaderEvents(context.Context, string, int) ([]domain.LoaderEvent, error)
+}
+
+type ProjectLoaderRuntime interface {
+	SetLoaderEnabled(context.Context, string, bool) (domain.Loader, error)
+	SetLoaderTriggerEnabled(context.Context, string, string, bool) (domain.Loader, error)
 }
 
 type ProjectLoaderEventCursorStore interface {
@@ -55,12 +58,13 @@ type ProjectSchedulerPageStore interface {
 
 type ProjectHandler struct {
 	agentcomposev2connect.UnimplementedProjectServiceHandler
-	delegate ProjectDelegate
-	store    ProjectStore
+	delegate      ProjectDelegate
+	store         ProjectStore
+	loaderRuntime ProjectLoaderRuntime
 }
 
-func NewProjectHandler(delegate ProjectDelegate, store ProjectStore) *ProjectHandler {
-	return &ProjectHandler{delegate: delegate, store: store}
+func NewProjectHandler(delegate ProjectDelegate, store ProjectStore, loaderRuntime ProjectLoaderRuntime) *ProjectHandler {
+	return &ProjectHandler{delegate: delegate, store: store, loaderRuntime: loaderRuntime}
 }
 
 func (h *ProjectHandler) ValidateProject(ctx context.Context, req *connect.Request[agentcomposev2.ValidateProjectRequest]) (*connect.Response[agentcomposev2.ValidateProjectResponse], error) {
@@ -255,14 +259,14 @@ func (h *ProjectHandler) SetSchedulerEnabled(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, projectConnectError(err)
 	}
-	store, ok := h.store.(ProjectLoaderStore)
-	if !ok {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler runtime store is required"))
+	if h.loaderRuntime == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler runtime controller is required"))
 	}
-	if err := store.SetLoaderEnabled(ctx, scheduler.ManagedLoaderID, req.Msg.GetEnabled()); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	loader, err := h.loaderRuntime.SetLoaderEnabled(ctx, scheduler.ManagedLoaderID, req.Msg.GetEnabled())
+	if err != nil {
+		return nil, projectConnectError(err)
 	}
-	scheduler.Enabled = req.Msg.GetEnabled()
+	scheduler.Enabled = loader.Summary.Enabled
 	return connect.NewResponse(&agentcomposev2.SetSchedulerEnabledResponse{Scheduler: ProjectSchedulersToProto([]domain.ProjectSchedulerRecord{scheduler})[0], Overridden: true}), nil
 }
 
@@ -271,20 +275,16 @@ func (h *ProjectHandler) SetSchedulerTriggerEnabled(ctx context.Context, req *co
 	if err != nil {
 		return nil, projectConnectError(err)
 	}
-	store, ok := h.store.(ProjectLoaderStore)
-	if !ok {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler runtime store is required"))
+	if h.loaderRuntime == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler runtime controller is required"))
 	}
 	triggerID := strings.TrimSpace(req.Msg.GetTriggerId())
 	if triggerID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("trigger id is required"))
 	}
-	if err := store.SetLoaderTriggerEnabled(ctx, scheduler.ManagedLoaderID, triggerID, req.Msg.GetEnabled()); err != nil {
-		return nil, projectConnectError(err)
-	}
-	loader, err := store.GetLoader(ctx, scheduler.ManagedLoaderID)
+	loader, err := h.loaderRuntime.SetLoaderTriggerEnabled(ctx, scheduler.ManagedLoaderID, triggerID, req.Msg.GetEnabled())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, projectConnectError(err)
 	}
 	for _, trigger := range loader.Triggers {
 		if trigger.ID == triggerID {
