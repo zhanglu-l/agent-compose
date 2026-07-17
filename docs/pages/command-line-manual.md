@@ -265,7 +265,7 @@ agent-compose scheduler inspect <name-or-id> [trigger]
 
 ## `ps`: List Sandboxes
 
-List sandboxes in the current project. By default, only running sandboxes are shown.
+List sandboxes in the current project. By default, only running sandboxes are shown. With `--all`, the command includes all statuses while remaining scoped to the current project.
 The project must already exist on the daemon; after `agent-compose down`, run `agent-compose up` again before using `ps`.
 
 ```bash
@@ -280,7 +280,7 @@ agent-compose ps --json
 
 | Option | Description |
 | --- | --- |
-| `-a, --all` | Show all sandboxes, including completed and errored ones. |
+| `-a, --all` | Show current project sandboxes in all statuses. |
 | `--verbose` | Show additional columns. |
 | `--status <status>[,<status>...]` | Filter by sandbox status. |
 

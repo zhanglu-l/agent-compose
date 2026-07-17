@@ -265,7 +265,7 @@ agent-compose scheduler inspect <name-or-id> [trigger]
 
 ## `ps`：查看 sandbox
 
-查看当前 project 下的 sandbox。默认只显示运行中的 sandbox。
+查看当前 project 下的 sandbox。默认只显示运行中的 sandbox。使用 `--all` 时仍限定当前 project，但会包含所有状态。
 该 project 必须已经存在于 daemon 中；执行 `agent-compose down` 后，需要先重新执行 `agent-compose up`，再使用 `ps`。
 
 ```bash
@@ -282,7 +282,7 @@ agent-compose ps --json
 
 | 参数 | 说明 |
 | --- | --- |
-| `-a, --all` | 显示全部 sandbox，包括已结束和错误状态。 |
+| `-a, --all` | 显示当前 project 中所有状态的 sandbox。 |
 | `--verbose` | 显示更多列。 |
 | `--status <status>[,<status>...]` | 按状态过滤。 |
 

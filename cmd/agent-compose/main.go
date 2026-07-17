@@ -677,7 +677,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 			return runComposePSCommand(cmd, options, psOptions)
 		},
 	}
-	psCmd.Flags().BoolVarP(&psOptions.All, "all", "a", false, "Show all recognizable sandboxes")
+	psCmd.Flags().BoolVarP(&psOptions.All, "all", "a", false, "Show current project sandboxes in all statuses")
 	psCmd.Flags().StringVar(&psOptions.Status, "status", "", "Filter sandboxes by status, comma-separated")
 	psCmd.Flags().BoolVar(&psOptions.Verbose, "verbose", false, "Show more sandbox details")
 
@@ -728,7 +728,7 @@ func newRootCommand(out, errOut io.Writer, runDaemon daemonRunner) *cobra.Comman
 			return runComposePSCommand(cmd, options, sandboxPSOptions)
 		},
 	}
-	sandboxLSCmd.Flags().BoolVarP(&sandboxPSOptions.All, "all", "a", false, "Show all recognizable sandboxes")
+	sandboxLSCmd.Flags().BoolVarP(&sandboxPSOptions.All, "all", "a", false, "Show current project sandboxes in all statuses")
 	sandboxLSCmd.Flags().StringVar(&sandboxPSOptions.Status, "status", "", "Filter sandboxes by status, comma-separated")
 	sandboxLSCmd.Flags().BoolVar(&sandboxPSOptions.Verbose, "verbose", false, "Show more sandbox details")
 
@@ -6658,6 +6658,9 @@ func composePSSessionBelongsToProject(session *agentcomposev2.Sandbox, project *
 		if value := strings.TrimSpace(tags[key]); value != "" && (value == projectID || value == projectName || value == sourcePath) {
 			return true
 		}
+	}
+	if legacySchedulerSandboxBelongsToProject(tags, project) {
+		return true
 	}
 	if value := strings.TrimSpace(session.GetTriggerSource()); value != "" {
 		value = strings.ToLower(value)

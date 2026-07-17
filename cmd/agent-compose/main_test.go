@@ -10030,6 +10030,44 @@ func (s sandboxServiceStub) ListSandboxHistory(ctx context.Context, req *connect
 	return s.listHistory(ctx, req)
 }
 
+func TestComposePSAllIncludesEveryStatusOnlyForCurrentProject(t *testing.T) {
+	project := testCLIProject("project-1", "project-one", "/work/agent-compose.yml")
+	stubs := composeServiceStubs{
+		run: runServiceStub{listRuns: func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
+			return connect.NewResponse(&agentcomposev2.ListRunsResponse{}), nil
+		}},
+		sandbox: sandboxServiceStub{listSandboxes: func(context.Context, *connect.Request[agentcomposev2.ListSandboxesRequest]) (*connect.Response[agentcomposev2.ListSandboxesResponse], error) {
+			return connect.NewResponse(&agentcomposev2.ListSandboxesResponse{Sandboxes: []*agentcomposev2.Sandbox{
+				{SandboxId: "sandbox-project-running", Status: "running", Tags: []*agentcomposev2.SandboxTag{{Name: "project_id", Value: "project-1"}}},
+				{SandboxId: "sandbox-project-stopped", Status: "stopped", Tags: []*agentcomposev2.SandboxTag{{Name: "project_id", Value: "project-1"}}},
+				{SandboxId: "sandbox-other-running", Status: "running", Tags: []*agentcomposev2.SandboxTag{{Name: "project_id", Value: "project-2"}}},
+			}}), nil
+		}},
+	}
+	server := newComposeServiceStubServer(t, stubs)
+	t.Cleanup(server.Close)
+	clients := cliServiceClients{
+		run:     agentcomposev2connect.NewRunServiceClient(server.Client(), server.URL),
+		sandbox: agentcomposev2connect.NewSandboxServiceClient(server.Client(), server.URL),
+	}
+
+	runningOutput, err := composePSOutputFromProject(t.Context(), clients, project, composePSOptions{})
+	if err != nil {
+		t.Fatalf("build default ps output: %v", err)
+	}
+	if len(runningOutput.Sandboxes) != 1 || runningOutput.Sandboxes[0].RawID != "sandbox-project-running" {
+		t.Fatalf("default ps sandboxes = %#v, want only current project running sandbox", runningOutput.Sandboxes)
+	}
+
+	allOutput, err := composePSOutputFromProject(t.Context(), clients, project, composePSOptions{All: true})
+	if err != nil {
+		t.Fatalf("build ps --all output: %v", err)
+	}
+	if len(allOutput.Sandboxes) != 2 || allOutput.Sandboxes[0].RawID != "sandbox-project-running" || allOutput.Sandboxes[1].RawID != "sandbox-project-stopped" {
+		t.Fatalf("ps --all sandboxes = %#v, want all statuses from current project only", allOutput.Sandboxes)
+	}
+}
+
 func (s sandboxServiceStub) StopSandbox(ctx context.Context, req *connect.Request[agentcomposev2.StopSandboxRequest]) (*connect.Response[agentcomposev2.StopSandboxResponse], error) {
 	if s.stopSandbox == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("StopSandbox stub is not configured"))

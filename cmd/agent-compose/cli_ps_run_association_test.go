@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	domain "agent-compose/pkg/model"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
@@ -39,6 +40,40 @@ func TestSchedulerRunIsNewer(t *testing.T) {
 				t.Fatalf("schedulerRunIsNewer() = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLegacySchedulerSandboxBelongsToProject(t *testing.T) {
+	project := testCLIProject("project-1", "project-one", "/work/agent-compose.yml")
+	loaderID, err := domain.StableManagedLoaderID("project-1", "reviewer", "")
+	if err != nil {
+		t.Fatalf("build managed loader id: %v", err)
+	}
+	legacyTags := map[string]string{
+		"origin":    "loader",
+		"loader_id": loaderID,
+	}
+	legacySandbox := &agentcomposev2.Sandbox{Tags: []*agentcomposev2.SandboxTag{
+		{Name: "origin", Value: "loader"},
+		{Name: "loader_id", Value: loaderID},
+	}}
+	if !composePSSessionBelongsToProject(legacySandbox, project, nil) {
+		t.Fatal("ps should include a legacy managed scheduler sandbox in its project")
+	}
+	if !legacySchedulerSandboxBelongsToProject(legacyTags, project) {
+		t.Fatal("legacy managed scheduler sandbox should belong to its project")
+	}
+	if agentName := legacySchedulerAgentForProject(legacyTags, project); agentName != "reviewer" {
+		t.Fatalf("legacy scheduler agent = %q, want reviewer", agentName)
+	}
+	if legacySchedulerSandboxBelongsToProject(legacyTags, testCLIProject("project-2", "project-two", "/other/agent-compose.yml")) {
+		t.Fatal("legacy managed scheduler sandbox should not belong to another project")
+	}
+	if legacySchedulerSandboxBelongsToProject(map[string]string{"origin": "loader", "loader_id": "standalone-loader"}, project) {
+		t.Fatal("standalone loader sandbox should not belong to the project")
+	}
+	if legacySchedulerSandboxBelongsToProject(map[string]string{"origin": "loader", "loader_id": loaderID, "project_id": "project-2"}, project) {
+		t.Fatal("explicit project ownership should not be overridden by legacy inference")
 	}
 }
 
