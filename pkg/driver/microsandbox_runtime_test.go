@@ -245,7 +245,7 @@ func TestMicrosandboxDockerDiskPathUsesIdentityHash(t *testing.T) {
 }
 
 func TestMicrosandboxBindMountSetsConfiguredQuota(t *testing.T) {
-	runtime := &microsandboxRuntime{config: &appconfig.Config{MicrosandboxBindQuotaGB: 60}}
+	runtime := &microsandboxRuntime{config: &appconfig.Config{SandboxDiskSizeGB: 60}}
 
 	mount := runtime.microsandboxBindMount("/host/session", false)
 
@@ -258,7 +258,7 @@ func TestMicrosandboxBindMountSetsConfiguredQuota(t *testing.T) {
 }
 
 func TestMicrosandboxBindMountPreservesReadonly(t *testing.T) {
-	runtime := &microsandboxRuntime{config: &appconfig.Config{MicrosandboxBindQuotaGB: 11}}
+	runtime := &microsandboxRuntime{config: &appconfig.Config{SandboxDiskSizeGB: 11}}
 
 	mount := runtime.microsandboxBindMount("/host/session", true)
 
@@ -271,7 +271,7 @@ func TestMicrosandboxBindMountPreservesReadonly(t *testing.T) {
 }
 
 func TestMicrosandboxBindMountFallsBackToBoxDiskSize(t *testing.T) {
-	runtime := &microsandboxRuntime{config: &appconfig.Config{BoxDiskSizeGB: 42}}
+	runtime := &microsandboxRuntime{config: &appconfig.Config{SandboxDiskSizeGB: 42}}
 
 	mount := runtime.microsandboxBindMount("/host/session", false)
 
@@ -295,7 +295,7 @@ func testMicrosandboxConfig(t *testing.T) *appconfig.Config {
 		MicrosandboxHome:    home,
 		MicrosandboxMSBPath: bin,
 		MicrosandboxLibPath: lib,
-		BoxDiskSizeGB:       1,
+		SandboxDiskSizeGB:   1,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,12 @@ const DefaultWorkspaceUploadLimitBytes int64 = 1 << 30
 const DefaultAgentComposeSocketPath = "/var/run/agent-compose.sock"
 const DefaultAgentTimeout = 10 * time.Hour
 const defaultGuestHomePath = "/root"
+
+const (
+	DefaultSandboxCPUs       uint8  = 4
+	DefaultSandboxMemoryMiB  uint32 = 4096
+	DefaultSandboxDiskSizeGB int32  = 6
+)
 
 const (
 	RuntimeDriverBoxlite      = "boxlite"
@@ -67,14 +74,15 @@ type Config struct {
 	MicrosandboxLibPath        string
 	MicrosandboxDefaultImage   string
 	MicrosandboxInsecure       []string
-	MicrosandboxBindQuotaGB    int
 	DefaultImage               string
 	BoxRootfsPath              string
 	ImageRegistry              string
 	ImageStoreMode             string
 	ImageCacheRoot             string
 	ImageInsecureRegistries    []string
-	BoxDiskSizeGB              int
+	SandboxCPUs                uint8
+	SandboxMemoryMiB           uint32
+	SandboxDiskSizeGB          int32
 	CacheTTL                   time.Duration
 	CleanupInterval            time.Duration
 	WorkspaceCleanupTTL        time.Duration
@@ -273,25 +281,9 @@ func NewConfig(di do.Injector) (*Config, error) {
 	}
 	imageInsecureRegistries := splitAndTrimEnv(os.Getenv("IMAGE_INSECURE_REGISTRIES"))
 
-	boxDiskSizeGB := 6
-	if raw := os.Getenv("BOX_DISK_SIZE_GB"); raw != "" {
-		var parsed int
-		if _, err := fmt.Sscanf(raw, "%d", &parsed); err != nil || parsed <= 0 {
-			logger.Warn("failed to parse BOX_DISK_SIZE_GB", "value", raw, "error", err)
-		} else {
-			boxDiskSizeGB = parsed
-		}
-	}
-	microsandboxBindQuotaGB := boxDiskSizeGB
-	if raw := os.Getenv("MICROSANDBOX_BIND_QUOTA_GB"); raw != "" {
-		var parsed int
-		if _, err := fmt.Sscanf(raw, "%d", &parsed); err != nil || parsed <= 0 {
-			logger.Warn("failed to parse MICROSANDBOX_BIND_QUOTA_GB", "value", raw, "error", err)
-		} else {
-			microsandboxBindQuotaGB = parsed
-		}
-	}
-
+	sandboxCPUs := positiveUint8Env(logger, "SANDBOX_CPUS", DefaultSandboxCPUs)
+	sandboxMemoryMiB := positiveMemoryMiBEnv(logger, "SANDBOX_MEMORY_MIB", DefaultSandboxMemoryMiB)
+	sandboxDiskSizeGB := positiveDiskSizeGBEnv(logger, "SANDBOX_DISK_SIZE_GB", DefaultSandboxDiskSizeGB)
 	cacheTTL := 7 * 24 * time.Hour
 	cacheTTLRaw, err := envWithLegacy(logger, "CACHE_TTL", "BOX_CACHE_TTL")
 	if err != nil {
@@ -483,14 +475,15 @@ func NewConfig(di do.Injector) (*Config, error) {
 		MicrosandboxLibPath:        microsandboxLibPath,
 		MicrosandboxDefaultImage:   microsandboxDefaultImage,
 		MicrosandboxInsecure:       microsandboxInsecure,
-		MicrosandboxBindQuotaGB:    microsandboxBindQuotaGB,
 		DefaultImage:               defaultImage,
 		BoxRootfsPath:              boxRootfsPath,
 		ImageRegistry:              imageRegistry,
 		ImageStoreMode:             imageStoreMode,
 		ImageCacheRoot:             imageCacheRoot,
 		ImageInsecureRegistries:    imageInsecureRegistries,
-		BoxDiskSizeGB:              boxDiskSizeGB,
+		SandboxCPUs:                sandboxCPUs,
+		SandboxMemoryMiB:           sandboxMemoryMiB,
+		SandboxDiskSizeGB:          sandboxDiskSizeGB,
 		CacheTTL:                   cacheTTL,
 		CleanupInterval:            cleanupInterval,
 		WorkspaceCleanupTTL:        workspaceCleanupTTL,
@@ -814,4 +807,33 @@ func splitAndTrimEnv(value string) []string {
 		return nil
 	}
 	return items
+}
+
+func positiveUint8Env(logger *slog.Logger, name string, defaultValue uint8) uint8 {
+	return uint8(positiveUintEnv(logger, name, uint64(defaultValue), 8))
+}
+
+func positiveMemoryMiBEnv(logger *slog.Logger, name string, defaultValue uint32) uint32 {
+	// BoxLite accepts memory through a signed C int, so the shared value must
+	// fit both that API and Microsandbox's uint32 option.
+	return uint32(positiveUintEnv(logger, name, uint64(defaultValue), 31))
+}
+
+func positiveDiskSizeGBEnv(logger *slog.Logger, name string, defaultValue int32) int32 {
+	// Microsandbox exposes the bind quota in MiB as uint32. Restrict the GiB
+	// value so multiplying it by 1024 cannot wrap.
+	return int32(positiveUintEnv(logger, name, uint64(defaultValue), 22))
+}
+
+func positiveUintEnv(logger *slog.Logger, name string, defaultValue uint64, bitSize int) uint64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseUint(raw, 10, bitSize)
+	if err != nil || parsed == 0 {
+		logger.Warn("failed to parse positive integer environment variable", "name", name, "value", raw, "error", err)
+		return defaultValue
+	}
+	return parsed
 }
