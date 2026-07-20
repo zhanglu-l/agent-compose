@@ -127,11 +127,18 @@ func extractBundle(data []byte, destination string) error {
 	}
 	defer func() { _ = gzipReader.Close() }()
 	tarReader := tar.NewReader(gzipReader)
-	allowed := map[string]os.FileMode{
-		"agent-compose-installer/docker-compose.yml":     0o644,
-		"agent-compose-installer/docker-compose.kvm.yml": 0o644,
-		"agent-compose-installer/.env.example":           0o644,
-		"agent-compose-installer/images/manifest.env":    0o644,
+	type bundleMember struct {
+		mode    os.FileMode
+		maxSize int64
+	}
+	allowed := map[string]bundleMember{
+		"agent-compose-installer/docker-compose.yml":     {mode: 0o644, maxSize: 8 << 20},
+		"agent-compose-installer/docker-compose.kvm.yml": {mode: 0o644, maxSize: 8 << 20},
+		"agent-compose-installer/.env.example":           {mode: 0o644, maxSize: 8 << 20},
+		"agent-compose-installer/images/manifest.env":    {mode: 0o644, maxSize: 8 << 20},
+		// Releases produced before payload versioning bundled these unused files.
+		"agent-compose-installer/README.md":  {mode: 0o644, maxSize: 1 << 20},
+		"agent-compose-installer/install.sh": {mode: 0o644, maxSize: 1 << 20},
 	}
 	seen := map[string]bool{}
 	for {
@@ -149,9 +156,12 @@ func extractBundle(data []byte, destination string) error {
 			}
 			continue
 		}
-		mode, ok := allowed[name]
+		member, ok := allowed[name]
 		if !ok || header.Typeflag != tar.TypeReg {
 			return fmt.Errorf("unexpected file in deployment bundle: %s", name)
+		}
+		if header.Size < 0 || header.Size > member.maxSize {
+			return fmt.Errorf("deployment bundle file %s exceeds the size limit", name)
 		}
 		if seen[name] {
 			return fmt.Errorf("duplicate file in deployment bundle: %s", name)
@@ -161,11 +171,11 @@ func extractBundle(data []byte, destination string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+		file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, member.mode)
 		if err != nil {
 			return err
 		}
-		_, copyErr := io.Copy(file, io.LimitReader(tarReader, 8<<20))
+		_, copyErr := io.Copy(file, tarReader)
 		closeErr := file.Close()
 		if copyErr != nil {
 			return copyErr

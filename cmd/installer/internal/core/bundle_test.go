@@ -49,6 +49,25 @@ func TestExtractBundleRejectsUnexpectedPath(t *testing.T) {
 	}
 }
 
+func TestExtractBundleAcceptsLegacyReleaseMembers(t *testing.T) {
+	archive := makeBundleArchive(t, map[string]string{
+		"agent-compose-installer/docker-compose.yml":  "services: {}\n",
+		"agent-compose-installer/.env.example":        "AUTH_PASSWORD=\nAUTH_SECRET=\n",
+		"agent-compose-installer/images/manifest.env": "AGENT_COMPOSE_IMAGE=registry.example/agent-compose:v1\n",
+		"agent-compose-installer/README.md":           "legacy release notes\n",
+		"agent-compose-installer/install.sh":          "#!/bin/sh\n",
+	})
+	destination := t.TempDir()
+	if err := extractBundle(archive, destination); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := openBundle(filepath.Join(destination, "agent-compose-installer"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.Close()
+}
+
 func TestOpenBundleRejectsUnknownPayloadVersion(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "docker-compose.yml"), "services: {}\n", 0o644)
@@ -87,11 +106,15 @@ func TestBundleLoaderUsesReleaseBaseURL(t *testing.T) {
 
 func makeTestBundleArchive(t *testing.T) []byte {
 	t.Helper()
-	files := map[string]string{
+	return makeBundleArchive(t, map[string]string{
 		"agent-compose-installer/docker-compose.yml":  "services: {}\n",
 		"agent-compose-installer/.env.example":        "AUTH_PASSWORD=\nAUTH_SECRET=\n",
 		"agent-compose-installer/images/manifest.env": "INSTALLER_PAYLOAD_VERSION=1\n",
-	}
+	})
+}
+
+func makeBundleArchive(t *testing.T, files map[string]string) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	gzipWriter := gzip.NewWriter(&archive)
 	tarWriter := tar.NewWriter(gzipWriter)
