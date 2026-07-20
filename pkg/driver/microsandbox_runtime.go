@@ -985,6 +985,15 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sandbo
 		imageRef = resolvedRef
 		imageEnv = envList
 	}
+	if filepath.IsAbs(imageRef) {
+		isolatedEtc, err := prepareMicrosandboxEtc(imageRef, filepath.Join(hostSandboxDir(session), "state"))
+		if err != nil {
+			return nil, fmt.Errorf("prepare sandbox-owned microsandbox /etc: %w", err)
+		}
+		// The isolated directory is already below the quota-managed sandbox
+		// directory. Do not assign a second, overlapping project quota here.
+		mounts["/etc"] = microsandbox.Mount.Bind(isolatedEtc, microsandbox.MountOptions{})
+	}
 	env := sandboxEnvMap(session.EnvItems, session.RuntimeEnvItems)
 	if env == nil {
 		env = map[string]string{}
