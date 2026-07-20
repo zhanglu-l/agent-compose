@@ -719,12 +719,9 @@ func (r *microsandboxRuntime) ensureDockerDisk(sandboxID string) (string, error)
 		}
 	}
 	// Create a sparse raw file then format it as ext4. Sized by
-	// BOX_DISK_SIZE_GB (shared with the boxlite driver; config default 6 GiB).
+	// SANDBOX_DISK_SIZE_GB (shared with the BoxLite driver; default 6 GiB).
 	// Existing .raw files are reused as-is (see os.Stat check above).
-	sizeGB := r.config.BoxDiskSizeGB
-	if sizeGB <= 0 {
-		sizeGB = 6 // defensive: config normally guarantees a positive value
-	}
+	sizeGB := configuredSandboxResources(r.config).DiskSizeGB
 	f, err := os.Create(path)
 	if err != nil {
 		return "", fmt.Errorf("create docker disk image %s: %w", path, err)
@@ -941,8 +938,8 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sandbo
 			"guest_path", mount.GuestPath,
 			"readonly", mount.ReadOnly,
 			"quota_mib", bindMount.QuotaMiB,
-			"configured_bind_quota_gb", r.config.MicrosandboxBindQuotaGB,
-			"box_disk_size_gb", r.config.BoxDiskSizeGB,
+			"configured_bind_quota_gb", r.config.SandboxDiskSizeGB,
+			"sandbox_disk_size_gb", r.config.SandboxDiskSizeGB,
 		)
 	}
 	// Give docker its own disk-backed ext4 volume. The guest root is virtiofs,
@@ -1014,6 +1011,7 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sandbo
 	rebindDisabled := false
 	network := microsandbox.NetworkPolicy.AllowAll()
 	network.DNS = &microsandbox.DNSConfig{RebindProtection: &rebindDisabled}
+	resources := configuredSandboxResources(r.config)
 	options := []microsandbox.SandboxOption{
 		microsandbox.WithImage(imageRef),
 		microsandbox.WithWorkdir("/"),
@@ -1023,11 +1021,8 @@ func (r *microsandboxRuntime) createSandbox(ctx context.Context, session *Sandbo
 		microsandbox.WithPullPolicy(pullPolicy),
 		microsandbox.WithMounts(mounts),
 		microsandbox.WithLabels(map[string]string{microsandboxManagedLabel: "true", microsandboxSandboxIDLabel: session.Summary.ID}),
-		// Fixed microVM size: the SDK defaults (512MiB / 1 CPU) are too small
-		// for docker-in-VM workloads (pulling large images, building from a
-		// container).
-		microsandbox.WithMemory(8192),
-		microsandbox.WithCPUs(4),
+		microsandbox.WithMemory(resources.MemoryMiB),
+		microsandbox.WithCPUs(resources.CPUs),
 	}
 	if jupyterEnabled(proxyState) && proxyState.HostPort > 0 {
 		options = append(options, microsandbox.WithPorts(map[uint16]uint16{uint16(proxyState.HostPort): uint16(proxyState.GuestPort)}))
@@ -1048,14 +1043,8 @@ func (r *microsandboxRuntime) microsandboxBindMount(hostPath string, readonly bo
 	return mount
 }
 
-func (r *microsandboxRuntime) microsandboxBindQuotaGB() int {
-	if r.config == nil {
-		return 0
-	}
-	if r.config.MicrosandboxBindQuotaGB > 0 {
-		return r.config.MicrosandboxBindQuotaGB
-	}
-	return r.config.BoxDiskSizeGB
+func (r *microsandboxRuntime) microsandboxBindQuotaGB() int32 {
+	return configuredSandboxResources(r.config).DiskSizeGB
 }
 
 func (r *microsandboxRuntime) resolveMicrosandboxImageRef(ctx context.Context, imageRef, pullPolicy string, pullTimeout time.Duration) (string, []string, bool, error) {

@@ -131,7 +131,7 @@ func testNewConfigParsesEnvironment(t *testing.T) {
 	t.Setenv("IMAGE_STORE_MODE", "oci")
 	t.Setenv("IMAGE_CACHE_ROOT", filepath.Join(root, "custom-images"))
 	t.Setenv("IMAGE_INSECURE_REGISTRIES", "oci-one.example; oci-two.example\noci-three.example")
-	t.Setenv("BOX_DISK_SIZE_GB", "11")
+	t.Setenv("SANDBOX_DISK_SIZE_GB", "11")
 	t.Setenv("CACHE_TTL", "2h")
 	t.Setenv("CLEANUP_INTERVAL", "30m")
 	t.Setenv("WORKSPACE_CLEANUP_TTL", "24h")
@@ -173,8 +173,8 @@ func testNewConfigParsesEnvironment(t *testing.T) {
 	if config.LLMTimeout != 7*time.Second || config.AgentTimeout != 8*time.Second {
 		t.Fatalf("timeouts = %s/%s", config.LLMTimeout, config.AgentTimeout)
 	}
-	if config.BoxDiskSizeGB != 11 || config.CacheTTL != 2*time.Hour {
-		t.Fatalf("box disk/cache = %d/%s", config.BoxDiskSizeGB, config.CacheTTL)
+	if config.SandboxDiskSizeGB != 11 || config.CacheTTL != 2*time.Hour {
+		t.Fatalf("sandbox disk/cache = %d/%s", config.SandboxDiskSizeGB, config.CacheTTL)
 	}
 	if config.CleanupInterval != 30*time.Minute || config.WorkspaceCleanupTTL != 24*time.Hour || config.ImageCacheCleanupTTL != 48*time.Hour {
 		t.Fatalf("cleanup config = %s/%s/%s", config.CleanupInterval, config.WorkspaceCleanupTTL, config.ImageCacheCleanupTTL)
@@ -865,7 +865,7 @@ func testDefaultDataRootFallsBackToHome(t *testing.T) {
 	}
 }
 
-func TestBoxDiskSizeGB(t *testing.T) {
+func TestBoxResources(t *testing.T) {
 	newCfg := func(t *testing.T) *Config {
 		t.Helper()
 		root := t.TempDir()
@@ -879,91 +879,58 @@ func TestBoxDiskSizeGB(t *testing.T) {
 		return cfg
 	}
 
-	t.Run("default is 6 for all VM-type drivers", func(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
 		cfg := newCfg(t)
-		if cfg.BoxDiskSizeGB != 6 {
-			t.Fatalf("BoxDiskSizeGB = %d, want 6 (default)", cfg.BoxDiskSizeGB)
+		if cfg.SandboxCPUs != 4 || cfg.SandboxMemoryMiB != 4096 || cfg.SandboxDiskSizeGB != 6 {
+			t.Fatalf("sandbox resources = %d CPUs/%d MiB/%d GiB, want 4/4096/6", cfg.SandboxCPUs, cfg.SandboxMemoryMiB, cfg.SandboxDiskSizeGB)
 		}
 	})
 
-	t.Run("BOX_DISK_SIZE_GB sets the value", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "11")
+	t.Run("environment sets shared resources", func(t *testing.T) {
+		t.Setenv("SANDBOX_CPUS", "8")
+		t.Setenv("SANDBOX_MEMORY_MIB", "16384")
+		t.Setenv("SANDBOX_DISK_SIZE_GB", "11")
 		cfg := newCfg(t)
-		if cfg.BoxDiskSizeGB != 11 {
-			t.Fatalf("BoxDiskSizeGB = %d, want 11", cfg.BoxDiskSizeGB)
+		if cfg.SandboxCPUs != 8 || cfg.SandboxMemoryMiB != 16384 || cfg.SandboxDiskSizeGB != 11 {
+			t.Fatalf("sandbox resources = %d CPUs/%d MiB/%d GiB, want 8/16384/11", cfg.SandboxCPUs, cfg.SandboxMemoryMiB, cfg.SandboxDiskSizeGB)
+		}
+	})
+
+	t.Run("SANDBOX_DISK_SIZE_GB sets the value", func(t *testing.T) {
+		t.Setenv("SANDBOX_DISK_SIZE_GB", "11")
+		cfg := newCfg(t)
+		if cfg.SandboxDiskSizeGB != 11 {
+			t.Fatalf("SandboxDiskSizeGB = %d, want 11", cfg.SandboxDiskSizeGB)
 		}
 	})
 
 	t.Run("invalid value keeps the default", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "abc")
+		t.Setenv("SANDBOX_CPUS", "abc")
+		t.Setenv("SANDBOX_MEMORY_MIB", "abc")
+		t.Setenv("SANDBOX_DISK_SIZE_GB", "abc")
 		cfg := newCfg(t)
-		if cfg.BoxDiskSizeGB != 6 {
-			t.Fatalf("BoxDiskSizeGB = %d, want 6", cfg.BoxDiskSizeGB)
+		if cfg.SandboxCPUs != 4 || cfg.SandboxMemoryMiB != 4096 || cfg.SandboxDiskSizeGB != 6 {
+			t.Fatalf("sandbox resources = %d CPUs/%d MiB/%d GiB, want defaults", cfg.SandboxCPUs, cfg.SandboxMemoryMiB, cfg.SandboxDiskSizeGB)
 		}
 	})
 
 	t.Run("non-positive value keeps the default", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "-3")
+		t.Setenv("SANDBOX_CPUS", "0")
+		t.Setenv("SANDBOX_MEMORY_MIB", "-1")
+		t.Setenv("SANDBOX_DISK_SIZE_GB", "-3")
 		cfg := newCfg(t)
-		if cfg.BoxDiskSizeGB != 6 {
-			t.Fatalf("BoxDiskSizeGB = %d, want 6", cfg.BoxDiskSizeGB)
-		}
-	})
-}
-
-func TestMicrosandboxBindQuotaGB(t *testing.T) {
-	newCfg := func(t *testing.T) *Config {
-		t.Helper()
-		root := t.TempDir()
-		t.Setenv("DATA_ROOT", filepath.Join(root, "data"))
-		di := do.New()
-		do.ProvideValue(di, slog.Default())
-		cfg, err := NewConfig(di)
-		if err != nil {
-			t.Fatalf("NewConfig returned error: %v", err)
-		}
-		return cfg
-	}
-
-	t.Run("defaults to box disk size", func(t *testing.T) {
-		cfg := newCfg(t)
-		if cfg.MicrosandboxBindQuotaGB != 6 {
-			t.Fatalf("MicrosandboxBindQuotaGB = %d, want 6", cfg.MicrosandboxBindQuotaGB)
+		if cfg.SandboxCPUs != 4 || cfg.SandboxMemoryMiB != 4096 || cfg.SandboxDiskSizeGB != 6 {
+			t.Fatalf("sandbox resources = %d CPUs/%d MiB/%d GiB, want defaults", cfg.SandboxCPUs, cfg.SandboxMemoryMiB, cfg.SandboxDiskSizeGB)
 		}
 	})
 
-	t.Run("follows BOX_DISK_SIZE_GB", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "60")
+	t.Run("out-of-range value keeps the default", func(t *testing.T) {
+		t.Setenv("SANDBOX_CPUS", "256")
+		t.Setenv("SANDBOX_MEMORY_MIB", "2147483648")
+		t.Setenv("SANDBOX_DISK_SIZE_GB", "4194304")
 		cfg := newCfg(t)
-		if cfg.MicrosandboxBindQuotaGB != 60 {
-			t.Fatalf("MicrosandboxBindQuotaGB = %d, want 60", cfg.MicrosandboxBindQuotaGB)
-		}
-	})
-
-	t.Run("override sets the value", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "60")
-		t.Setenv("MICROSANDBOX_BIND_QUOTA_GB", "96")
-		cfg := newCfg(t)
-		if cfg.MicrosandboxBindQuotaGB != 96 {
-			t.Fatalf("MicrosandboxBindQuotaGB = %d, want 96", cfg.MicrosandboxBindQuotaGB)
-		}
-	})
-
-	t.Run("invalid override keeps the inherited default", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "60")
-		t.Setenv("MICROSANDBOX_BIND_QUOTA_GB", "abc")
-		cfg := newCfg(t)
-		if cfg.MicrosandboxBindQuotaGB != 60 {
-			t.Fatalf("MicrosandboxBindQuotaGB = %d, want 60", cfg.MicrosandboxBindQuotaGB)
-		}
-	})
-
-	t.Run("non-positive override keeps the inherited default", func(t *testing.T) {
-		t.Setenv("BOX_DISK_SIZE_GB", "60")
-		t.Setenv("MICROSANDBOX_BIND_QUOTA_GB", "0")
-		cfg := newCfg(t)
-		if cfg.MicrosandboxBindQuotaGB != 60 {
-			t.Fatalf("MicrosandboxBindQuotaGB = %d, want 60", cfg.MicrosandboxBindQuotaGB)
+		if cfg.SandboxCPUs != 4 || cfg.SandboxMemoryMiB != 4096 || cfg.SandboxDiskSizeGB != 6 {
+			t.Fatalf("sandbox resources = %d CPUs/%d MiB/%d GiB, want defaults", cfg.SandboxCPUs, cfg.SandboxMemoryMiB, cfg.SandboxDiskSizeGB)
 		}
 	})
 }

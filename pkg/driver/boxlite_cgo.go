@@ -1002,9 +1002,10 @@ func (r *cgoSandboxRuntime) buildBoxOptions(ctx context.Context, sandbox *Sandbo
 	C.boxlite_options_set_auto_remove(options, 0)
 	C.boxlite_options_set_detach(options, 1)
 	C.boxlite_options_set_network_enabled(options)
-	if r.config.BoxDiskSizeGB > 0 {
-		C.boxlite_options_set_disk_size_gb(options, C.int(r.config.BoxDiskSizeGB))
-	}
+	resources := configuredSandboxResources(r.config)
+	C.boxlite_options_set_cpus(options, C.int(resources.CPUs))
+	C.boxlite_options_set_memory(options, C.int(resources.MemoryMiB))
+	C.boxlite_options_set_disk_size_gb(options, C.int(resources.DiskSizeGB))
 
 	for _, mount := range manifest.Mounts {
 		hostPathCString := C.CString(mount.HostPath)

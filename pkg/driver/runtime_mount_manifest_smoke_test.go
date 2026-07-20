@@ -86,13 +86,13 @@ func newRuntimeSmokeConfig(t *testing.T, driver string) *appconfig.Config {
 		}
 		_ = os.RemoveAll(root)
 	})
-	boxDiskSizeGB := 0
-	if raw := strings.TrimSpace(os.Getenv("SMOKE_BOX_DISK_SIZE_GB")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
+	var sandboxDiskSizeGB int32
+	if raw := strings.TrimSpace(os.Getenv("SMOKE_SANDBOX_DISK_SIZE_GB")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 32)
 		if err != nil {
-			t.Fatalf("parse SMOKE_BOX_DISK_SIZE_GB=%q: %v", raw, err)
+			t.Fatalf("parse SMOKE_SANDBOX_DISK_SIZE_GB=%q: %v", raw, err)
 		}
-		boxDiskSizeGB = parsed
+		sandboxDiskSizeGB = int32(parsed)
 	}
 	repoRoot := runtimeSmokeRepoRoot(t)
 	config := &appconfig.Config{
@@ -107,7 +107,7 @@ func newRuntimeSmokeConfig(t *testing.T, driver string) *appconfig.Config {
 		MicrosandboxDefaultImage: firstNonEmpty(os.Getenv("SMOKE_MICROSANDBOX_DEFAULT_IMAGE"), os.Getenv("SMOKE_DEFAULT_IMAGE"), "debian:bookworm-slim"),
 		ImageRegistry:            firstNonEmpty(os.Getenv("IMAGE_REGISTRY"), "docker.io"),
 		BoxRootfsPath:            strings.TrimSpace(os.Getenv("SMOKE_BOX_ROOTFS_PATH")),
-		BoxDiskSizeGB:            boxDiskSizeGB,
+		SandboxDiskSizeGB:        sandboxDiskSizeGB,
 		CacheTTL:                 time.Hour,
 		BoxliteRuntimeDir:        firstNonEmpty(os.Getenv("BOXLITE_RUNTIME_DIR"), filepath.Join(repoRoot, "build", "boxlite", "runtime")),
 		MicrosandboxMSBPath:      firstNonEmpty(os.Getenv("MICROSANDBOX_MSB_PATH"), filepath.Join(repoRoot, "build", "microsandbox", "bin", "msb")),
