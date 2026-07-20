@@ -109,8 +109,6 @@ agents:
               kind: timeout
               timeout: 15s
               prompt: 'Reply with exactly: timeout scheduler ok'
-network:
-    mode: default
 ```
 
 ### 2. 应用 project
@@ -120,14 +118,14 @@ $ go run ./cmd/agent-compose --file examples/agent-compose/docker-scheduler-time
 Project: docker-scheduler-timeout
 ID: project-docker-scheduler-timeout-3a00cafbae27
 Revision: 1
-Spec: sha256:283623fe82f0f04270f27a0ec9da4809fc45b4a45c3f15df3f688aba074990b2
+Spec: sha256:3b8a286e2cf7df774375a5eeeef1a87f9fad75921bde212e539a15c9081b196f
 Status: applied
 Agents: 1
 Schedulers: 1
 
 ACTION   TYPE               NAME                                                                     ID
 created  project            docker-scheduler-timeout                                                 project-docker-scheduler-timeout-3a00cafbae27
-created  project_revision   sha256:283623fe82f0f04270f27a0ec9da4809fc45b4a45c3f15df3f688aba074990b2  project-docker-scheduler-timeout-3a00cafbae27/1
+created  project_revision   sha256:3b8a286e2cf7df774375a5eeeef1a87f9fad75921bde212e539a15c9081b196f  project-docker-scheduler-timeout-3a00cafbae27/1
 created  project_agent      reviewer                                                                 agent-reviewer-a0befcb745b8
 created  agent_definition   reviewer                                                                 agent-reviewer-a0befcb745b8
 created  project_scheduler  reviewer                                                                 scheduler-reviewer-default-181247660dc1

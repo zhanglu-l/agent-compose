@@ -127,8 +127,6 @@ agents:
       driver:
         name: docker
         docker: {}
-network:
-    mode: default
 ```
 
 ### 2. 应用 project
@@ -138,14 +136,14 @@ $ go run ./cmd/agent-compose --file examples/agent-compose/docker-minimal/agent-
 Project: docker-minimal
 ID: project-docker-minimal-ad604c8bf8d3
 Revision: 1
-Spec: sha256:0e351a523ae793f780fc0933f3b88920501f20dfd4d855654fe711a8a3cb4edd
+Spec: sha256:45c9bab1e2c12ad3e26c2168ae87bbf92fdf9933ba62258b44de00813ff106ce
 Status: applied
 Agents: 1
 Schedulers: 0
 
 ACTION   TYPE              NAME                                                                     ID
 created  project           docker-minimal                                                           project-docker-minimal-ad604c8bf8d3
-created  project_revision  sha256:0e351a523ae793f780fc0933f3b88920501f20dfd4d855654fe711a8a3cb4edd  project-docker-minimal-ad604c8bf8d3/1
+created  project_revision  sha256:45c9bab1e2c12ad3e26c2168ae87bbf92fdf9933ba62258b44de00813ff106ce  project-docker-minimal-ad604c8bf8d3/1
 created  project_agent     reviewer                                                                 agent-reviewer-a9f84de36227
 created  agent_definition  reviewer                                                                 agent-reviewer-a9f84de36227
 ```

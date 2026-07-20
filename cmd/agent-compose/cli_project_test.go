@@ -396,7 +396,7 @@ agents:
 	}
 }
 
-func TestConfigCommandQuietFailureIncludesComposePathAndField(t *testing.T) {
+func TestConfigCommandQuietRejectsRemovedNetworkField(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "invalid-project")
 	composePath := writeComposeFile(t, dir, `
 name: invalid-project
@@ -412,7 +412,7 @@ agents:
 	if err == nil {
 		t.Fatalf("config --quiet returned nil error, want validation error")
 	}
-	for _, want := range []string{composePath, "network.mode", "unsupported"} {
+	for _, want := range []string{composePath, "network", "unknown field"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not contain %q", err.Error(), want)
 		}

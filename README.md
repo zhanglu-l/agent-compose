@@ -133,7 +133,7 @@ More runnable examples (cron, timeout, scheduler scripts) live in
 
 ## The compose file
 
-**Top-level fields:** `name`, `env_file`, `variables`, `workspaces`, `agents`, `mcp_servers`, `volumes`, `network`.
+**Top-level fields:** `name`, `env_file`, `variables`, `workspaces`, `agents`, `mcp_servers`, `volumes`.
 
 **Common agent fields:** `provider`, `model`, `system_prompt`, `image`,
 `driver`, `env` (scalars or `{ value, secret }`), `workspace`, `scheduler`,

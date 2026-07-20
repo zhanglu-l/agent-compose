@@ -117,7 +117,6 @@ func legacyDefaultNormalizedProjectWithWorkspaces(agents []domain.AgentDefinitio
 	spec := &compose.NormalizedProjectSpec{
 		Name:       LegacyDefaultProjectName,
 		Workspaces: workspaceProjection.workspaces,
-		Network:    &compose.NetworkSpec{Mode: "default"},
 	}
 	agents = append([]domain.AgentDefinition(nil), agents...)
 	sort.Slice(agents, func(i, j int) bool {

@@ -640,7 +640,8 @@ message ProjectSpec {
   reserved 3;
   reserved "workspace";
   repeated AgentSpec agents = 4;
-  NetworkSpec network = 5;
+  reserved 5;
+  reserved "network";
   repeated ProjectVolumeSpec volumes = 6;
   repeated NamedWorkspaceSpec workspaces = 7;
   repeated MCPServerSpec mcp_servers = 8;
@@ -733,10 +734,6 @@ message WorkspaceSpec {
   string username = 8;
   string password = 9;
   string token = 10;
-}
-
-message NetworkSpec {
-  string mode = 1;
 }
 
 message SchedulerSpec {

@@ -204,7 +204,7 @@ Verbose can add opaque identities and full hashes:
 
 ```text
 ID            NAME            CONFIG FILE                                      REVISION  SPEC HASH
-55521f60a3e9  docker-minimal  agent-compose/examples/docker-minimal/agent-compose.yml  1  sha256:0e351a523ae793f780fc0933f3b88920501f20dfd4d855654fe711a8a3cb4edd
+55521f60a3e9  docker-minimal  agent-compose/examples/docker-minimal/agent-compose.yml  1  sha256:45c9bab1e2c12ad3e26c2168ae87bbf92fdf9933ba62258b44de00813ff106ce
 ```
 
 ### `agent-compose up`
@@ -232,7 +232,7 @@ object type already defines the scope.
     "short_id": "55521f60a3e9",
     "source_path": "agent-compose/examples/docker-minimal/agent-compose.yml",
     "current_revision": 1,
-    "spec_hash": "sha256:0e351a523ae793f780fc0933f3b88920501f20dfd4d855654fe711a8a3cb4edd"
+    "spec_hash": "sha256:45c9bab1e2c12ad3e26c2168ae87bbf92fdf9933ba62258b44de00813ff106ce"
   },
   "agents": [
     {

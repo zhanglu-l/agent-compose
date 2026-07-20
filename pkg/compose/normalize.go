@@ -45,7 +45,6 @@ type NormalizedProjectSpec struct {
 	MCPServers map[string]NormalizedMCPServerSpec `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
 	Volumes    map[string]NormalizedVolumeSpec    `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Agents     []NormalizedAgentSpec              `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Network    *NetworkSpec                       `yaml:"network,omitempty" json:"network,omitempty"`
 }
 
 type NormalizedAgentSpec struct {
@@ -181,11 +180,7 @@ func Normalize(spec *ProjectSpec, options NormalizeOptions) (*NormalizedProjectS
 		return nil, err
 	}
 
-	normalized := &NormalizedProjectSpec{
-		Name:      name,
-		Variables: nil,
-		Network:   normalizeNetworkDefault(spec.Network),
-	}
+	normalized := &NormalizedProjectSpec{Name: name}
 	variables, err := normalizeEnvVarMap("variables", spec.Variables, options)
 	if err != nil {
 		return nil, err
@@ -201,9 +196,6 @@ func Normalize(spec *ProjectSpec, options NormalizeOptions) (*NormalizedProjectS
 		return nil, err
 	}
 	normalized.MCPServers = mcps
-	if err := validateNetworkSpec(normalized.Network); err != nil {
-		return nil, err
-	}
 	volumes, err := normalizeProjectVolumes(spec.Volumes)
 	if err != nil {
 		return nil, err
@@ -1273,19 +1265,6 @@ func validatePositiveDuration(path string, value string) error {
 	return nil
 }
 
-func validateNetworkSpec(network *NetworkSpec) error {
-	if network == nil {
-		return nil
-	}
-	mode := strings.TrimSpace(network.Mode)
-	network.Mode = mode
-	if mode == "" || mode == "default" {
-		network.Mode = "default"
-		return nil
-	}
-	return &ValidationError{Path: "network.mode", Message: fmt.Sprintf("unsupported network mode %q; only default is supported", mode)}
-}
-
 func validateStableIdentifier(path string, value string, label string) error {
 	if value == "" {
 		return &ValidationError{Path: path, Message: label + " is required"}
@@ -1312,14 +1291,6 @@ func defaultProjectName(options NormalizeOptions) string {
 		dir = abs
 	}
 	return filepath.Base(filepath.Clean(dir))
-}
-
-func normalizeNetworkDefault(value *NetworkSpec) *NetworkSpec {
-	if value == nil {
-		return &NetworkSpec{Mode: "default"}
-	}
-	cloned := *value
-	return &cloned
 }
 
 func normalizeEnvVarMap(path string, values map[string]EnvVarSpec, options NormalizeOptions) (map[string]EnvVarSpec, error) {

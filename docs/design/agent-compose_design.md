@@ -180,8 +180,6 @@ agents:
           prompt: "Review changes from the incoming event."
           sandbox_policy: new
 
-network:
-  mode: default
 ```
 
 The same scheduler can also declare a loader script directly with inline QJS:
@@ -226,8 +224,6 @@ Normalization rules:
 - Driver is a one-of shape: `boxlite`, `docker`, or `microsandbox`. When
   omitted, the default is `docker`.
 - `firecracker` may appear in the schema, but current normalization returns
-  unsupported.
-- Empty `network` or `mode: default` is accepted. Other network modes return
   unsupported.
 - Triggers support `cron`, `interval`, `timeout`, and `event`. Each trigger must
   specify exactly one type.

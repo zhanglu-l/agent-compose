@@ -129,7 +129,7 @@ func testCLIConfigAndOutputWorkflow(t *testing.T) {
 	TestConfigCommandPrintsNormalizedYAMLWithoutStartingDaemon(t)
 	TestConfigCommandExpandsSchedulerScriptURLs(t)
 	TestConfigCommandQuietOnlyValidates(t)
-	TestConfigCommandQuietFailureIncludesComposePathAndField(t)
+	TestConfigCommandQuietRejectsRemovedNetworkField(t)
 	TestConfigCommandMissingComposeFileWritesStderrAndExitCode(t)
 	TestConfigCommandUsesGlobalFileProjectNameAndJSON(t)
 	TestCLIClientConfigPriority(t)

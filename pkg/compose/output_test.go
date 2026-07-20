@@ -432,11 +432,8 @@ agents:
         - cron: "@hourly"
   reviewer:
     provider: codex
-network: {}
 `, nil)
 	second := mustNormalizeCompose(t, `
-network:
-  mode: default
 agents:
   reviewer:
     provider: codex
@@ -626,7 +623,7 @@ func TestUnresolvedSchedulerScriptURLFailsCanonicalOutputAndHash(t *testing.T) {
 	}
 }
 
-func TestSpecHashNormalizesDefaults(t *testing.T) {
+func TestSpecHashNormalizesDriverDefaults(t *testing.T) {
 	omitted := mustNormalizeCompose(t, `
 name: defaults-hash
 agents:
@@ -635,8 +632,6 @@ agents:
 `, nil)
 	explicit := mustNormalizeCompose(t, `
 name: defaults-hash
-network:
-  mode: default
 agents:
   reviewer:
     provider: codex

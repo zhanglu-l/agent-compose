@@ -18,7 +18,6 @@ type ProjectSpec struct {
 	MCPServers map[string]MCPServerSpec `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
 	Volumes    map[string]VolumeSpec    `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Agents     map[string]AgentSpec     `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Network    *NetworkSpec             `yaml:"network,omitempty" json:"network,omitempty"`
 }
 
 // EnvFileSpec lists dotenv files used while loading a project configuration.
@@ -225,10 +224,6 @@ func (s WorkspaceSpec) ContentSource() sources.Source {
 		Password: s.Password,
 		Token:    s.Token,
 	}.Normalized()
-}
-
-type NetworkSpec struct {
-	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
 }
 
 type DriverSpec struct {
@@ -473,7 +468,6 @@ func validateProjectNode(node *yaml.Node) error {
 		"mcp_servers": validateMCPMap,
 		"volumes":     validateVolumeMap,
 		"agents":      validateAgentMap,
-		"network":     validateNetwork,
 	})
 }
 
@@ -810,12 +804,6 @@ func validateEnvVar(node *yaml.Node, path string) error {
 	default:
 		return newParseError(node, path, "expected scalar or mapping")
 	}
-}
-
-func validateNetwork(node *yaml.Node, path string) error {
-	return validateMapping(node, path, map[string]nodeValidator{
-		"mode": validateScalar,
-	})
 }
 
 func validateNamedMap(node *yaml.Node, path string, validateValue nodeValidator) error {

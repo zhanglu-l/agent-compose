@@ -130,8 +130,6 @@ agents:
       enabled: false
       guest_port: 8888
 
-network:
-  mode: default
 ```
 
 ## 通用规则
@@ -194,7 +192,6 @@ SECRET_VALUE:
 | `mcp_servers` | map | 否 | 可由 Agent 按名称引用的 MCP Server 定义。 |
 | `volumes` | map | 否 | 项目管理或引用的持久 Volume。 |
 | `agents` | map | 否 | Agent 定义；map key 是 Agent 名。 |
-| `network` | object | 否 | 项目网络策略；当前只支持 `default`。 |
 
 ### `name`
 
@@ -793,19 +790,6 @@ jupyter:
 | `guest_port` | int | daemon `JUPYTER_GUEST_PORT` | Guest 内监听端口。`0` 使用 daemon 默认；显式值必须在 1–65535。 |
 
 设置 `guest_port` 但保持 `enabled: false` 会保留端口配置，但默认不启动 Jupyter。CLI `run --jupyter` 可以为单次运行启用。
-
-## `network`
-
-```yaml
-network:
-  mode: default
-```
-
-| 字段 | 类型 | 默认值 | 作用 |
-| --- | --- | --- | --- |
-| `mode` | string | `default` | 项目网络模式。当前只支持 `default`；其他值会在配置规范化时失败。 |
-
-该字段目前主要表达和持久化项目网络意图，实际 runtime 网络拓扑仍由所选 driver 和 daemon 部署环境负责。
 
 ## 常见错误与迁移提示
 

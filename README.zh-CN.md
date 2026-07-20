@@ -98,7 +98,7 @@ agent-compose down                                # 停止 sandbox、禁用 sche
 
 ## Compose 配置
 
-**顶层字段：** `name`、`env_file`、`variables`、`workspaces`、`agents`、`mcp_servers`、`volumes`、`network`。
+**顶层字段：** `name`、`env_file`、`variables`、`workspaces`、`agents`、`mcp_servers`、`volumes`。
 
 **agent 常用字段：** `provider`、`model`、`system_prompt`、`image`、`driver`、
 `env`（scalar 或 `{ value, secret }`）、`workspace`、`scheduler`、`mcp_servers`、`skills`、`volumes`。

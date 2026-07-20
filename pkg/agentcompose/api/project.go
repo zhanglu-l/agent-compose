@@ -251,7 +251,6 @@ func ProjectSpecToProtoChecked(spec *compose.NormalizedProjectSpec) (*agentcompo
 		Variables:  EnvVarSpecsToProto(spec.Variables),
 		Workspaces: NamedWorkspaceSpecsToProto(spec.Workspaces),
 		Agents:     AgentSpecsToProto(spec.Agents),
-		Network:    NetworkSpecToProto(spec.Network),
 		Volumes:    ProjectVolumeSpecsToProto(spec.Volumes),
 		McpServers: MCPServerSpecsToProto(spec.MCPServers),
 	}, nil
@@ -446,13 +445,6 @@ func WorkspaceSpecToProto(workspace *compose.WorkspaceSpec) *agentcomposev2.Work
 	}
 }
 
-func NetworkSpecToProto(network *compose.NetworkSpec) *agentcomposev2.NetworkSpec {
-	if network == nil {
-		return nil
-	}
-	return &agentcomposev2.NetworkSpec{Mode: network.Mode}
-}
-
 func DriverSpecToProto(driver *compose.NormalizedDriverSpec) *agentcomposev2.DriverSpec {
 	if driver == nil {
 		return nil
@@ -552,9 +544,6 @@ func ProjectSpecYAMLShape(spec *agentcomposev2.ProjectSpec) (map[string]any, []*
 		return nil, issues
 	} else if len(mcps) > 0 {
 		root["mcp_servers"] = mcps
-	}
-	if network := NetworkYAMLShape(spec.GetNetwork()); len(network) > 0 {
-		root["network"] = network
 	}
 	return root, nil
 }
@@ -1030,13 +1019,6 @@ func NamedWorkspaceYAMLMap(workspaces []*agentcomposev2.NamedWorkspaceSpec) (map
 		values[name] = workspace
 	}
 	return values, nil
-}
-
-func NetworkYAMLShape(network *agentcomposev2.NetworkSpec) map[string]any {
-	if network == nil {
-		return nil
-	}
-	return map[string]any{"mode": network.GetMode()}
 }
 
 func ProjectServiceSourcePath(source *agentcomposev2.ProjectSource) string {

@@ -170,10 +170,13 @@ agents:
 	if runCount != 0 {
 		t.Fatalf("daemon runner called %d times, want 0", runCount)
 	}
-	for _, want := range []string{"name: review-project", "variables:", "agents:", "network:", "mode: default", "secret: true", "********", "visible", "strict"} {
+	for _, want := range []string{"name: review-project", "variables:", "agents:", "secret: true", "********", "visible", "strict"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("config YAML missing %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "network:") {
+		t.Fatalf("config YAML contains removed network field:\n%s", stdout)
 	}
 	if strings.Contains(stdout, "sk-secret") {
 		t.Fatalf("config YAML leaked secret value:\n%s", stdout)
@@ -214,6 +217,9 @@ agents:
 	if strings.Contains(stdout, "secret-token") {
 		t.Fatalf("config JSON leaked secret value: %s", stdout)
 	}
+	if strings.Contains(stdout, `"network":`) {
+		t.Fatalf("config JSON contains removed network field: %s", stdout)
+	}
 	var decoded struct {
 		Name      string `json:"name"`
 		Variables []struct {
@@ -227,14 +233,11 @@ agents:
 				Name string `json:"name"`
 			} `json:"driver"`
 		} `json:"agents"`
-		Network struct {
-			Mode string `json:"mode"`
-		} `json:"network"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
 		t.Fatalf("config --json output is not JSON: %v\n%s", err, stdout)
 	}
-	if decoded.Name != "json-project" || decoded.Network.Mode != "default" {
+	if decoded.Name != "json-project" {
 		t.Fatalf("decoded config = %#v", decoded)
 	}
 	if len(decoded.Variables) != 1 || decoded.Variables[0].Name != "TOKEN" || decoded.Variables[0].Value != "********" || !decoded.Variables[0].Secret {

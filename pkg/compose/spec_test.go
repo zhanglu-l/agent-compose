@@ -118,8 +118,6 @@ agents:
         - event:
             topic: git.push
           prompt: "Review changes from the incoming event."
-network:
-  mode: default
 `))
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
@@ -148,9 +146,6 @@ network:
 	}
 	if agent.Scheduler.Triggers[1].Event == nil || agent.Scheduler.Triggers[1].Event.Topic != "git.push" {
 		t.Fatalf("event trigger = %#v", agent.Scheduler.Triggers[1])
-	}
-	if spec.Network == nil || spec.Network.Mode != "default" {
-		t.Fatalf("network = %#v", spec.Network)
 	}
 }
 
@@ -271,6 +266,23 @@ agents:
 	}
 	if got := err.Error(); !strings.Contains(got, "agents.reviewer.scheduler.triggers[0].event.extra") {
 		t.Fatalf("error = %q, want field path", got)
+	}
+}
+
+func TestParseRejectsRemovedNetworkField(t *testing.T) {
+	_, err := Parse([]byte(`
+name: removed-network
+network:
+  mode: default
+agents:
+  reviewer:
+    provider: codex
+`))
+	if err == nil {
+		t.Fatal("expected Parse to reject removed network field")
+	}
+	if got := err.Error(); !strings.Contains(got, "network") || !strings.Contains(got, "unknown field") {
+		t.Fatalf("error = %q, want removed network field path", got)
 	}
 }
 

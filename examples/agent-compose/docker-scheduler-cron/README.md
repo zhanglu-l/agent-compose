@@ -125,8 +125,6 @@ agents:
               kind: cron
               cron: 0 * * * *
               prompt: Review the current project state and summarize any important changes.
-network:
-    mode: default
 ```
 
 ### 2. Apply project
@@ -136,14 +134,14 @@ $ go run ./cmd/agent-compose --file examples/agent-compose/docker-scheduler-cron
 Project: docker-scheduler-cron
 ID: project-docker-scheduler-cron-034aaf526f91
 Revision: 1
-Spec: sha256:93950d90a6dbd56a141cbd0b059c06eb37b4db6bb27860b24cb78bea781536d5
+Spec: sha256:609b72e32d33488851496faefccbe2e3487cf2247e5218dd5cde9ae31d57e964
 Status: applied
 Agents: 1
 Schedulers: 1
 
 ACTION   TYPE               NAME                                                                     ID
 created  project            docker-scheduler-cron                                                    project-docker-scheduler-cron-034aaf526f91
-created  project_revision   sha256:93950d90a6dbd56a141cbd0b059c06eb37b4db6bb27860b24cb78bea781536d5  project-docker-scheduler-cron-034aaf526f91/1
+created  project_revision   sha256:609b72e32d33488851496faefccbe2e3487cf2247e5218dd5cde9ae31d57e964  project-docker-scheduler-cron-034aaf526f91/1
 created  project_agent      reviewer                                                                 agent-reviewer-4bff2fb6372a
 created  agent_definition   reviewer                                                                 agent-reviewer-4bff2fb6372a
 created  project_scheduler  reviewer                                                                 scheduler-reviewer-default-ed0b5bed0daa

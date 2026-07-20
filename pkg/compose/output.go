@@ -26,7 +26,6 @@ type orderedProjectSpec struct {
 	MCPServers []orderedMCPServerSpec  `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
 	Volumes    []orderedVolumeSpec     `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Agents     []orderedAgentSpec      `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Network    *NetworkSpec            `yaml:"network,omitempty" json:"network,omitempty"`
 }
 
 type orderedNamedWorkspace struct {
@@ -169,7 +168,6 @@ func (s *NormalizedProjectSpec) ordered(redactSecrets bool) orderedProjectSpec {
 		MCPServers: mcps,
 		Volumes:    orderedVolumes(s.Volumes),
 		Agents:     agents,
-		Network:    cloneNetworkSpecForOutput(s.Network),
 	}
 }
 
@@ -181,7 +179,6 @@ func (s *NormalizedProjectSpec) clone(redactSecrets bool) *NormalizedProjectSpec
 		Workspaces: workspaceMapFromOrdered(ordered.Workspaces),
 		MCPServers: mcpMapFromOrdered(ordered.MCPServers),
 		Volumes:    volumeMapFromOrdered(ordered.Volumes),
-		Network:    ordered.Network,
 	}
 	for _, agent := range ordered.Agents {
 		cloned.Agents = append(cloned.Agents, NormalizedAgentSpec{
@@ -467,14 +464,6 @@ func cloneNormalizedTriggerSpec(value NormalizedTriggerSpec) NormalizedTriggerSp
 		cloned.Event = &event
 	}
 	return cloned
-}
-
-func cloneNetworkSpecForOutput(value *NetworkSpec) *NetworkSpec {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func cloneJupyterSpec(value *JupyterSpec) *JupyterSpec {

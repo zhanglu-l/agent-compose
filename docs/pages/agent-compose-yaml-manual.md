@@ -131,8 +131,6 @@ agents:
       enabled: false
       guest_port: 8888
 
-network:
-  mode: default
 ```
 
 ## General authoring rules
@@ -195,7 +193,6 @@ SECRET_VALUE:
 | `mcp_servers` | map | No | Named MCP servers that agents may reference. |
 | `volumes` | map | No | Persistent volumes managed or referenced by the project. |
 | `agents` | map | No | Agent definitions keyed by agent name. |
-| `network` | object | No | Project network policy. Only `default` is currently supported. |
 
 ### `name`
 
@@ -788,19 +785,6 @@ jupyter:
 | `guest_port` | int | Daemon `JUPYTER_GUEST_PORT` | Guest listening port. `0` uses the daemon default; an explicit value must be 1–65535. |
 
 Setting `guest_port` while leaving `enabled: false` retains the port configuration without enabling Jupyter by default. `agent-compose run --jupyter` can enable it for one run.
-
-## `network`
-
-```yaml
-network:
-  mode: default
-```
-
-| Field | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `mode` | string | `default` | Project network mode. Only `default` is currently accepted. |
-
-The field expresses and persists project network intent. Runtime topology remains controlled by the selected driver and daemon deployment environment.
 
 ## Common errors and migration notes
 
