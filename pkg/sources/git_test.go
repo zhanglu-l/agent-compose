@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,7 @@ func TestGitClientResolveAndCheckout(t *testing.T) {
 	if err := client.CheckoutCommit(context.Background(), source, resolved.Commit, destination); err != nil {
 		t.Fatalf("CheckoutCommit returned error: %v", err)
 	}
+	assertGitRepositoryShallow(t, destination, true)
 	data, err := os.ReadFile(filepath.Join(destination, "script.js"))
 	if err != nil || !strings.Contains(string(data), "scheduler.agent") {
 		t.Fatalf("checked out script = %q, err=%v", data, err)
@@ -61,24 +63,51 @@ func TestGitClientResolvesBranchTagAndCommit(t *testing.T) {
 
 	client := GitClient{}
 	for _, test := range []struct {
-		name string
-		ref  string
-		want string
+		name        string
+		ref         string
+		want        string
+		wantContent string
 	}{
-		{name: "branch", ref: "main", want: branchCommit},
-		{name: "annotated tag", ref: "v1.0.0", want: firstCommit},
-		{name: "commit", ref: firstCommit, want: firstCommit},
+		{name: "branch", ref: "main", want: branchCommit, wantContent: "two\n"},
+		{name: "annotated tag", ref: "v1.0.0", want: firstCommit, wantContent: "one\n"},
+		{name: "commit", ref: firstCommit, want: firstCommit, wantContent: "one\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			resolved, err := client.Resolve(context.Background(), Source{Provider: ProviderGit, URL: repository, Ref: test.ref})
+			source := Source{Provider: ProviderGit, URL: repository, Ref: test.ref}
+			resolved, err := client.Resolve(context.Background(), source)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
 			if resolved.Commit != test.want {
 				t.Fatalf("commit = %q, want %q", resolved.Commit, test.want)
 			}
+			destination := filepath.Join(t.TempDir(), "checkout")
+			checkedOut, err := client.Checkout(context.Background(), source, destination)
+			if err != nil {
+				t.Fatalf("Checkout returned error: %v", err)
+			}
+			if checkedOut.Commit != test.want {
+				t.Fatalf("checked out commit = %q, want %q", checkedOut.Commit, test.want)
+			}
+			assertGitRepositoryShallow(t, destination, true)
+			content, err := os.ReadFile(filepath.Join(destination, "README.md"))
+			if err != nil || string(content) != test.wantContent {
+				t.Fatalf("checked out README.md = %q, err=%v", content, err)
+			}
 		})
 	}
+
+	t.Run("abbreviated commit full-fetch fallback", func(t *testing.T) {
+		destination := filepath.Join(t.TempDir(), "checkout")
+		if err := client.CheckoutCommit(context.Background(), Source{Provider: ProviderGit, URL: repository}, firstCommit[:8], destination); err != nil {
+			t.Fatalf("CheckoutCommit returned error: %v", err)
+		}
+		assertGitRepositoryShallow(t, destination, false)
+		content, err := os.ReadFile(filepath.Join(destination, "README.md"))
+		if err != nil || string(content) != "one\n" {
+			t.Fatalf("fallback README.md = %q, err=%v", content, err)
+		}
+	})
 	if _, err := client.Resolve(context.Background(), Source{Provider: ProviderGit, URL: repository, Ref: "missing"}); err == nil {
 		t.Fatal("Resolve missing ref returned nil error")
 	}
@@ -138,4 +167,12 @@ func runTestGit(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
 	return string(output)
+}
+
+func assertGitRepositoryShallow(t *testing.T, repository string, want bool) {
+	t.Helper()
+	got := strings.TrimSpace(runTestGit(t, repository, "rev-parse", "--is-shallow-repository"))
+	if got != fmt.Sprint(want) {
+		t.Fatalf("git repository shallow = %q, want %t", got, want)
+	}
 }

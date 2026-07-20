@@ -27,23 +27,11 @@ type ResolvedGit struct {
 }
 
 func (c GitClient) Resolve(ctx context.Context, source Source) (ResolvedGit, error) {
-	source = source.Normalized()
-	if source.Provider != ProviderGit {
-		return ResolvedGit{}, fmt.Errorf("git source provider must be %q", ProviderGit)
-	}
-	if source.URL == "" {
-		return ResolvedGit{}, errors.New("git source url is required")
-	}
-	if err := validateGitOperand("git url", source.URL); err != nil {
+	source, err := validateGitSource(source)
+	if err != nil {
 		return ResolvedGit{}, err
 	}
-	if err := validateGitURLScheme(source.URL); err != nil {
-		return ResolvedGit{}, err
-	}
-	target := source.Ref
-	if target == "" {
-		target = "HEAD"
-	}
+	target := gitSourceTarget(source)
 	if err := validateGitOperand("git ref", target); err != nil {
 		return ResolvedGit{}, err
 	}
@@ -82,33 +70,104 @@ func (c GitClient) Checkout(ctx context.Context, source Source, destination stri
 }
 
 func (c GitClient) CheckoutCommit(ctx context.Context, source Source, commit, destination string) error {
-	source = source.Normalized()
-	if source.Provider != ProviderGit {
-		return fmt.Errorf("git source provider must be %q", ProviderGit)
-	}
-	if source.URL == "" {
-		return errors.New("git source url is required")
+	source, err := validateGitSource(source)
+	if err != nil {
+		return err
 	}
 	commit = strings.TrimSpace(commit)
 	if commit == "" {
 		return errors.New("git checkout commit is required")
 	}
-	if strings.TrimSpace(destination) == "" {
-		return errors.New("git checkout destination is required")
-	}
-	if err := validateGitOperand("git url", source.URL); err != nil {
-		return err
-	}
-	if err := validateGitURLScheme(source.URL); err != nil {
-		return err
-	}
 	if err := validateGitOperand("git commit", commit); err != nil {
 		return err
 	}
-	if err := c.run(ctx, "", source, "clone", "--no-checkout", "--", source.URL, destination); err != nil {
-		return fmt.Errorf("clone git source: %w", err)
+	if err := validateGitCheckoutDestination(destination); err != nil {
+		return err
 	}
-	if err := c.run(ctx, destination, source, "checkout", commit); err != nil {
+	if err := c.cloneShallowGitRepository(ctx, source, destination); err != nil {
+		return err
+	}
+	if c.hasLocalGitCommit(ctx, source, commit, destination) {
+		return c.checkoutLocalCommit(ctx, source, commit, destination)
+	}
+	// Fetching the resolved commit directly keeps branch, tag, and full-SHA
+	// checkouts shallow. Some servers reject fetching a raw or abbreviated SHA;
+	// only those repositories use the full-ref fallback needed for correctness.
+	if shallowErr := c.run(ctx, destination, source, "fetch", "--depth=1", "--no-tags", "--", "origin", commit); shallowErr != nil {
+		if fallbackErr := c.fetchAllGitRefs(ctx, source, destination); fallbackErr != nil {
+			return fmt.Errorf("fetch git commit %s: shallow fetch failed: %v; full fetch fallback failed: %w", commit, shallowErr, fallbackErr)
+		}
+	}
+	return c.checkoutLocalCommit(ctx, source, commit, destination)
+}
+
+func validateGitSource(source Source) (Source, error) {
+	source = source.Normalized()
+	if source.Provider != ProviderGit {
+		return Source{}, fmt.Errorf("git source provider must be %q", ProviderGit)
+	}
+	if source.URL == "" {
+		return Source{}, errors.New("git source url is required")
+	}
+	if err := validateGitOperand("git url", source.URL); err != nil {
+		return Source{}, err
+	}
+	if err := validateGitURLScheme(source.URL); err != nil {
+		return Source{}, err
+	}
+	return source, nil
+}
+
+func gitSourceTarget(source Source) string {
+	if source.Ref != "" {
+		return source.Ref
+	}
+	return "HEAD"
+}
+
+func validateGitCheckoutDestination(destination string) error {
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		return errors.New("git checkout destination is required")
+	}
+	entries, err := os.ReadDir(destination)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("inspect git checkout destination: %w", err)
+	case len(entries) != 0:
+		return fmt.Errorf("git checkout destination %s is not empty", destination)
+	default:
+		return nil
+	}
+}
+
+func (c GitClient) cloneShallowGitRepository(ctx context.Context, source Source, destination string) error {
+	// Start from a real clone rather than git init + fetch so workspaces retain
+	// the origin remote and its default remote-tracking branch. --no-local makes
+	// depth effective for local-path sources as well as network transports.
+	if err := c.run(ctx, "", source, "clone", "--depth=1", "--no-local", "--no-checkout", "--", source.URL, destination); err != nil {
+		return fmt.Errorf("clone shallow git source: %w", err)
+	}
+	return nil
+}
+
+func (c GitClient) hasLocalGitCommit(ctx context.Context, source Source, commit, repository string) bool {
+	return c.run(ctx, repository, source, "cat-file", "-e", commit+"^{commit}") == nil
+}
+
+func (c GitClient) fetchAllGitRefs(ctx context.Context, source Source, repository string) error {
+	refspec := "+refs/heads/*:refs/remotes/origin/*"
+	args := []string{"fetch", "--unshallow", "--tags", "--", "origin", refspec}
+	if err := c.run(ctx, repository, source, args...); err == nil {
+		return nil
+	}
+	return c.run(ctx, repository, source, "fetch", "--tags", "--", "origin", refspec)
+}
+
+func (c GitClient) checkoutLocalCommit(ctx context.Context, source Source, commit, repository string) error {
+	if err := c.run(ctx, repository, source, "checkout", "--detach", commit); err != nil {
 		return fmt.Errorf("checkout git source commit %s: %w", commit, err)
 	}
 	return nil
