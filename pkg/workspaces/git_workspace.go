@@ -2,7 +2,6 @@ package workspaces
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,13 +27,9 @@ func PrepareGitWorkspace(ctx context.Context, session *domain.Sandbox, workspace
 }
 
 func (w gitWorkspace) Prepare(ctx context.Context, session *domain.Sandbox) error {
-	var cfg GitWorkspaceConfig
-	if err := json.Unmarshal([]byte(w.workspace.ConfigJSON), &cfg); err != nil {
+	cfg, err := DecodeGitWorkspaceConfig(w.workspace.ConfigJSON)
+	if err != nil {
 		return fmt.Errorf("decode workspace config %s: %w", w.workspace.ID, err)
-	}
-	cfg.Source = cfg.Normalized()
-	if cfg.Provider == "" {
-		cfg.Provider = sources.ProviderGit
 	}
 	if cfg.URL == "" {
 		return fmt.Errorf("workspace config %s missing git url", w.workspace.ID)

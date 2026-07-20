@@ -2,7 +2,6 @@ package projects
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -122,8 +121,8 @@ func legacyProjectWorkspaceNames(configs []domain.WorkspaceConfig) map[string]st
 func mapLegacyWorkspaceConfig(config *appconfig.Config, workspace domain.WorkspaceConfig) (compose.WorkspaceSpec, error) {
 	switch strings.ToLower(strings.TrimSpace(workspace.Type)) {
 	case "git":
-		var legacy workspaces.GitWorkspaceConfig
-		if err := json.Unmarshal([]byte(workspace.ConfigJSON), &legacy); err != nil {
+		legacy, err := workspaces.DecodeGitWorkspaceConfig(workspace.ConfigJSON)
+		if err != nil {
 			return compose.WorkspaceSpec{}, fmt.Errorf("decode legacy git workspace preset %s: %w", workspace.ID, err)
 		}
 		target, err := workspaces.NormalizeWorkspaceTarget(workspace.ID, legacy.Target)

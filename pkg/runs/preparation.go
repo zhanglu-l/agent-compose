@@ -149,7 +149,7 @@ func DecodeRevisionSpec(raw string) (*agentcomposev2.ProjectSpec, error) {
 	if err := json.Unmarshal(protoData, &spec); err != nil {
 		return nil, fmt.Errorf("decode project revision spec: %w", err)
 	}
-	if err := restoreCanonicalProjectWorkspaces(data, &spec); err != nil {
+	if err := restoreCanonicalRevisionWorkspaces(data, &spec); err != nil {
 		return nil, err
 	}
 	return &spec, nil
@@ -181,72 +181,6 @@ func normalizeCanonicalAgentStatuses(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("encode project revision compatibility shape: %w", err)
 	}
 	return encoded, nil
-}
-
-type canonicalRevisionSpec struct {
-	Workspaces []json.RawMessage `json:"workspaces"`
-}
-
-type canonicalRevisionWorkspace struct {
-	Key       string                        `json:"key"`
-	Name      string                        `json:"name"`
-	Provider  string                        `json:"provider"`
-	URL       string                        `json:"url"`
-	Ref       string                        `json:"ref"`
-	Path      string                        `json:"path"`
-	Format    string                        `json:"format"`
-	Target    string                        `json:"target"`
-	Username  string                        `json:"username"`
-	Password  string                        `json:"password"`
-	Token     string                        `json:"token"`
-	Workspace *agentcomposev2.WorkspaceSpec `json:"workspace"`
-}
-
-func restoreCanonicalProjectWorkspaces(data []byte, spec *agentcomposev2.ProjectSpec) error {
-	if spec == nil || len(spec.GetWorkspaces()) == 0 {
-		return nil
-	}
-	var stored canonicalRevisionSpec
-	if err := json.Unmarshal(data, &stored); err != nil {
-		return fmt.Errorf("decode project revision workspace compatibility shape: %w", err)
-	}
-	for i, raw := range stored.Workspaces {
-		if i >= len(spec.Workspaces) || spec.Workspaces[i].GetWorkspace() != nil {
-			continue
-		}
-		var workspace canonicalRevisionWorkspace
-		if err := json.Unmarshal(raw, &workspace); err != nil {
-			return fmt.Errorf("decode project revision workspace %d: %w", i, err)
-		}
-		if workspace.Workspace != nil {
-			spec.Workspaces[i].Workspace = workspace.Workspace
-			continue
-		}
-		if strings.TrimSpace(workspace.Provider) == "" &&
-			strings.TrimSpace(workspace.URL) == "" &&
-			strings.TrimSpace(workspace.Ref) == "" &&
-			strings.TrimSpace(workspace.Path) == "" &&
-			strings.TrimSpace(workspace.Target) == "" {
-			continue
-		}
-		if key := strings.TrimSpace(workspace.Key); key != "" {
-			spec.Workspaces[i].Name = key
-		} else if strings.TrimSpace(spec.Workspaces[i].GetName()) == "" {
-			spec.Workspaces[i].Name = strings.TrimSpace(workspace.Name)
-		}
-		spec.Workspaces[i].Workspace = &agentcomposev2.WorkspaceSpec{
-			Provider: workspace.Provider,
-			Url:      workspace.URL,
-			Ref:      workspace.Ref,
-			Path:     workspace.Path,
-			Format:   workspace.Format,
-			Target:   workspace.Target,
-			Username: workspace.Username,
-			Password: workspace.Password,
-			Token:    workspace.Token,
-		}
-	}
-	return nil
 }
 
 func AgentSpecByName(spec *agentcomposev2.ProjectSpec, name string) (*agentcomposev2.AgentSpec, bool) {

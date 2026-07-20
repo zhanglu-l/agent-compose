@@ -32,6 +32,26 @@ func TestMapLegacyWorkspaceConfigToExistingV2Shapes(t *testing.T) {
 		}
 	})
 
+	t.Run("git legacy persistence aliases", func(t *testing.T) {
+		workspace, err := mapLegacyWorkspaceConfig(nil, domain.WorkspaceConfig{
+			ID:   "legacy-git-workspace",
+			Type: "git",
+			ConfigJSON: `{
+				"url":"https://example.test/team/repo.git",
+				"branch":"main",
+				"commit":"abc123",
+				"path":"source",
+				"credential":"legacy-user:legacy-password"
+			}`,
+		})
+		if err != nil {
+			t.Fatalf("mapLegacyWorkspaceConfig returned error: %v", err)
+		}
+		if workspace.Provider != "git" || workspace.Ref != "abc123" || workspace.Target != "source" || workspace.Username != "legacy-user" || workspace.Password != "legacy-password" {
+			t.Fatalf("mapped legacy git workspace = %#v", workspace)
+		}
+	})
+
 	t.Run("file", func(t *testing.T) {
 		root := t.TempDir()
 		config := &appconfig.Config{DataRoot: root}
