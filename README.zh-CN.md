@@ -56,7 +56,7 @@ cd <安装脚本打印的目录>
 docker compose --profile with-ui up -d
 ```
 
-基础 `docker-compose.yml` 不启用 `privileged`，也不映射 `/dev/kvm`；installer 在新安装时检测 KVM，并在可用时把 `COMPOSE_FILE=docker-compose.yml:docker-compose.kvm.yml` 持久化到安装目录的 `.env`。没有 KVM 时仍可使用默认 Docker driver。安装、升级、卸载、数据保留以及镜像/私有 registry 选项见 [deploy/README.md](deploy/README.md)。
+installer 还会预先拉取 sandbox guest 镜像，避免首次运行 agent 时卡在大文件下载上；不需要时传 `--skip-guest-pull` 或在 TUI 里选「否」。基础 `docker-compose.yml` 不启用 `privileged`，也不映射 `/dev/kvm`；installer 在新安装时检测 KVM，并在可用时把 `COMPOSE_FILE=docker-compose.yml:docker-compose.kvm.yml` 持久化到安装目录的 `.env`。没有 KVM 时仍可使用默认 Docker driver。安装、升级、卸载、数据保留以及镜像/私有 registry 选项见 [deploy/README.md](deploy/README.md)。
 
 ### 方式 B —— 从源码构建（用于 CLI 工作流）
 

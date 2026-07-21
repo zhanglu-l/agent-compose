@@ -16,6 +16,7 @@ const (
 	fieldVersion
 	fieldWithUI
 	fieldPort
+	fieldGuestPull
 )
 
 // formField is either a text input or an on/off toggle. Toggles cannot be
@@ -47,6 +48,7 @@ func (m *model) buildFields() {
 			newTextField(fieldVersion, m.options.Version),
 			newToggleField(fieldWithUI, m.options.WithUI),
 			newTextField(fieldPort, strconv.Itoa(m.options.Port)),
+			newToggleField(fieldGuestPull, !m.options.SkipGuestPull),
 		)
 	}
 	m.focus = 0
@@ -121,6 +123,8 @@ func (m *model) readFields() error {
 			}
 			m.options.Port = port
 			m.options.PortSet = true
+		case fieldGuestPull:
+			m.options.SkipGuestPull = !field.on
 		}
 	}
 	if m.operation != core.OperationUninstall {
@@ -139,6 +143,8 @@ func (m *model) fieldLabel(id fieldID) string {
 		return m.text("安装 Web UI", "Install web UI")
 	case fieldPort:
 		return m.text("Web UI 端口", "Web UI port")
+	case fieldGuestPull:
+		return m.text("预拉取 guest 镜像", "Pre-pull guest image")
 	}
 	return ""
 }

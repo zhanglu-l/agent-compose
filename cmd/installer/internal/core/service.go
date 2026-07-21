@@ -42,6 +42,7 @@ type Result struct {
 	DataDir           string
 	ComposeFiles      string
 	ComposeProfiles   string
+	GuestImage        string
 	RetainedFiles     []string
 }
 
@@ -176,12 +177,30 @@ func (s Service) installOrUpgrade(ctx context.Context, operation Operation, opti
 	if err := s.compose(ctx, options.InstallDir, "pull"); err != nil {
 		return result, fmt.Errorf("pull deployment images: %w", err)
 	}
+	s.pullGuestImage(ctx, options, result.GuestImage)
 	tx.upAttempted = true
 	s.report(EventStep, "Starting agent-compose")
 	if err := s.compose(ctx, options.InstallDir, "up", "-d"); err != nil {
 		return result, fmt.Errorf("start deployment: %w", err)
 	}
 	return result, nil
+}
+
+// pullGuestImage fetches the sandbox guest image ahead of time. Compose never
+// pulls it because DEFAULT_IMAGE is a daemon setting rather than a service
+// image, so the first agent run would otherwise stall on a large download and
+// surface registry problems far from the installation that caused them.
+//
+// A failure is reported but does not abort: the deployment itself is healthy,
+// and rolling it back over a deferred download would cost more than it saves.
+func (s Service) pullGuestImage(ctx context.Context, options Options, image string) {
+	if options.SkipGuestPull || image == "" {
+		return
+	}
+	s.report(EventStep, "Pulling guest image "+image)
+	if err := s.runner().Run(ctx, options.InstallDir, "docker", "pull", image); err != nil {
+		s.report(EventWarning, fmt.Sprintf("guest image %s was not pulled; the first sandbox will download it: %v", image, err))
+	}
 }
 
 // compose deliberately passes no --progress flag. It was once forced to plain
@@ -317,9 +336,11 @@ func prepareInstallPlan(operation Operation, options Options, source *bundle) (*
 	if !ok || username == "" {
 		username = "admin"
 	}
+	guestImage, _ := env.Get("DEFAULT_IMAGE")
 	plan.result = Result{
 		InstallDir: options.InstallDir, Username: username, GeneratedPassword: password,
 		DataDir: dataDir, ComposeFiles: composeFiles, ComposeProfiles: composeProfiles,
+		GuestImage: strings.TrimSpace(guestImage),
 	}
 	// Without the frontend nothing listens on the published port, so reporting a
 	// URL would send the operator to a dead address.

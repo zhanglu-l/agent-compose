@@ -83,6 +83,10 @@ cd <directory printed by the installer>
 docker compose --profile with-ui up -d
 ```
 
+The installer also pre-pulls the sandbox guest image so the first agent run
+does not stall on a large download; pass `--skip-guest-pull` (or answer no in
+the TUI) to defer it.
+
 On first run the installer generates an `admin` password and prints it once;
 use it at the URL the installer prints when the UI is enabled. See
 [deploy/README.md](deploy/README.md) for install, upgrade, uninstall, data

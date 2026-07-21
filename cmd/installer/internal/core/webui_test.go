@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -91,5 +92,50 @@ func TestUpgradeKeepsExistingProfileUnlessExplicitlySet(t *testing.T) {
 	assertTestEnv(t, readTestEnv(t, filepath.Join(installDir, ".env")), "COMPOSE_PROFILES", "")
 	if removed.WithUI() {
 		t.Fatalf("explicit opt-out did not remove the web UI: %#v", removed)
+	}
+}
+
+func TestInstallPullsGuestImageUnlessSkipped(t *testing.T) {
+	guestPull := "docker pull registry.example/agent-compose-guest:v1"
+
+	runner, result, _ := installForWebUITest(t, nil)
+	if result.GuestImage != "registry.example/agent-compose-guest:v1" {
+		t.Fatalf("guest image = %q", result.GuestImage)
+	}
+	if !slices.ContainsFunc(runner.calls, func(call string) bool { return strings.Contains(call, guestPull) }) {
+		t.Fatalf("guest image was not pre-pulled: %#v", runner.calls)
+	}
+
+	skipped, _, _ := installForWebUITest(t, func(options *Options) { options.SkipGuestPull = true })
+	if slices.ContainsFunc(skipped.calls, func(call string) bool { return strings.Contains(call, guestPull) }) {
+		t.Fatalf("guest image was pulled despite the skip: %#v", skipped.calls)
+	}
+}
+
+// A guest image is a deferred convenience: the deployment itself is healthy
+// without it, so a pull failure must not roll the installation back.
+func TestInstallSurvivesGuestImagePullFailure(t *testing.T) {
+	root := t.TempDir()
+	installDir := filepath.Join(root, "install")
+	options := DefaultOptions()
+	options.InstallDir = installDir
+	options.BundleDir = makeTestBundle(t, "v1")
+	options.KVMPath = filepath.Join(root, "missing-kvm")
+
+	runner := &fakeRunner{failOn: "docker pull registry.example/agent-compose-guest"}
+	var warnings []string
+	service := Service{Runner: runner, Reporter: ReporterFunc(func(event Event) {
+		if event.Kind == EventWarning {
+			warnings = append(warnings, event.Message)
+		}
+	})}
+	if _, err := service.Apply(context.Background(), OperationInstall, options); err != nil {
+		t.Fatalf("guest pull failure aborted the install: %v", err)
+	}
+	if !slices.ContainsFunc(runner.calls, func(call string) bool { return strings.Contains(call, "compose up -d") }) {
+		t.Fatalf("deployment was not started: %#v", runner.calls)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "agent-compose-guest") {
+		t.Fatalf("guest pull failure was not reported: %#v", warnings)
 	}
 }

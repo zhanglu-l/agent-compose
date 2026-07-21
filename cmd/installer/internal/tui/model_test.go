@@ -20,11 +20,11 @@ func TestModelSelectsLanguageAndInstallFlow(t *testing.T) {
 		t.Fatalf("language screen = %q, %d", m.language, m.screen)
 	}
 	press(t, m, "enter")
-	if m.operation != core.OperationInstall || m.screen != screenForm || len(m.fields) != 4 {
+	if m.operation != core.OperationInstall || m.screen != screenForm || len(m.fields) != 5 {
 		t.Fatalf("install form = %q, %d, %d fields", m.operation, m.screen, len(m.fields))
 	}
 	form := m.View()
-	for _, expected := range []string{"Configure installation", "Install directory", "Application version", "Install web UI", "Web UI port", "╭", "Tab / ↑↓ move"} {
+	for _, expected := range []string{"Configure installation", "Install directory", "Application version", "Install web UI", "Web UI port", "Pre-pull guest image", "╭", "Tab / ↑↓ move"} {
 		if !strings.Contains(form, expected) {
 			t.Fatalf("install form missing %q:\n%s", expected, form)
 		}
@@ -43,7 +43,7 @@ func TestModelSelectsLanguageAndInstallFlow(t *testing.T) {
 		t.Fatalf("screen = %d, want confirmation", m.screen)
 	}
 	confirmation := m.View()
-	for _, expected := range []string{"/opt/agent-compose", "latest", "Install web UI: No"} {
+	for _, expected := range []string{"/opt/agent-compose", "latest", "Install web UI: No", "Pre-pull guest image: Yes"} {
 		if !strings.Contains(confirmation, expected) {
 			t.Fatalf("confirmation missing %q:\n%s", expected, confirmation)
 		}
@@ -68,8 +68,8 @@ func TestModelPortFollowsWebUIToggle(t *testing.T) {
 	// Tab from the UI toggle must land past the disabled port.
 	m.focus = indexOfField(t, m, fieldWithUI)
 	m.moveFocus(1)
-	if m.fields[m.focus].id != fieldInstallDir {
-		t.Fatalf("focus stopped on field %d, want the wrap past the disabled port", m.fields[m.focus].id)
+	if m.fields[m.focus].id != fieldGuestPull {
+		t.Fatalf("focus stopped on field %d, want the guest toggle", m.fields[m.focus].id)
 	}
 
 	m.focus = indexOfField(t, m, fieldWithUI)
@@ -88,6 +88,19 @@ func TestModelPortFollowsWebUIToggle(t *testing.T) {
 	}
 	if confirmation := m.View(); !strings.Contains(confirmation, "Web UI port") {
 		t.Fatalf("confirmation hid the port with the web UI enabled:\n%s", confirmation)
+	}
+}
+
+func TestModelGuestPullToggleSetsSkip(t *testing.T) {
+	m := installForm(t)
+	if m.options.SkipGuestPull {
+		t.Fatal("guest pull is skipped by default")
+	}
+	m.focus = indexOfField(t, m, fieldGuestPull)
+	press(t, m, " ")
+	press(t, m, "enter")
+	if !m.options.SkipGuestPull {
+		t.Fatal("toggling the guest field did not set SkipGuestPull")
 	}
 }
 

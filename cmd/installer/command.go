@@ -61,6 +61,7 @@ func newRootCommand(out, errOut io.Writer) *cobra.Command {
 	flags.StringVar(&options.InstallDir, "dir", options.InstallDir, "installation directory")
 	flags.IntVar(&options.Port, "port", options.Port, "web UI host port")
 	flags.BoolVar(&options.WithUI, "with-ui", options.WithUI, "also publish the web UI")
+	flags.BoolVar(&options.SkipGuestPull, "skip-guest-pull", false, "do not pre-pull the sandbox guest image")
 	flags.StringVar(&options.Version, "version", options.Version, "application release version")
 	flags.StringVar(&options.ImagePrefix, "image-prefix", "", "image registry prefix")
 	flags.BoolVar(&options.NoStart, "no-start", false, "prepare files without starting services")
@@ -201,7 +202,7 @@ func writeResult(out io.Writer, operation core.Operation, result core.Result, pu
 }
 
 func hasInstallerFlags(cmd *cobra.Command) bool {
-	for _, name := range []string{"dir", "port", "version", "image-prefix", "no-start", "yes", "with-ui"} {
+	for _, name := range []string{"dir", "port", "version", "image-prefix", "no-start", "yes", "with-ui", "skip-guest-pull"} {
 		if cmd.Flags().Changed(name) {
 			return true
 		}

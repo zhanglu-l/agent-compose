@@ -33,6 +33,7 @@ type Options struct {
 	PortSet         bool
 	WithUI          bool
 	WithUISet       bool
+	SkipGuestPull   bool
 	NoStart         bool
 	Purge           bool
 	KVMPath         string

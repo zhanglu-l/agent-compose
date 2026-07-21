@@ -43,6 +43,9 @@ sudo /opt/agent-compose/installer install \
   --image-prefix registry.example.com/agent-compose \
   --yes
 
+# Skip the guest image pre-pull; the first sandbox downloads it instead.
+sudo /opt/agent-compose/installer install --skip-guest-pull --yes
+
 # Update installer-managed image references to the latest application release.
 sudo /opt/agent-compose/installer upgrade --yes
 

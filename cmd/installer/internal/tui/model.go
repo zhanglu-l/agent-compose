@@ -327,7 +327,7 @@ func (m *model) formHeading() (string, string) {
 	case core.OperationUninstall:
 		return m.text("选择安装位置", "Select installation"), m.text("指定要卸载的 agent-compose 目录", "Choose the agent-compose directory to uninstall")
 	default:
-		return m.text("配置安装", "Configure installation"), m.text("确认安装位置、发布版本和 Web UI", "Review the location, release, and web UI")
+		return m.text("配置安装", "Configure installation"), m.text("确认安装位置、发布版本、Web UI 和 guest 镜像", "Review the location, release, web UI, and guest image")
 	}
 }
 
@@ -342,6 +342,7 @@ func (m *model) renderConfirm(body *strings.Builder) {
 		if m.options.WithUI {
 			fmt.Fprintf(body, "  %s: %d\n", m.text("Web UI 端口", "Web UI port"), m.options.Port)
 		}
+		fmt.Fprintf(body, "  %s: %s\n", m.text("预拉取 guest 镜像", "Pre-pull guest image"), m.yesNo(!m.options.SkipGuestPull))
 	}
 	body.WriteString("\n")
 	m.renderMenu(body, m.text("确认继续？", "Continue?"), []string{m.text("继续", "Continue"), m.text("返回", "Back")})
