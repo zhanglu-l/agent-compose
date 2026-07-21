@@ -82,6 +82,12 @@ const (
 	// ProjectServiceListSchedulerEventsProcedure is the fully-qualified name of the ProjectService's
 	// ListSchedulerEvents RPC.
 	ProjectServiceListSchedulerEventsProcedure = "/agentcompose.v2.ProjectService/ListSchedulerEvents"
+	// ProjectServiceListProjectSchedulerEventsProcedure is the fully-qualified name of the
+	// ProjectService's ListProjectSchedulerEvents RPC.
+	ProjectServiceListProjectSchedulerEventsProcedure = "/agentcompose.v2.ProjectService/ListProjectSchedulerEvents"
+	// ProjectServiceInvokeSchedulerProcedure is the fully-qualified name of the ProjectService's
+	// InvokeScheduler RPC.
+	ProjectServiceInvokeSchedulerProcedure = "/agentcompose.v2.ProjectService/InvokeScheduler"
 	// ProjectServiceRunSchedulerProcedure is the fully-qualified name of the ProjectService's
 	// RunScheduler RPC.
 	ProjectServiceRunSchedulerProcedure = "/agentcompose.v2.ProjectService/RunScheduler"
@@ -255,6 +261,8 @@ type ProjectServiceClient interface {
 	GetScheduler(context.Context, *connect.Request[v2.GetSchedulerRequest]) (*connect.Response[v2.GetSchedulerResponse], error)
 	ListSchedulers(context.Context, *connect.Request[v2.ListSchedulersRequest]) (*connect.Response[v2.ListSchedulersResponse], error)
 	ListSchedulerEvents(context.Context, *connect.Request[v2.ListSchedulerEventsRequest]) (*connect.Response[v2.ListSchedulerEventsResponse], error)
+	ListProjectSchedulerEvents(context.Context, *connect.Request[v2.ListProjectSchedulerEventsRequest]) (*connect.Response[v2.ListProjectSchedulerEventsResponse], error)
+	InvokeScheduler(context.Context, *connect.Request[v2.InvokeSchedulerRequest]) (*connect.Response[v2.InvokeSchedulerResponse], error)
 	RunScheduler(context.Context, *connect.Request[v2.RunSchedulerRequest]) (*connect.Response[v2.RunSchedulerResponse], error)
 	StartSchedulerRun(context.Context, *connect.Request[v2.StartSchedulerRunRequest]) (*connect.Response[v2.StartSchedulerRunResponse], error)
 	GetSchedulerRun(context.Context, *connect.Request[v2.GetSchedulerRunRequest]) (*connect.Response[v2.GetSchedulerRunResponse], error)
@@ -329,6 +337,18 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("ListSchedulerEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		listProjectSchedulerEvents: connect.NewClient[v2.ListProjectSchedulerEventsRequest, v2.ListProjectSchedulerEventsResponse](
+			httpClient,
+			baseURL+ProjectServiceListProjectSchedulerEventsProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("ListProjectSchedulerEvents")),
+			connect.WithClientOptions(opts...),
+		),
+		invokeScheduler: connect.NewClient[v2.InvokeSchedulerRequest, v2.InvokeSchedulerResponse](
+			httpClient,
+			baseURL+ProjectServiceInvokeSchedulerProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("InvokeScheduler")),
+			connect.WithClientOptions(opts...),
+		),
 		runScheduler: connect.NewClient[v2.RunSchedulerRequest, v2.RunSchedulerResponse](
 			httpClient,
 			baseURL+ProjectServiceRunSchedulerProcedure,
@@ -385,6 +405,8 @@ type projectServiceClient struct {
 	getScheduler               *connect.Client[v2.GetSchedulerRequest, v2.GetSchedulerResponse]
 	listSchedulers             *connect.Client[v2.ListSchedulersRequest, v2.ListSchedulersResponse]
 	listSchedulerEvents        *connect.Client[v2.ListSchedulerEventsRequest, v2.ListSchedulerEventsResponse]
+	listProjectSchedulerEvents *connect.Client[v2.ListProjectSchedulerEventsRequest, v2.ListProjectSchedulerEventsResponse]
+	invokeScheduler            *connect.Client[v2.InvokeSchedulerRequest, v2.InvokeSchedulerResponse]
 	runScheduler               *connect.Client[v2.RunSchedulerRequest, v2.RunSchedulerResponse]
 	startSchedulerRun          *connect.Client[v2.StartSchedulerRunRequest, v2.StartSchedulerRunResponse]
 	getSchedulerRun            *connect.Client[v2.GetSchedulerRunRequest, v2.GetSchedulerRunResponse]
@@ -439,6 +461,16 @@ func (c *projectServiceClient) ListSchedulerEvents(ctx context.Context, req *con
 	return c.listSchedulerEvents.CallUnary(ctx, req)
 }
 
+// ListProjectSchedulerEvents calls agentcompose.v2.ProjectService.ListProjectSchedulerEvents.
+func (c *projectServiceClient) ListProjectSchedulerEvents(ctx context.Context, req *connect.Request[v2.ListProjectSchedulerEventsRequest]) (*connect.Response[v2.ListProjectSchedulerEventsResponse], error) {
+	return c.listProjectSchedulerEvents.CallUnary(ctx, req)
+}
+
+// InvokeScheduler calls agentcompose.v2.ProjectService.InvokeScheduler.
+func (c *projectServiceClient) InvokeScheduler(ctx context.Context, req *connect.Request[v2.InvokeSchedulerRequest]) (*connect.Response[v2.InvokeSchedulerResponse], error) {
+	return c.invokeScheduler.CallUnary(ctx, req)
+}
+
 // RunScheduler calls agentcompose.v2.ProjectService.RunScheduler.
 func (c *projectServiceClient) RunScheduler(ctx context.Context, req *connect.Request[v2.RunSchedulerRequest]) (*connect.Response[v2.RunSchedulerResponse], error) {
 	return c.runScheduler.CallUnary(ctx, req)
@@ -485,6 +517,8 @@ type ProjectServiceHandler interface {
 	GetScheduler(context.Context, *connect.Request[v2.GetSchedulerRequest]) (*connect.Response[v2.GetSchedulerResponse], error)
 	ListSchedulers(context.Context, *connect.Request[v2.ListSchedulersRequest]) (*connect.Response[v2.ListSchedulersResponse], error)
 	ListSchedulerEvents(context.Context, *connect.Request[v2.ListSchedulerEventsRequest]) (*connect.Response[v2.ListSchedulerEventsResponse], error)
+	ListProjectSchedulerEvents(context.Context, *connect.Request[v2.ListProjectSchedulerEventsRequest]) (*connect.Response[v2.ListProjectSchedulerEventsResponse], error)
+	InvokeScheduler(context.Context, *connect.Request[v2.InvokeSchedulerRequest]) (*connect.Response[v2.InvokeSchedulerResponse], error)
 	RunScheduler(context.Context, *connect.Request[v2.RunSchedulerRequest]) (*connect.Response[v2.RunSchedulerResponse], error)
 	StartSchedulerRun(context.Context, *connect.Request[v2.StartSchedulerRunRequest]) (*connect.Response[v2.StartSchedulerRunResponse], error)
 	GetSchedulerRun(context.Context, *connect.Request[v2.GetSchedulerRunRequest]) (*connect.Response[v2.GetSchedulerRunResponse], error)
@@ -555,6 +589,18 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("ListSchedulerEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServiceListProjectSchedulerEventsHandler := connect.NewUnaryHandler(
+		ProjectServiceListProjectSchedulerEventsProcedure,
+		svc.ListProjectSchedulerEvents,
+		connect.WithSchema(projectServiceMethods.ByName("ListProjectSchedulerEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	projectServiceInvokeSchedulerHandler := connect.NewUnaryHandler(
+		ProjectServiceInvokeSchedulerProcedure,
+		svc.InvokeScheduler,
+		connect.WithSchema(projectServiceMethods.ByName("InvokeScheduler")),
+		connect.WithHandlerOptions(opts...),
+	)
 	projectServiceRunSchedulerHandler := connect.NewUnaryHandler(
 		ProjectServiceRunSchedulerProcedure,
 		svc.RunScheduler,
@@ -617,6 +663,10 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServiceListSchedulersHandler.ServeHTTP(w, r)
 		case ProjectServiceListSchedulerEventsProcedure:
 			projectServiceListSchedulerEventsHandler.ServeHTTP(w, r)
+		case ProjectServiceListProjectSchedulerEventsProcedure:
+			projectServiceListProjectSchedulerEventsHandler.ServeHTTP(w, r)
+		case ProjectServiceInvokeSchedulerProcedure:
+			projectServiceInvokeSchedulerHandler.ServeHTTP(w, r)
 		case ProjectServiceRunSchedulerProcedure:
 			projectServiceRunSchedulerHandler.ServeHTTP(w, r)
 		case ProjectServiceStartSchedulerRunProcedure:
@@ -674,6 +724,14 @@ func (UnimplementedProjectServiceHandler) ListSchedulers(context.Context, *conne
 
 func (UnimplementedProjectServiceHandler) ListSchedulerEvents(context.Context, *connect.Request[v2.ListSchedulerEventsRequest]) (*connect.Response[v2.ListSchedulerEventsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ProjectService.ListSchedulerEvents is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) ListProjectSchedulerEvents(context.Context, *connect.Request[v2.ListProjectSchedulerEventsRequest]) (*connect.Response[v2.ListProjectSchedulerEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ProjectService.ListProjectSchedulerEvents is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) InvokeScheduler(context.Context, *connect.Request[v2.InvokeSchedulerRequest]) (*connect.Response[v2.InvokeSchedulerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ProjectService.InvokeScheduler is not implemented"))
 }
 
 func (UnimplementedProjectServiceHandler) RunScheduler(context.Context, *connect.Request[v2.RunSchedulerRequest]) (*connect.Response[v2.RunSchedulerResponse], error) {

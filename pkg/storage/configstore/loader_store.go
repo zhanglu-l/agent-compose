@@ -78,6 +78,8 @@ func (s *loaderStore) ensureLoaderSchema(ctx context.Context) error {
             FOREIGN KEY(loader_id) REFERENCES loader(id) ON DELETE CASCADE
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_loader_run_started ON loader_run(loader_id, started_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_loader_run_trigger_started ON loader_run(loader_id, trigger_id, started_at DESC, run_id DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_loader_run_status_started ON loader_run(loader_id, status, started_at DESC, run_id DESC);`,
 		`CREATE TABLE IF NOT EXISTS loader_event (
             loader_id TEXT NOT NULL,
             event_id TEXT NOT NULL,
@@ -95,6 +97,7 @@ func (s *loaderStore) ensureLoaderSchema(ctx context.Context) error {
             FOREIGN KEY(loader_id) REFERENCES loader(id) ON DELETE CASCADE
         );`,
 		`CREATE INDEX IF NOT EXISTS idx_loader_event_created ON loader_event(loader_id, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_loader_event_run_created ON loader_event(loader_id, run_id, created_at DESC, event_id DESC);`,
 		`CREATE TABLE IF NOT EXISTS loader_state (
             loader_id TEXT NOT NULL,
             key TEXT NOT NULL,
@@ -576,9 +579,9 @@ func (s *loaderStore) hydrateLoaderSummaryCounts(ctx context.Context, summary *d
 	}
 	row := s.db.QueryRowContext(ctx, `SELECT
         (SELECT COUNT(*) FROM loader_trigger WHERE loader_id = ?),
-        (SELECT COUNT(*) FROM loader_run WHERE loader_id = ?),
-        (SELECT COUNT(*) FROM loader_event WHERE loader_id = ?),
-        (SELECT MAX(started_at) FROM loader_run WHERE loader_id = ?)`, summary.ID, summary.ID, summary.ID, summary.ID)
+		(SELECT COUNT(*) FROM loader_run WHERE loader_id = ? AND trigger_id <> ''),
+		(SELECT COUNT(*) FROM loader_event e JOIN loader_run r ON r.loader_id = e.loader_id AND r.run_id = e.run_id WHERE e.loader_id = ? AND r.trigger_id <> ''),
+		(SELECT MAX(started_at) FROM loader_run WHERE loader_id = ? AND trigger_id <> '')`, summary.ID, summary.ID, summary.ID, summary.ID)
 	var triggerCount int
 	var runCount int
 	var eventCount int

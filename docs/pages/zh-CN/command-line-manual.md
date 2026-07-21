@@ -245,23 +245,26 @@ agent-compose run reviewer --jupyter --jupyter-expose --prompt "Inspect the note
 - `run -i --prompt` 仅支持可复用 provider conversation 的 Codex、Claude/cc 和 OpenCode；Gemini 当前会返回 unsupported。
 - `StopRun` 会请求 daemon 内当前活动 run 取消；daemon 重启后遗留的 running/pending run 会在启动 reconcile 中标记为 failed，并带 `daemon interrupted` 错误。
 
-## `scheduler`：查看和执行 project scheduler
+## `scheduler`：调用、查看和操作 project scheduler
 
 ```bash
 agent-compose scheduler ls [agent]
-agent-compose scheduler runs [scheduler] [--agent <agent>] [--trigger <trigger>] [--status <status>] [--limit <n>]
-agent-compose scheduler logs [run] [--run <run>] [--agent <agent>] [--trigger <trigger>] [--tail <n>]
-agent-compose scheduler trigger <agent> <trigger>
-agent-compose scheduler inspect <name-or-id> [trigger]
+agent-compose scheduler invoke <scheduler-ref> [--payload <json>]
+agent-compose scheduler trigger <scheduler-ref> <trigger-ref> [--payload <json>] [--detach]
+agent-compose scheduler runs [scheduler-ref] [--trigger <trigger-ref>] [--status <status>] [--limit <n>]
+agent-compose scheduler logs [run-ref] [--run <run-ref>] [--scheduler <scheduler-ref>] [--trigger <trigger-ref>] [--tail <n>]
+agent-compose scheduler inspect <scheduler-or-trigger-or-run-ref> [--scheduler <scheduler-ref>]
 ```
 
 - `scheduler ls` 同时列出声明式 scheduler 配置的 trigger 和 scheduler script 注册到系统中的 trigger。
-- `scheduler runs` 列出当前 project 的 scheduler run，以及每次 run 关联的 sandbox。
-- `scheduler logs` 输出 scheduler run 的结构化事件日志；不指定 run 时选择最新的匹配 run。
-- `scheduler trigger` 通过现有 project run 流程手动执行指定 trigger。
-- `scheduler trigger --prompt "..."` 覆盖本次手动运行使用的 agent prompt。
+- `scheduler invoke` 在前台调用显式脚本型 scheduler 的默认执行入口；它不创建 trigger run 历史、持久化外层日志或 artifacts。原有 `scheduler run` 命令已直接移除。
+- `scheduler trigger` 手动执行指定 trigger；使用 `--detach` 时会返回一个可继续 inspect 或 stop 的持久化 trigger run。
 - `scheduler trigger --payload '{"key":"value"}'` 将 JSON payload 传给 scheduler trigger handler。
-- `scheduler inspect` 可接受 scheduler 名称/ID、trigger 名称/ID 或 scheduler run ID；原有 `<agent> <trigger>` 形式继续兼容。
+- `scheduler runs` 只列出外层 trigger run；`scheduler.agent()` 创建的内层 agent run 仍由普通 run 命令管理。默认返回全部匹配记录，只有显式设置 `--limit` 才限制最终数量；status 可选 `running`、`succeeded`、`failed`、`canceled`、`skipped`。
+- `scheduler logs` 默认输出当前所有 scheduler 的全部 trigger run 外层结构化事件。`--tail N` 选择全局最新 N 条匹配事件并按从旧到新输出；`--tail -1` 表示全部，`--tail 0` 表示不输出。这里不包含 Invocation 日志或内层 agent transcript。
+- `scheduler runs/logs --trigger` 会优先按当前定义解析名称和短 ID。Trigger 被删除或改名后，只要仍有持久化的 trigger run 历史，就可以继续用其精确 ID 查询；同一历史 ID 属于多个 Scheduler 时，`runs` 需要增加 Scheduler 位置参数，`logs` 需要增加 `--scheduler`。
+- `scheduler inspect` 只接受一个 scheduler 名称/ID、trigger 名称/ID 或外层 trigger run ID。多个 scheduler 存在相同 trigger reference 时，使用 `--scheduler <scheduler-ref>` 消歧；旧双位置参数形式不再支持。
+- 当前 `scheduler runs` 和 `scheduler logs` 会收齐 unary cursor pages 后一次性渲染；streaming/follow 能力留到单独修改中实现。
 
 ## `ps`：查看 sandbox
 
