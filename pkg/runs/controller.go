@@ -50,6 +50,9 @@ type InteractionRuntime interface {
 
 type RuntimeProvider func(*domain.Sandbox) (Runtime, error)
 
+// PromptAttachEnvEnsurer prepares provider-specific managed environment variables for an attached prompt run.
+type PromptAttachEnvEnsurer func(context.Context, *domain.Sandbox, execution.AgentConfig, string) (map[string]string, error)
+
 type SandboxDriver interface {
 	StartSandboxVM(context.Context, *domain.Sandbox) error
 	StopSandboxVM(context.Context, *domain.Sandbox) error
@@ -127,15 +130,11 @@ type Controller struct {
 	runLogs          *RunLogHub
 	lifecycleLocks   *sessions.LifecycleLocks
 	removal          SandboxRemoval
+	promptAttachEnv  PromptAttachEnvEnsurer
 }
 
 type llmFacadeTokenDeleter interface {
 	DeleteLLMFacadeToken(context.Context, string) error
-}
-
-type llmFacadeStore interface {
-	llms.LLMResolverStore
-	SaveLLMFacadeToken(context.Context, llms.FacadeToken) error
 }
 
 type ControllerDependencies struct {
@@ -157,6 +156,7 @@ type ControllerDependencies struct {
 	RunLogs          *RunLogHub
 	LifecycleLocks   *sessions.LifecycleLocks
 	Removal          SandboxRemoval
+	PromptAttachEnv  PromptAttachEnvEnsurer
 }
 
 type SandboxRemoval interface {
@@ -183,6 +183,7 @@ func NewController(deps ControllerDependencies) *Controller {
 		runLogs:          deps.RunLogs,
 		lifecycleLocks:   deps.LifecycleLocks,
 		removal:          deps.Removal,
+		promptAttachEnv:  deps.PromptAttachEnv,
 	}
 }
 
@@ -839,8 +840,8 @@ func (c *Controller) runPromptInteraction(ctx context.Context, coordinator *Coor
 		transition.Error = fmt.Sprintf("agent execution failed: %v", err)
 		return transition, err
 	}
-	if agentConfig.Provider != "codex" {
-		err := fmt.Errorf("%w: prompt attach currently supports codex provider only", domain.ErrUnsupported)
+	if agentConfig.Provider != "codex" && agentConfig.Provider != "claude" {
+		err := fmt.Errorf("%w: prompt attach currently supports codex and claude providers only", domain.ErrUnsupported)
 		transition.ExitCode = 1
 		transition.Error = err.Error()
 		return transition, err
@@ -1048,40 +1049,10 @@ func (c *Controller) projectRunAgentSystemPrompt(ctx context.Context, run domain
 }
 
 func (c *Controller) ensurePromptAttachLLMFacadeEnv(ctx context.Context, sandbox *domain.Sandbox, agent execution.AgentConfig, runID string) (map[string]string, error) {
-	store, ok := c.configDB.(llmFacadeStore)
-	if !ok || c.config == nil || sandbox == nil || domain.NormalizeAgentKind(agent.Provider) != "codex" {
+	if c.promptAttachEnv == nil {
 		return nil, nil
 	}
-	target, err := llms.ResolveRuntimeLLMTargetWithEnv(ctx, c.config, store, sandbox.Summary.ID, llms.ProviderFamilyOpenAI, agent.Model, "", promptAttachSandboxProviderEnvItems(sandbox))
-	if err != nil {
-		if errors.Is(err, domain.ErrRequired) || errors.Is(err, domain.ErrFailedPrecondition) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	baseURL := llms.GuestRuntimeBaseURL(c.config, sandbox)
-	if strings.TrimSpace(baseURL) == "" {
-		return nil, nil
-	}
-	tokenValue, token, err := llms.NewFacadeToken(sandbox.Summary.ID, target.Model.Name, target.Provider.ID, llms.APIProtocolResponses, "agent", runID)
-	if err != nil {
-		return nil, err
-	}
-	if err := store.SaveLLMFacadeToken(ctx, token); err != nil {
-		return nil, err
-	}
-	openAIBaseURL := strings.TrimRight(baseURL, "/") + "/api/runtime/sandboxes/" + sandbox.Summary.ID + "/llm/openai/v1"
-	if err := llms.WriteCodexRuntimeConfig(sandbox, target.Model.Name, openAIBaseURL, llms.APIProtocolResponses); err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		"AGENT_COMPOSE_SANDBOX_TOKEN": tokenValue,
-		"LLM_API_ENDPOINT":            openAIBaseURL,
-		"LLM_API_KEY":                 tokenValue,
-		"LLM_API_PROTOCOL":            llms.APIProtocolResponses,
-		"OPENAI_API_KEY":              tokenValue,
-		"OPENAI_BASE_URL":             openAIBaseURL,
-	}, nil
+	return c.promptAttachEnv(ctx, sandbox, agent, runID)
 }
 
 func (c *Controller) deletePromptAttachLLMFacadeToken(ctx context.Context, token string) {
@@ -1090,16 +1061,6 @@ func (c *Controller) deletePromptAttachLLMFacadeToken(ctx context.Context, token
 		return
 	}
 	_ = store.DeleteLLMFacadeToken(ctx, token)
-}
-
-func promptAttachSandboxProviderEnvItems(sandbox *domain.Sandbox) []domain.SandboxEnvVar {
-	if sandbox == nil {
-		return nil
-	}
-	if len(sandbox.ProviderEnvItems) > 0 {
-		return sandbox.ProviderEnvItems
-	}
-	return sandbox.EnvItems
 }
 
 func projectRunAgentExecutionStream(ctx context.Context, coordinator *Coordinator, run domain.ProjectRunRecord, sandbox *domain.Sandbox, sink *StreamSink, hub *RunLogHub) execution.AgentExecutionStream {
@@ -1524,6 +1485,7 @@ func (p *promptAttachProjector) projectLine(line []byte) ([]*agentcomposev2.RunA
 func (p *promptAttachProjector) agentEventText(raw json.RawMessage) (string, string) {
 	var event struct {
 		Type string `json:"type"`
+		Text string `json:"text"`
 		Item *struct {
 			ID               string `json:"id"`
 			Type             string `json:"type"`
@@ -1536,6 +1498,9 @@ func (p *promptAttachProjector) agentEventText(raw json.RawMessage) (string, str
 		return "agent_event", ""
 	}
 	name := firstNonEmpty(event.Type, "agent_event")
+	if event.Text != "" {
+		return name, event.Text
+	}
 	if event.Item == nil {
 		return name, ""
 	}

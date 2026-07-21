@@ -14,6 +14,8 @@ import (
 	"agent-compose/pkg/capabilities"
 	appconfig "agent-compose/pkg/config"
 	"agent-compose/pkg/dashboard"
+	"agent-compose/pkg/execution"
+	"agent-compose/pkg/llms/runtimefacade"
 	"agent-compose/pkg/loaders"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/runs"
@@ -32,15 +34,20 @@ func NewRunController(di do.Injector) (*runs.Controller, error) {
 	}
 	imageBackends := do.MustInvoke[*adapters.ImageBackends](di)
 	runtimeProvider := do.MustInvoke[adapters.RuntimeProvider](di)
+	config := do.MustInvoke[*appconfig.Config](di)
+	configDB := do.MustInvoke[*configstore.ConfigStore](di)
 	return runs.NewController(runs.ControllerDependencies{
-		Config:           do.MustInvoke[*appconfig.Config](di),
+		Config:           config,
 		Store:            do.MustInvoke[*sessionstore.Store](di),
-		ConfigDB:         do.MustInvoke[*configstore.ConfigStore](di),
+		ConfigDB:         configDB,
 		WorkspaceEnsurer: do.MustInvoke[workspaces.WorkspaceEnsurer](di),
 		Driver:           do.MustInvoke[*adapters.SandboxDriver](di),
 		Executor:         do.MustInvoke[*adapters.AgentExecutor](di),
 		Runtime: func(session *domain.Sandbox) (runs.Runtime, error) {
 			return runtimeProvider.ForSession(session)
+		},
+		PromptAttachEnv: func(ctx context.Context, session *domain.Sandbox, agent execution.AgentConfig, runID string) (map[string]string, error) {
+			return runtimefacade.EnsureSessionLLMFacadeConfig(ctx, config, configDB, session, agent.Provider, agent.Model, runtimefacade.TokenSourceAgent, runID)
 		},
 		Images:         imageBackends.Auto,
 		LoaderEngine:   do.MustInvoke[loaders.LoaderEngine](di),
