@@ -438,7 +438,10 @@ func (s *Store) createSandboxWithOptions(title, baseWorkspace, driver, guestImag
 // recordIndex mirrors a committed sandbox summary into the queryable index.
 // Request cancellation cannot undo committed metadata, so the cache write uses
 // its own bounded context. A failure marks the index dirty for repair before
-// the next list query.
+// the next list query. Callers updating an existing sandbox hold its sandbox
+// lock through this call; creation uses a new ID that is not published until
+// recordIndex returns. This keeps metadata load and cache upsert ordered with
+// RemoveSandbox without holding the global cache repair lock during disk I/O.
 func (s *Store) recordIndex(session *Sandbox) {
 	if s.index == nil || session == nil {
 		return

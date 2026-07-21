@@ -14,7 +14,7 @@ import (
 	domain "agent-compose/pkg/model"
 )
 
-const sandboxCacheVersion = 4
+const sandboxCacheVersion = 1
 
 var errSandboxCache = errors.New("sandbox listing cache failure")
 
