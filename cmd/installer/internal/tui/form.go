@@ -107,7 +107,7 @@ func (m *model) toggleFocusedField() bool {
 }
 
 func (m *model) readFields() error {
-	for _, field := range m.fields {
+	for i, field := range m.fields {
 		switch field.id {
 		case fieldInstallDir:
 			m.options.InstallDir = strings.TrimSpace(field.input.Value())
@@ -117,6 +117,13 @@ func (m *model) readFields() error {
 			m.options.WithUI = field.on
 			m.options.WithUISet = true
 		case fieldPort:
+			// A disabled port publishes nothing. Reading it would validate a
+			// value the operator cannot even edit, and marking it as set would
+			// both override the port recorded in .env and trigger the warning
+			// meant for a CLI --port that cannot take effect.
+			if m.fieldDisabled(i) {
+				continue
+			}
 			port, err := core.ParsePort(field.input.Value())
 			if err != nil {
 				return err

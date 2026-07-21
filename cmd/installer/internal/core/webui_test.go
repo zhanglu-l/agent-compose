@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -137,5 +138,65 @@ func TestInstallSurvivesGuestImagePullFailure(t *testing.T) {
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "agent-compose-guest") {
 		t.Fatalf("guest pull failure was not reported: %#v", warnings)
+	}
+}
+
+// COMPOSE_PROFILES is a comma-separated list and an existing one is preserved
+// verbatim, so an operator's own profile must not hide the installer's.
+func TestResultWithUIAcceptsProfileLists(t *testing.T) {
+	for _, testCase := range []struct {
+		profiles string
+		want     bool
+	}{
+		{"with-ui", true},
+		{"with-ui,debug", true},
+		{"debug,with-ui", true},
+		{" with-ui , debug ", true},
+		{"debug", false},
+		{"", false},
+		{"with-ui-extra", false},
+	} {
+		if got := (Result{ComposeProfiles: testCase.profiles}).WithUI(); got != testCase.want {
+			t.Errorf("WithUI(%q) = %t, want %t", testCase.profiles, got, testCase.want)
+		}
+	}
+}
+
+func TestUpgradeKeepsWebUIAlongsideOtherProfiles(t *testing.T) {
+	root := t.TempDir()
+	installDir := filepath.Join(root, "install")
+	options := DefaultOptions()
+	options.InstallDir = installDir
+	options.BundleDir = makeTestBundle(t, "v1")
+	options.KVMPath = filepath.Join(root, "missing-kvm")
+	options.NoStart = true
+	options.WithUI = true
+	options.WithUISet = true
+	service := Service{Runner: &fakeRunner{}}
+	if _, err := service.Apply(context.Background(), OperationInstall, options); err != nil {
+		t.Fatal(err)
+	}
+
+	envPath := filepath.Join(installDir, ".env")
+	env := readTestEnv(t, envPath)
+	if err := env.Set("COMPOSE_PROFILES", "with-ui,debug"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envPath, env.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	options.BundleDir = makeTestBundle(t, "v2")
+	options.WithUISet = false
+	upgraded, err := service.Apply(context.Background(), OperationUpgrade, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTestEnv(t, readTestEnv(t, envPath), "COMPOSE_PROFILES", "with-ui,debug")
+	if !upgraded.WithUI() {
+		t.Fatalf("hand-added profile hid the web UI: %#v", upgraded)
+	}
+	if upgraded.URL == "" {
+		t.Fatal("no URL reported for an installation that serves the web UI")
 	}
 }

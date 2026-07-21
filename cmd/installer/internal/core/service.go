@@ -47,7 +47,17 @@ type Result struct {
 }
 
 // WithUI reports whether the installation published the web frontend.
-func (r Result) WithUI() bool { return r.ComposeProfiles == uiProfile }
+// COMPOSE_PROFILES is a comma-separated list, and an existing one is preserved
+// verbatim, so the installer's own profile can sit alongside others an operator
+// added by hand.
+func (r Result) WithUI() bool {
+	for profile := range strings.SplitSeq(r.ComposeProfiles, ",") {
+		if strings.TrimSpace(profile) == uiProfile {
+			return true
+		}
+	}
+	return false
+}
 
 func (s Service) Apply(ctx context.Context, operation Operation, options Options) (Result, error) {
 	if operation == OperationUninstall {

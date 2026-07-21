@@ -104,6 +104,42 @@ func TestModelGuestPullToggleSetsSkip(t *testing.T) {
 	}
 }
 
+// A greyed-out port is not a choice the operator made, so it must not be
+// validated, must not override the port already recorded in .env, and must not
+// trip the warning meant for a CLI --port that cannot take effect.
+func TestModelDisabledPortIsNotTreatedAsAChoice(t *testing.T) {
+	m := installForm(t)
+	m.field(fieldPort).input.SetValue("not-a-port")
+
+	press(t, m, "enter")
+	if m.err != nil {
+		t.Fatalf("disabled port was validated: %v", m.err)
+	}
+	if m.screen != screenConfirm {
+		t.Fatalf("screen = %d, want confirmation", m.screen)
+	}
+	if m.options.PortSet {
+		t.Fatal("disabled port was recorded as an explicit choice")
+	}
+}
+
+func TestModelEnabledPortIsValidated(t *testing.T) {
+	m := installForm(t)
+	m.field(fieldWithUI).on = true
+	m.field(fieldPort).input.SetValue("not-a-port")
+
+	press(t, m, "enter")
+	if m.err == nil || m.screen == screenConfirm {
+		t.Fatalf("enabled port skipped validation: err=%v screen=%d", m.err, m.screen)
+	}
+
+	m.field(fieldPort).input.SetValue("18080")
+	press(t, m, "enter")
+	if !m.options.PortSet || m.options.Port != 18080 {
+		t.Fatalf("PortSet=%t Port=%d", m.options.PortSet, m.options.Port)
+	}
+}
+
 func installForm(t *testing.T) *model {
 	t.Helper()
 	m := newModel(core.Service{}, core.DefaultOptions(), "/tmp/installer")
