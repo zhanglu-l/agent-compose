@@ -122,7 +122,7 @@ tasks:
 
   lint:
     desc: Lint/format code
-    deps: ['lint:go']
+    deps: ['lint:go', 'lint:installer']
     cmds:
       - echo "lint all done"
 
@@ -133,6 +133,14 @@ tasks:
       - mkdir -p {{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_BUILD_CACHE_DIR}}
       - GOCACHE={{.GO_BUILD_CACHE_DIR}} GOLANGCI_LINT_CACHE={{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} golangci-lint fmt --no-config --diff {{.GO_LINT_PACKAGES}}
       - GOCACHE={{.GO_BUILD_CACHE_DIR}} GOLANGCI_LINT_CACHE={{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} golangci-lint run --no-config --allow-parallel-runners {{.GO_LINT_PACKAGES}}
+
+  lint:installer:
+    desc: Lint and format the standalone installer module
+    dir: '{{.TASKFILE_DIR}}/cmd/installer'
+    cmds:
+      - mkdir -p {{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_BUILD_CACHE_DIR}}
+      - GOCACHE={{.GO_BUILD_CACHE_DIR}} GOLANGCI_LINT_CACHE={{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} golangci-lint fmt --no-config --diff ./...
+      - GOCACHE={{.GO_BUILD_CACHE_DIR}} GOLANGCI_LINT_CACHE={{.GOLANGCI_LINT_CACHE_DIR}} {{.GO_TOOLCHAIN_ENV}} golangci-lint run --no-config --allow-parallel-runners ./...
 
   test:
     desc: Run all test shapes with coverage quality gates
@@ -151,15 +159,23 @@ tasks:
       - ./scripts/tests/test-verify-image-manifest.sh
       - ./scripts/tests/test-binary-ci-contract.sh
       - ./scripts/tests/test-image-ci-contract.sh
+      - ./scripts/tests/test-installer-ci-contract.sh
 
   test:deploy:
     desc: Run deterministic installer, Compose, and release-asset deployment checks
     dir: '{{.TASKFILE_DIR}}'
     cmds:
-      - ./deploy/install_test.sh
-      - ./deploy/install_upgrade_test.sh
+      - '{{.GO_TOOLCHAIN_ENV}} go -C cmd/installer test ./...'
+      - ./deploy/install_bootstrap_test.sh
       - ./scripts/tests/test-compose-kvm-config.sh
       - ./scripts/tests/test-installer-assets.sh
+      - ./scripts/tests/test-installer-binaries.sh
+
+  demo:installer-docker:
+    desc: Run and retain an isolated real-Docker installer lifecycle demo
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - ./scripts/demo-installer-docker.sh
 
   test:unit:
     desc: Run unit tests
