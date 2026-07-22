@@ -1,6 +1,6 @@
 import type { Provider } from "./types.js";
 
-const providerList = "codex, claude, gemini, opencode";
+const providerList = "codex, claude, gemini, opencode, pi";
 
 export function normalizeProvider(raw: unknown): Provider {
   const provider = String(raw ?? "").trim().toLowerCase();
@@ -22,6 +22,10 @@ export function normalizeProvider(raw: unknown): Provider {
     case "open-code":
     case "open_code":
       return "opencode";
+    case "pi":
+    case "pi-agent":
+    case "pi_agent":
+      return "pi";
     default:
       throw new Error(`unsupported provider ${JSON.stringify(raw)}; expected one of: ${providerList}`);
   }
