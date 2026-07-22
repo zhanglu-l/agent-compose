@@ -2,6 +2,7 @@ package llms
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,20 +58,34 @@ func WritePiRuntimeConfig(sandbox *domain.Sandbox, model, baseURL, api string) e
 		return fmt.Errorf("create pi runtime config: %w", err)
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure pi runtime config: %w", err)
+		return cleanupPiRuntimeConfigTemp(temporary, temporaryPath, fmt.Errorf("secure pi runtime config: %w", err))
 	}
 	if _, err := temporary.Write(append(data, '\n')); err != nil {
-		temporary.Close()
-		return fmt.Errorf("write pi runtime config: %w", err)
+		return cleanupPiRuntimeConfigTemp(temporary, temporaryPath, fmt.Errorf("write pi runtime config: %w", err))
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close pi runtime config: %w", err)
+		return removePiRuntimeConfigTemp(temporaryPath, fmt.Errorf("close pi runtime config: %w", err))
 	}
 	if err := os.Rename(temporaryPath, filepath.Join(dir, "models.json")); err != nil {
-		return fmt.Errorf("replace pi runtime config: %w", err)
+		return removePiRuntimeConfigTemp(temporaryPath, fmt.Errorf("replace pi runtime config: %w", err))
 	}
 	return nil
+}
+
+func cleanupPiRuntimeConfigTemp(file *os.File, path string, operationErr error) error {
+	closeErr := file.Close()
+	removeErr := os.Remove(path)
+	return errors.Join(operationErr, wrapPiCleanupError("close", closeErr), wrapPiCleanupError("remove", removeErr))
+}
+
+func removePiRuntimeConfigTemp(path string, operationErr error) error {
+	return errors.Join(operationErr, wrapPiCleanupError("remove", os.Remove(path)))
+}
+
+func wrapPiCleanupError(operation string, err error) error {
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return fmt.Errorf("%s pi runtime config temp file: %w", operation, err)
 }
