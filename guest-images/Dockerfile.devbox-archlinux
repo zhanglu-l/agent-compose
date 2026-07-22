@@ -7,6 +7,7 @@ ARG CODEX_VERSION=0.144.1
 ARG CLAUDE_CODE_VERSION=2.1.206
 ARG GEMINI_CLI_VERSION=0.50.0
 ARG OPENCODE_VERSION=1.17.18
+ARG PI_AGENT_VERSION=0.81.1
 ARG QWEN_CODE_VERSION=0.19.8
 
 RUN ln -sfv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
@@ -36,6 +37,7 @@ RUN npm config set prefix /usr/local/ &&\
     npm install -g @anthropic-ai/claude-code-linux-x64@${CLAUDE_CODE_VERSION} &&\
     npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION} &&\
     npm install -g opencode-ai@${OPENCODE_VERSION} &&\
+    npm install -g @earendil-works/pi-coding-agent@${PI_AGENT_VERSION} &&\
     npm install -g @qwen-code/qwen-code@${QWEN_CODE_VERSION} &&\
     npm install -g @bufbuild/protobuf @bufbuild/protoc-gen-es &&\
     npm install -g typescript-language-server typescript

@@ -315,6 +315,12 @@ if [[ -f $GUEST_DOCKERFILE ]]; then
     'Go workspace environment in default guest image'
   forbid_regex "$guest_dockerfile_source" 'PATH=[^[:space:]]*/usr/local/go/bin' \
     'Go toolchain path in default guest image'
+  require_regex "$guest_dockerfile_source" 'ARG[[:space:]]+PI_AGENT_VERSION=[0-9]+\.[0-9]+\.[0-9]+' \
+    'pinned Pi coding agent version in default guest image'
+  require_regex "$guest_dockerfile_source" '"@earendil-works/pi-coding-agent@\$\{PI_AGENT_VERSION\}"' \
+    'versioned Pi coding agent install in default guest image'
+  require_regex "$guest_dockerfile_source" 'pi[[:space:]]+--version' \
+    'Pi coding agent build-time smoke in default guest image'
 
   npm_install_run_count=0
   run_block=''
