@@ -77,6 +77,7 @@ func TestReconcilePersistedProjectRunsMarksInterruptedRunsFailed(t *testing.T) {
 		DbAddr:      filepath.Join(root, "data.db"),
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {

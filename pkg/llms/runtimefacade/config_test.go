@@ -37,6 +37,7 @@ func TestEnsureSessionLLMFacadeConfigCreatesCodexEnvAndToken(t *testing.T) {
 		CodexStreamIdleTimeout: 4 * time.Second,
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {
@@ -97,6 +98,7 @@ func TestEnsureSessionAgentRuntimeConfigClaudeAndOpenCodeWorkflows(t *testing.T)
 		GuestHomePath:  "/root",
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {
@@ -191,6 +193,7 @@ func TestEnsureSessionAgentRuntimeConfigClaudePreservesProviderlessCompatibility
 		RuntimeBaseURL: "http://agent-compose.test:7410",
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {

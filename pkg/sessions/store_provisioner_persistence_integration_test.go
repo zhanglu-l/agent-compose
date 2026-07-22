@@ -270,6 +270,7 @@ func newPersistenceWorkspaceConfig(root string) *appconfig.Config {
 func openPersistenceWorkspaceConfigStore(t *testing.T, config *appconfig.Config) *configstore.ConfigStore {
 	t.Helper()
 	di := do.New()
+	do.ProvideValue(di, context.Background())
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {

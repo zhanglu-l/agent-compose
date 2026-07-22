@@ -37,6 +37,7 @@ func TestIntegrationJupyterWorkspaceProxyResumePreservesState(t *testing.T) {
 	}
 
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	workspaceStore, err := configstore.NewConfigStore(di)
 	if err != nil {

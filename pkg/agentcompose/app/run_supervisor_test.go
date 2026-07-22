@@ -91,6 +91,7 @@ func newRunSupervisorTestConfigStore(t *testing.T) *configstore.ConfigStore {
 	t.Helper()
 	root := t.TempDir()
 	di := do.New()
+	do.ProvideValue(di, context.Background())
 	do.ProvideValue(di, &appconfig.Config{
 		DataRoot: root,
 		DbAddr:   filepath.Join(root, "data.db"),

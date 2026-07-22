@@ -30,6 +30,7 @@ func TestIntegrationLegacyDefaultProjectAdoptsLoaderHistoryAtCurrentRevision(t *
 		DockerDefaultImage: "guest:latest",
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	store, err := configstore.NewConfigStore(di)
 	if err != nil {

@@ -242,6 +242,7 @@ func TestSandboxDriverStopPreservesFacadeTokensUntilRemove(t *testing.T) {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	configDB, err := configstore.NewConfigStore(di)
 	if err != nil {
@@ -416,6 +417,7 @@ func TestSandboxDriverStartSandboxVMInjectsOpenAIAndAnthropicFacadeEnv(t *testin
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	configDB, err := configstore.NewConfigStore(di)
 	if err != nil {
@@ -525,6 +527,7 @@ func TestSandboxDriverStartSandboxVMIgnoresOptionalClaudeConfigError(t *testing.
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	configDB, err := configstore.NewConfigStore(di)
 	if err != nil {

@@ -277,6 +277,7 @@ agents:
 
 	dataRoot := filepath.Join(root, "data")
 	di := do.New()
+	do.ProvideValue(di, context.Background())
 	storeConfig := &config.Config{DataRoot: dataRoot, DbAddr: filepath.Join(dataRoot, "data.db")}
 	do.ProvideValue(di, storeConfig)
 	store, err := configstore.NewConfigStore(di)

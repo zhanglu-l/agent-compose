@@ -45,6 +45,7 @@ func TestIntegrationProjectLocalWorkspaceExistingAndNewSandboxState(t *testing.T
 		DefaultImage:  "guest:latest",
 	}
 	di := do.New()
+	do.ProvideValue(di, ctx)
 	do.ProvideValue(di, config)
 	configDB, err := configstore.NewConfigStore(di)
 	if err != nil {
