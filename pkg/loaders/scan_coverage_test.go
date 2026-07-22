@@ -58,11 +58,11 @@ func TestLoaderScanFunctionsAndStoredTimeEdges(t *testing.T) {
 	if event.ID != "event-1" || event.CreatedAt.IsZero() {
 		t.Fatalf("event = %#v", event)
 	}
-	binding, err := ScanLoaderBinding(assignScanValues("loader-1", "trigger-1", "session-1", "2026-07-01T02:03:04.000Z", nil))
+	binding, err := ScanLoaderBinding(assignScanValues("loader-1", "trigger-1", "session-1", "sha256:config", "2026-07-01T02:03:04.000Z", nil))
 	if err != nil {
 		t.Fatalf("ScanLoaderBinding returned error: %v", err)
 	}
-	if binding.LoaderID != "loader-1" || binding.CreatedAt.IsZero() || !binding.UpdatedAt.IsZero() {
+	if binding.LoaderID != "loader-1" || binding.SandboxConfigHash != "sha256:config" || binding.CreatedAt.IsZero() || !binding.UpdatedAt.IsZero() {
 		t.Fatalf("binding = %#v", binding)
 	}
 

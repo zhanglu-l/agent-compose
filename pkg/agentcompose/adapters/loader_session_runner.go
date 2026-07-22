@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,18 +100,6 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	}
 	hasOverrides := loaders.AgentRequestOverridesSession(request, titleOverridesSession)
 	forceNew := effectivePolicy == domain.LoaderSandboxPolicyNew || hasOverrides
-	if !forceNew {
-		if binding, ok, err := r.ConfigDB.GetLoaderBinding(ctx, loader.Summary.ID, request.BindingTriggerID); err != nil {
-			return nil, "", err
-		} else if ok {
-			session, eventType, err := r.LoadOrResume(ctx, binding.SandboxID)
-			if err == nil {
-				return session, eventType, nil
-			}
-			slog.Warn("failed to reuse loader sticky sandbox, creating a new one", "loader_id", loader.Summary.ID, "sandbox_id", binding.SandboxID, "error", err)
-		}
-	}
-
 	envItems, err := r.ConfigDB.ListGlobalEnv(ctx)
 	if err != nil {
 		return nil, "", err
@@ -124,6 +111,42 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	envItems = domain.MergeEnvItems(envItems, domain.LoaderAgentSandboxEnv(request))
 	providerEnvItems := envItems
 	envItems = llms.FilterPersistedRuntimeEnv(envItems)
+	workspaceID := r.workspaceID(loader, request, agentDefinition)
+	workspaceSnapshot, err := r.workspaceSnapshot(ctx, workspaceID)
+	if err != nil {
+		return nil, "", err
+	}
+	driver, err := r.driver(request, loader, agentDefinition)
+	if err != nil {
+		return nil, "", err
+	}
+	guestImage := r.guestImage(request, loader, agentDefinition, driver)
+	volumeMounts, volumeWarnings, err := r.resolveVolumeMounts(ctx, loader, request, agentDefinition)
+	if err != nil {
+		return nil, "", err
+	}
+	baseConfigHash, err := loaderSandboxConfigHash(loader)
+	if err != nil {
+		return nil, "", err
+	}
+	configHash, err := loaderRequestSandboxConfigHash(baseConfigHash, request, agentDefinition, providerEnvItems, envItems, workspaceSnapshot, driver, guestImage, volumeMounts)
+	if err != nil {
+		return nil, "", err
+	}
+	var previousBinding *domain.LoaderBinding
+	if !forceNew {
+		if session, eventType, reused, binding, err := r.reuseCompatibleLoaderBinding(ctx, loader, request.BindingTriggerID, configHash); err != nil {
+			return nil, "", err
+		} else if reused {
+			return session, eventType, nil
+		} else {
+			previousBinding = binding
+		}
+	}
+	if err := validateLoaderRuntimeDriverCompiled(driver); err != nil {
+		return nil, "", err
+	}
+
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySandboxVars(capabilities.ProxyTarget(r.Cap), loader.Summary.CapsetIDs)
 	envItems = domain.MergeEnvItems(envItems, capabilityVars)
 	origin := "loader"
@@ -141,20 +164,6 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 		)
 	}
 	tags = append(tags, capabilityTags...)
-
-	workspaceID := r.workspaceID(loader, request, agentDefinition)
-	workspaceSnapshot, err := r.workspaceSnapshot(ctx, workspaceID)
-	if err != nil {
-		return nil, "", err
-	}
-	driver, err := r.driver(request, loader, agentDefinition)
-	if err != nil {
-		return nil, "", err
-	}
-	if err := validateLoaderRuntimeDriverCompiled(driver); err != nil {
-		return nil, "", err
-	}
-	guestImage := r.guestImage(request, loader, agentDefinition, driver)
 	title := firstNonEmpty(strings.TrimSpace(request.Title), strings.TrimSpace(loader.Summary.Name), domain.DefaultLoaderName(time.Now().UTC()))
 	if agentDefinition != nil {
 		tags = append(tags,
@@ -162,10 +171,6 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 			domain.SandboxTag{Name: domain.AgentSandboxTagID, Value: agentDefinition.ID},
 			domain.SandboxTag{Name: domain.AgentSandboxTagName, Value: agentDefinition.Name},
 		)
-	}
-	volumeMounts, volumeWarnings, err := r.resolveVolumeMounts(ctx, loader, request, agentDefinition)
-	if err != nil {
-		return nil, "", err
 	}
 	session, err := r.Store.CreateSandboxWithOptions(ctx, title, "", driver, guestImage, workspaceID, domain.SandboxTypeScript+":"+loader.Summary.ID, workspaceSnapshot, envItems, tags, sessionstore.CreateSandboxOptions{
 		JupyterEnabled: request.JupyterEnabled,
@@ -205,8 +210,16 @@ func (r *LoaderSandboxRunner) Ensure(ctx context.Context, loader domain.Loader, 
 	if r.Streams != nil {
 		r.Streams.PublishEventAdded(session.Summary.ID, event)
 	}
-	if effectivePolicy == domain.LoaderSandboxPolicySticky {
-		_ = r.ConfigDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: request.BindingTriggerID, SandboxID: session.Summary.ID})
+	if effectivePolicy == domain.LoaderSandboxPolicySticky && !forceNew {
+		claimed, err := r.bindLoaderSandbox(ctx, loader, request.BindingTriggerID, session.Summary.ID, configHash, previousBinding)
+		if err != nil {
+			_ = r.Shutdown(ctx, session.Summary.ID)
+			return nil, "", fmt.Errorf("persist loader sticky sandbox binding: %w", err)
+		}
+		if !claimed {
+			_ = r.Shutdown(ctx, session.Summary.ID)
+			return nil, "", fmt.Errorf("loader sticky sandbox binding changed concurrently")
+		}
 	}
 	loaded, err := r.Store.GetSandbox(ctx, session.Summary.ID)
 	if err != nil {

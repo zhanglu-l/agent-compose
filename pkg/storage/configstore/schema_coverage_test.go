@@ -52,6 +52,38 @@ func TestConfigStoreRecoversInterruptedLoaderBindingTriggerMigration(t *testing.
 	testConfigStoreRecoversInterruptedLoaderBindingTriggerMigration(t)
 }
 
+func TestConfigStoreAddsLoaderBindingSandboxConfigHash(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "config-hash.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(ctx, `CREATE TABLE loader_binding(
+		loader_id TEXT NOT NULL,
+		trigger_id TEXT NOT NULL DEFAULT '',
+		sandbox_id TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY(loader_id, trigger_id)
+	)`); err != nil {
+		t.Fatalf("create loader binding fixture: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO loader_binding(loader_id, trigger_id, sandbox_id, created_at, updated_at)
+		VALUES('loader-1', 'trigger-1', 'sandbox-1', 1, 2)`); err != nil {
+		t.Fatalf("insert loader binding fixture: %v", err)
+	}
+	store := FromDB(db)
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("initSchema returned error: %v", err)
+	}
+	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id", "sandbox_config_hash")
+	binding, found, err := store.GetLoaderBinding(ctx, "loader-1", "trigger-1")
+	if err != nil || !found || binding.SandboxID != "sandbox-1" || binding.SandboxConfigHash != "" {
+		t.Fatalf("migrated binding=%#v found=%v err=%v", binding, found, err)
+	}
+}
+
 func TestIntegrationConfigStoreProjectSchemaMigrationWorkflows(t *testing.T) {
 	testConfigStoreProjectSchemaMigrationWorkflows(t)
 }
@@ -146,7 +178,7 @@ func testConfigStoreMigratesLegacySQLiteSessionSchema(t *testing.T) {
 	}
 	assertTableColumns(t, store, "loader", "sandbox_policy")
 	assertTableMissingColumns(t, store, "loader", "session_policy")
-	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id")
+	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id", "sandbox_config_hash")
 	assertTableColumns(t, store, "loader_event", "linked_sandbox_id", "linked_agent_thread_id")
 	assertTableColumns(t, store, "llm_facade_token", "sandbox_id")
 	if binding, found, err := store.GetLoaderBinding(ctx, "loader-1", ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
@@ -184,7 +216,7 @@ func testConfigStoreRecoversInterruptedLoaderBindingTriggerMigration(t *testing.
 	if err := store.initSchema(ctx); err != nil {
 		t.Fatalf("initSchema interrupted migration recovery returned error: %v", err)
 	}
-	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id")
+	assertTableColumns(t, store, "loader_binding", "trigger_id", "sandbox_id", "sandbox_config_hash")
 	assertTableDoesNotExist(t, store, "loader_binding_legacy")
 	if binding, found, err := store.GetLoaderBinding(ctx, "loader-1", ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
 		t.Fatalf("recovered binding=%#v found=%v err=%v", binding, found, err)
@@ -830,11 +862,28 @@ func testConfigStoreCRUDCoverageWorkflows(t *testing.T) {
 	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
 		t.Fatalf("GetLoaderBinding binding=%#v found=%v err=%v", binding, found, err)
 	}
-	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-2"}); err != nil {
+	if err := store.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-2", SandboxConfigHash: "sha256:config"}); err != nil {
 		t.Fatalf("UpsertLoaderBinding trigger scope returned error: %v", err)
 	}
-	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, "trigger-1"); err != nil || !found || binding.SandboxID != "sandbox-2" {
+	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, "trigger-1"); err != nil || !found || binding.SandboxID != "sandbox-2" || binding.SandboxConfigHash != "sha256:config" {
 		t.Fatalf("GetLoaderBinding trigger binding=%#v found=%v err=%v", binding, found, err)
+	}
+	wrongExpected := domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "stale", SandboxConfigHash: "sha256:config"}
+	claimed, err := store.CompareAndSwapLoaderBinding(ctx, &wrongExpected, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-3", SandboxConfigHash: "sha256:new"})
+	if err != nil || claimed {
+		t.Fatalf("CompareAndSwapLoaderBinding stale expected claimed=%v err=%v, want false/nil", claimed, err)
+	}
+	current, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, "trigger-1")
+	if err != nil || !found {
+		t.Fatalf("GetLoaderBinding before compare-and-swap current=%#v found=%v err=%v", current, found, err)
+	}
+	claimed, err = store.CompareAndSwapLoaderBinding(ctx, &current, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-3", SandboxConfigHash: "sha256:new"})
+	if err != nil || !claimed {
+		t.Fatalf("CompareAndSwapLoaderBinding current claimed=%v err=%v, want true/nil", claimed, err)
+	}
+	claimed, err = store.CompareAndSwapLoaderBinding(ctx, nil, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "trigger-1", SandboxID: "sandbox-4", SandboxConfigHash: "sha256:other"})
+	if err != nil || claimed {
+		t.Fatalf("CompareAndSwapLoaderBinding occupied insert claimed=%v err=%v, want false/nil", claimed, err)
 	}
 	if binding, found, err := store.GetLoaderBinding(ctx, loader.Summary.ID, ""); err != nil || !found || binding.SandboxID != "sandbox-1" {
 		t.Fatalf("loader-level binding changed: binding=%#v found=%v err=%v", binding, found, err)
@@ -1220,7 +1269,7 @@ func assertSandboxNamedSQLiteSchema(t *testing.T, store *ConfigStore) {
 	t.Helper()
 	assertTableColumns(t, store, "loader", "sandbox_policy")
 	assertTableMissingColumns(t, store, "loader", "session_policy")
-	assertTableColumns(t, store, "loader_binding", "sandbox_id")
+	assertTableColumns(t, store, "loader_binding", "sandbox_id", "sandbox_config_hash")
 	assertTableMissingColumns(t, store, "loader_binding", "session_id")
 	assertTableColumns(t, store, "loader_event", "linked_sandbox_id", "linked_agent_thread_id")
 	assertTableMissingColumns(t, store, "loader_event", "linked_session_id", "linked_agent_session_id")

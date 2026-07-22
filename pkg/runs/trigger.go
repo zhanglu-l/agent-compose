@@ -62,8 +62,13 @@ func (c *Controller) resolveTriggerForManualRun(ctx context.Context, req RunAgen
 		effectivePolicy = domain.NormalizeLoaderSandboxPolicy(domain.LoaderAgentSandboxPolicy(captured.request))
 	}
 	if effectivePolicy == domain.LoaderSandboxPolicySticky {
+		configHash, err := loaders.LoaderSandboxConfigHash(loader)
+		if err != nil {
+			return result, err
+		}
 		result.Request.StickyBindingLoaderID = loader.Summary.ID
 		result.Request.StickyBindingTriggerID = trigger.ID
+		result.Request.StickyBindingConfigHash = configHash
 		result.Request.CleanupPolicy = agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING
 	}
 	result.Warnings = warnings

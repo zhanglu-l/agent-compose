@@ -148,7 +148,7 @@ func TestRuntimeHostProjectAgentPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Project Agent returned error: %v", err)
 	}
-	if result.Text != "project output" || projectRunner.request.ProjectID != "project-1" || projectRunner.request.ClientRequestID != run.ID+":agent:1" {
+	if result.Text != "project output" || projectRunner.request.ProjectID != "project-1" || projectRunner.request.ClientRequestID != run.ID+":agent:1" || projectRunner.request.SandboxConfigHash == "" {
 		t.Fatalf("project result/request = %#v/%#v", result, projectRunner.request)
 	}
 	if !events.contains("loader.agent.completed") || len(publisher.events) != 1 || publisher.events[0].payload["projectRunId"] != "project-run" {

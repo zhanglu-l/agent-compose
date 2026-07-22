@@ -11,16 +11,17 @@ import (
 )
 
 type HostProjectAgentRequest struct {
-	LoaderID         string
-	ProjectID        string
-	AgentName        string
-	Prompt           string
-	SchedulerID      string
-	TriggerID        string
-	OutputSchemaJSON string
-	ClientRequestID  string
-	Volumes          []domain.VolumeMountSpec
-	SandboxPolicy    string
+	LoaderID          string
+	ProjectID         string
+	AgentName         string
+	Prompt            string
+	SchedulerID       string
+	TriggerID         string
+	OutputSchemaJSON  string
+	ClientRequestID   string
+	Volumes           []domain.VolumeMountSpec
+	SandboxPolicy     string
+	SandboxConfigHash string
 }
 
 type HostProjectAgentRunner interface {
@@ -35,17 +36,22 @@ func (h *RuntimeHost) ProjectAgent(ctx context.Context, prompt string, request d
 	if strings.TrimSpace(domain.LoaderAgentSandboxPolicy(request)) != "" {
 		sandboxPolicy = domain.NormalizeLoaderSandboxPolicy(domain.LoaderAgentSandboxPolicy(request))
 	}
+	configHash, err := LoaderSandboxConfigHash(h.loader)
+	if err != nil {
+		return domain.LoaderAgentResult{}, err
+	}
 	run, execErr, err := h.deps.ProjectAgentRunner.RunProjectAgent(ctx, HostProjectAgentRequest{
-		LoaderID:         h.loader.Summary.ID,
-		ProjectID:        h.loader.Summary.ManagedProjectID,
-		AgentName:        h.loader.Summary.ManagedAgentName,
-		Prompt:           prompt,
-		SchedulerID:      h.loader.Summary.ManagedSchedulerID,
-		TriggerID:        h.run.TriggerID,
-		OutputSchemaJSON: request.OutputSchema,
-		ClientRequestID:  h.nextProjectAgentRunID(),
-		Volumes:          request.Volumes,
-		SandboxPolicy:    sandboxPolicy,
+		LoaderID:          h.loader.Summary.ID,
+		ProjectID:         h.loader.Summary.ManagedProjectID,
+		AgentName:         h.loader.Summary.ManagedAgentName,
+		Prompt:            prompt,
+		SchedulerID:       h.loader.Summary.ManagedSchedulerID,
+		TriggerID:         h.run.TriggerID,
+		OutputSchemaJSON:  request.OutputSchema,
+		ClientRequestID:   h.nextProjectAgentRunID(),
+		Volumes:           request.Volumes,
+		SandboxPolicy:     sandboxPolicy,
+		SandboxConfigHash: configHash,
 	})
 	if err != nil {
 		return domain.LoaderAgentResult{}, err
