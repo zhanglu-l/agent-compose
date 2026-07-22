@@ -3,6 +3,7 @@ import { stringEnv } from "./env.js";
 import { buildPromptRuntimeOptions } from "./prompt.js";
 import { ClaudeRunner } from "./runners/claude.js";
 import { CodexRunner } from "./runners/codex.js";
+import { OpenCodeRunner } from "./runners/opencode.js";
 import { readStoredThread, writeStoredThread } from "./session-state.js";
 import type { TextWriter, TranscriptTextWriter } from "./transcript.js";
 import type { AgentResult, Provider, RunnerOptions } from "./types.js";
@@ -259,6 +260,14 @@ export async function createInteractiveSession(
         options,
         emit,
         (writer) => new ClaudeRunner(options, writer),
+      );
+      break;
+    case "opencode":
+      session = new PromptRunnerInteractiveSession(
+        "opencode",
+        options,
+        emit,
+        (writer) => new OpenCodeRunner(options, writer),
       );
       break;
     default:

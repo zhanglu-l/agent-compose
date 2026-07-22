@@ -67,12 +67,12 @@ func validateInteractivePromptProvider(project *compose.NormalizedProjectSpec, a
 		}
 	}
 	switch provider {
-	case "codex", "claude":
+	case "codex", "claude", "opencode":
 		return nil
 	default:
 		return commandExitError{
 			Code: exitCodeUnsupported,
-			Err:  fmt.Errorf("run --prompt -it is unsupported for provider %s; supported providers: codex, claude", provider),
+			Err:  fmt.Errorf("run --prompt -it is unsupported for provider %s; supported providers: codex, claude, opencode", provider),
 		}
 	}
 }

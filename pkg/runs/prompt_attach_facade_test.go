@@ -2,6 +2,9 @@ package runs
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	appconfig "agent-compose/pkg/config"
@@ -30,7 +33,10 @@ func (s *promptAttachFacadeStore) ListEnabledLLMModels(context.Context) ([]llms.
 	return s.models, nil
 }
 
-func (s *promptAttachFacadeStore) LLMProviderModelWireAPI(context.Context, string, string) (string, bool, error) {
+func (s *promptAttachFacadeStore) LLMProviderModelWireAPI(_ context.Context, providerID, _ string) (string, bool, error) {
+	if providerID == "openai-test" {
+		return llms.APIProtocolResponses, true, nil
+	}
 	return llms.APIProtocolMessages, true, nil
 }
 
@@ -110,5 +116,58 @@ func TestEnsurePromptAttachClaudeLLMFacadeEnvPreservesRequestedModelWithoutConfi
 	}
 	if len(store.tokens) != 1 || store.tokens[0].Model != "claude-sonnet-4-20250514" {
 		t.Fatalf("saved tokens = %#v", store.tokens)
+	}
+}
+
+func TestEnsurePromptAttachLLMFacadeEnvOpenCodeUsesSharedRuntimeConfig(t *testing.T) {
+	root := t.TempDir()
+	config := &appconfig.Config{
+		RuntimeBaseURL: "http://agent-compose.test:7410",
+		GuestHomePath:  "/root",
+	}
+	store := &promptAttachFacadeStore{
+		providers: []llms.Provider{{
+			ID:             "openai-test",
+			ProviderType:   llms.ProviderFamilyOpenAI,
+			DefaultWireAPI: llms.APIProtocolResponses,
+			BaseURL:        "https://openai.example.test/v1",
+			APIKey:         "openai-key",
+			Enabled:        true,
+		}},
+		models: []llms.Model{{ID: "gpt-test", Name: "gpt-test", DefaultModel: true, Enabled: true}},
+	}
+	sandbox := &domain.Sandbox{Summary: domain.SandboxSummary{
+		ID:            "sandbox-opencode-attach",
+		Driver:        driver.RuntimeDriverDocker,
+		WorkspacePath: filepath.Join(root, "sandbox", "workspace"),
+	}}
+	controller := &Controller{config: config, configDB: store}
+
+	env, err := controller.ensurePromptAttachLLMFacadeEnv(
+		context.Background(),
+		sandbox,
+		execution.AgentConfig{Provider: "opencode", Model: "openai/gpt-test"},
+		"run-opencode-attach",
+	)
+	if err != nil {
+		t.Fatalf("ensurePromptAttachLLMFacadeEnv returned error: %v", err)
+	}
+	if env["LLM_API_PROTOCOL"] != llms.APIProtocolResponses || env["OPENCODE_CONFIG"] != "/root/.config/opencode/opencode.json" {
+		t.Fatalf("OpenCode facade env = %#v", env)
+	}
+	if env["AGENT_COMPOSE_SANDBOX_TOKEN"] == "" || len(store.tokens) != 1 {
+		t.Fatalf("OpenCode token env = %q, saved tokens = %#v", env["AGENT_COMPOSE_SANDBOX_TOKEN"], store.tokens)
+	}
+	token := store.tokens[0]
+	if token.Model != "gpt-test" || token.ProviderID != "openai-test" || token.Source != "agent" || token.RunID != "run-opencode-attach" {
+		t.Fatalf("stored token = %#v", token)
+	}
+	configPath := filepath.Join(root, "sandbox", "home", ".config", "opencode", "opencode.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read OpenCode runtime config: %v", err)
+	}
+	if !strings.Contains(string(data), `"gpt-test"`) || !strings.Contains(string(data), `"openai"`) {
+		t.Fatalf("OpenCode runtime config = %s", data)
 	}
 }

@@ -625,6 +625,10 @@ func testComposeRunExecAndLogsEdgeHelpers(t *testing.T) {
 	if err := validateInteractivePromptProvider(project, "reviewer", true); err != nil {
 		t.Fatalf("validateInteractivePromptProvider claude-code attach returned error: %v", err)
 	}
+	project.Agents[0].Provider = "opencode"
+	if err := validateInteractivePromptProvider(project, "reviewer", true); err != nil {
+		t.Fatalf("validateInteractivePromptProvider opencode attach returned error: %v", err)
+	}
 	project.Agents[0].Provider = "codex"
 	if err := validateInteractivePromptProvider(project, "reviewer", true); err != nil {
 		t.Fatalf("validateInteractivePromptProvider codex returned error: %v", err)

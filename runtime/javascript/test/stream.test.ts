@@ -3,6 +3,7 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeBinary, decodeFrame, encodeBinary, encodeFrame, FRAME_VERSION, type StreamFrame } from "../src/frame.js";
+import { OpenCodeRunner } from "../src/runners/opencode.js";
 import { runStreamCommand } from "../src/stream.js";
 import { withTempSession } from "./helpers.js";
 
@@ -187,28 +188,60 @@ describe("runStreamCommand", () => {
     });
   });
 
-  it("emits a structured error for unsupported interactive providers", async () => {
+  it("runs multiple OpenCode human messages through the provider session", async () => {
     await withTempSession(async (root) => {
       const stdout = new MemoryWritable();
+      const stderr = new MemoryWritable();
+      const prompts: string[] = [];
+      vi.spyOn(OpenCodeRunner.prototype, "runPrompt").mockImplementation(async function (message) {
+        prompts.push(message);
+        const turn = prompts.length;
+        const writer = (this as unknown as { writer: { write(text: string): void; transcript(): string } }).writer;
+        writer.write(`opencode answer ${turn}`);
+        return {
+          provider: "opencode",
+          threadId: "opencode-session-1",
+          stopReason: "completed",
+          finalText: `opencode answer ${turn}`,
+          transcript: writer.transcript(),
+          stderr: "",
+        };
+      });
 
       await runStreamCommand({
         stdin: Readable.from([
-          frame({ seq: 0, type: "start", provider: "opencode", stateRoot: `${root}/state` }),
+          frame({ seq: 0, type: "start", provider: "opencode", stateRoot: `${root}/state`, workspace: `${root}/workspace`, home: `${root}/home` }),
+          frame({ seq: 1, type: "human_message", message: "first" }),
+          frame({ seq: 2, type: "human_message", message: "second" }),
+          frame({ seq: 3, type: "eof" }),
         ]),
         stdout,
+        stderr,
       });
 
-      expect(parseOutput(stdout.text)).toEqual([
-        {
-          v: FRAME_VERSION,
-          seq: 0,
-          type: "error",
-          code: "unsupported_provider",
-          message: "interactive stream is not supported for provider opencode",
-          inputSeq: 0,
-          provider: "opencode",
-        },
+      const frames = parseOutput(stdout.text);
+      expect(frames.map((entry) => entry.type)).toEqual([
+        "started",
+        "agent_event",
+        "agent_turn_completed",
+        "agent_event",
+        "agent_turn_completed",
+        "result",
       ]);
+      expect(prompts).toEqual(["first", "second"]);
+      expect(frames.filter((entry) => entry.type === "agent_event")).toEqual([
+        expect.objectContaining({ event: expect.objectContaining({ provider: "opencode", text: "opencode answer 1" }) }),
+        expect.objectContaining({ event: expect.objectContaining({ provider: "opencode", text: "opencode answer 2" }) }),
+      ]);
+      expect(frames.at(-1)).toMatchObject({
+        type: "result",
+        provider: "opencode",
+        threadId: "opencode-session-1",
+        stopReason: "eof",
+        finalText: "opencode answer 2",
+        transcript: "opencode answer 1\nopencode answer 2",
+      });
+      expect(stderr.text).toBe("");
     });
   });
 
