@@ -4,6 +4,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,7 +71,7 @@ func TestMicrosandboxExecStreamReturnsAfterExitWithoutDone(t *testing.T) {
 	grace := 25 * time.Millisecond
 	startedAt := time.Now()
 
-	result, err := consumeMicrosandboxExecStream(ctx, recv, closeHandle, collector, grace)
+	result, err := consumeMicrosandboxExecStream(ctx, recv, closeHandle, collector, grace, nil, 0)
 	if err != nil {
 		t.Fatalf("consumeMicrosandboxExecStream returned error: %v", err)
 	}
@@ -85,6 +86,164 @@ func TestMicrosandboxExecStreamReturnsAfterExitWithoutDone(t *testing.T) {
 	}
 	if elapsed := time.Since(startedAt); elapsed < grace {
 		t.Fatalf("returned before drain grace period: %s", elapsed)
+	}
+}
+
+// A command that leaves a background process holding the output pipes never
+// produces an exit event. Waiting for one is a wait that never ends, so the
+// silence is used to ask the guest whether the process is even still there.
+func TestMicrosandboxExecStreamStopsWhenProcessIsGoneWithoutExit(t *testing.T) {
+	events := []*microsandbox.ExecEvent{
+		{Kind: microsandbox.ExecEventStarted, PID: 4242},
+		{Kind: microsandbox.ExecEventStdout, Data: []byte("done\n")},
+	}
+	recv := func(ctx context.Context) (*microsandbox.ExecEvent, error) {
+		if len(events) > 0 {
+			event := events[0]
+			events = events[1:]
+			return event, nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	var closeCalls int
+	closeHandle := func() error {
+		closeCalls++
+		return nil
+	}
+	var probedPID uint32
+	probe := func(context.Context, uint32) (bool, error) {
+		return false, nil
+	}
+	probeRecorder := func(ctx context.Context, pid uint32) (bool, error) {
+		probedPID = pid
+		return probe(ctx, pid)
+	}
+	collector := &microsandboxExecCollector{filter: newExecOutputFilter()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := consumeMicrosandboxExecStream(ctx, recv, closeHandle, collector, 25*time.Millisecond, probeRecorder, 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "without reporting its status") {
+		t.Fatalf("error = %v, want a lost-exit failure", err)
+	}
+	if probedPID != 4242 {
+		t.Fatalf("probed pid = %d, want the pid from the started event", probedPID)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("close calls = %d, want 1", closeCalls)
+	}
+	// The output collected before the stream went quiet is still reported, so
+	// callers can see how far the command got.
+	if result.Output != "done\n" || result.Success || result.ExitCode != -1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+// scriptedExecStream hands out queued events once each and then blocks, which
+// is how a real stream behaves. A receiver that keeps re-delivering the same
+// event instead would hold the drain window open forever.
+type scriptedExecStream struct {
+	pending []*microsandbox.ExecEvent
+}
+
+func (s *scriptedExecStream) push(event *microsandbox.ExecEvent) {
+	s.pending = append(s.pending, event)
+}
+
+func (s *scriptedExecStream) recv(ctx context.Context) (*microsandbox.ExecEvent, error) {
+	if len(s.pending) > 0 {
+		event := s.pending[0]
+		s.pending = s.pending[1:]
+		return event, nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// Silence on its own means nothing: a command can be quiet for a long time.
+func TestMicrosandboxExecStreamKeepsWaitingWhileProcessLives(t *testing.T) {
+	stream := &scriptedExecStream{pending: []*microsandbox.ExecEvent{
+		// The pid has to be known before silence can be interpreted at all.
+		{Kind: microsandbox.ExecEventStarted, PID: 11},
+	}}
+	var probeCalls int
+	probe := func(context.Context, uint32) (bool, error) {
+		probeCalls++
+		if probeCalls == 3 {
+			stream.push(&microsandbox.ExecEvent{Kind: microsandbox.ExecEventExited, ExitCode: 0})
+		}
+		return true, nil
+	}
+	collector := &microsandboxExecCollector{filter: newExecOutputFilter()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := consumeMicrosandboxExecStream(ctx, stream.recv, func() error { return nil }, collector, 10*time.Millisecond, probe, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumeMicrosandboxExecStream returned error: %v", err)
+	}
+	if probeCalls < 3 {
+		t.Fatalf("probe calls = %d, want the stream to keep waiting while the process lives", probeCalls)
+	}
+	if !result.Success || result.ExitCode != 0 {
+		t.Fatalf("result = %#v, want the reported exit to win", result)
+	}
+}
+
+// A probe that cannot answer must not be read as "the process is gone".
+func TestMicrosandboxExecStreamKeepsWaitingWhenProbeFails(t *testing.T) {
+	stream := &scriptedExecStream{pending: []*microsandbox.ExecEvent{
+		{Kind: microsandbox.ExecEventStarted, PID: 9},
+	}}
+	var probeCalls int
+	probe := func(context.Context, uint32) (bool, error) {
+		probeCalls++
+		if probeCalls == 2 {
+			stream.push(&microsandbox.ExecEvent{Kind: microsandbox.ExecEventExited, ExitCode: 3})
+		}
+		return false, errors.New("guest agent did not answer")
+	}
+	collector := &microsandboxExecCollector{filter: newExecOutputFilter()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := consumeMicrosandboxExecStream(ctx, stream.recv, func() error { return nil }, collector, 10*time.Millisecond, probe, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumeMicrosandboxExecStream returned error: %v", err)
+	}
+	if probeCalls < 2 {
+		t.Fatalf("probe calls = %d, want the stream to keep waiting after a failed probe", probeCalls)
+	}
+	if result.ExitCode != 3 || result.Success {
+		t.Fatalf("result = %#v, want the eventual exit status", result)
+	}
+}
+
+// A stream that ends without an exit status used to be reported as exit code 0,
+// which turns a lost status into a success whose output is quietly short.
+func TestMicrosandboxExecStreamRejectsDoneWithoutExit(t *testing.T) {
+	events := []*microsandbox.ExecEvent{
+		{Kind: microsandbox.ExecEventStarted, PID: 5},
+		{Kind: microsandbox.ExecEventStdout, Data: []byte("partial")},
+		{Kind: microsandbox.ExecEventDone},
+	}
+	recv := func(context.Context) (*microsandbox.ExecEvent, error) {
+		event := events[0]
+		events = events[1:]
+		return event, nil
+	}
+	collector := &microsandboxExecCollector{filter: newExecOutputFilter()}
+
+	result, err := consumeMicrosandboxExecStream(context.Background(), recv, func() error { return nil }, collector, 25*time.Millisecond, nil, 0)
+	if err == nil || !strings.Contains(err.Error(), "without reporting a process exit status") {
+		t.Fatalf("error = %v, want a missing-exit failure", err)
+	}
+	if result.Success || result.ExitCode != -1 {
+		t.Fatalf("result = %#v, want a non-success result", result)
+	}
+	if result.Output != "partial" {
+		t.Fatalf("output = %q", result.Output)
 	}
 }
 
