@@ -48,6 +48,10 @@ export class PiRunner {
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
+      // Attach the process error handler immediately. A failed spawn may emit
+      // before stdout iteration completes, and an unhandled child "error"
+      // event would otherwise terminate the runtime process.
+      const exit = waitForExit(child);
 
       let stderrBytes: Buffer = Buffer.alloc(0);
       child.stderr?.on("data", (chunk) => {
@@ -80,7 +84,7 @@ export class PiRunner {
         this.handleEvent(event, result);
       }
 
-      const exitCode = await waitForExit(child);
+      const exitCode = await exit;
       const stderr = stderrBytes.toString("utf8");
       result.stderr = stderr;
       if (protocolError) throw protocolError;
