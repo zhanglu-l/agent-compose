@@ -20,6 +20,7 @@ import (
 )
 
 const dockerWorkspaceE2EImageEnv = "AGENT_COMPOSE_E2E_DOCKER_WORKSPACE_IMAGE"
+const dockerWorkspaceE2ERestartBinaryEnv = "AGENT_COMPOSE_E2E_RESTART_BINARY"
 
 func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 	image := strings.TrimSpace(os.Getenv(dockerWorkspaceE2EImageEnv))
@@ -37,6 +38,15 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(testRoot) })
 	dockerClient := newE2EDockerClient(t, ctx, image)
 	binary := e2eDaemonBinary(t, ctx, repoRoot, testRoot)
+	restartBinary := strings.TrimSpace(os.Getenv(dockerWorkspaceE2ERestartBinaryEnv))
+	if restartBinary == "" {
+		restartBinary = binary
+	} else {
+		restartBinary, err = filepath.Abs(restartBinary)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", dockerWorkspaceE2ERestartBinaryEnv, err)
+		}
+	}
 	socketPath := filepath.Join(testRoot, "agent-compose.sock")
 
 	const (
@@ -111,6 +121,9 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 	})
 	assertE2ESandboxWorkspaceState(t, sandboxA, sandboxAID, projectID, domain.VMStatusRunning, "")
 	workspaceAPath := sandboxA.GetWorkspacePath()
+	if restartBinary != binary {
+		assertE2ELegacySandboxPath(t, testRoot, sandboxAID, workspaceAPath)
+	}
 	handleA := inspectE2EDockerSandbox(t, ctx, dockerClient, sandboxAID)
 	if !handleA.Running || filepath.Clean(handleA.WorkspaceSource) != filepath.Clean(workspaceAPath) {
 		t.Fatalf("Docker sandbox A handle = %+v, want running with workspace source %q", handleA, workspaceAPath)
@@ -145,7 +158,7 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 		t.Fatalf("Docker sandbox A after daemon restart boundary = %+v, want stopped container %s", persistedHandleA, handleA.ContainerID)
 	}
 
-	daemon2 := startE2EDaemon(t, binary, repoRoot, testRoot, listenAddress2, image)
+	daemon2 := startE2EDaemon(t, restartBinary, repoRoot, testRoot, listenAddress2, image)
 	waitForE2EDaemon(t, ctx, daemon2, baseURL2)
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -192,6 +205,9 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 		cleanupE2EWorkspaceSandbox(t, dockerClient, sandboxClient, sandboxBID, sandboxBRemoved)
 	})
 	assertE2ESandboxWorkspaceState(t, sandboxB, sandboxBID, projectID, domain.VMStatusRunning, "")
+	if restartBinary != binary {
+		assertE2EDatePartitionedSandboxPath(t, testRoot, sandboxBID, sandboxB.GetWorkspacePath())
+	}
 	if sandboxBID == sandboxAID || sandboxB.GetWorkspacePath() == workspaceAPath {
 		t.Fatalf("sandbox B identity/path = %q/%q, must differ from A %q/%q", sandboxBID, sandboxB.GetWorkspacePath(), sandboxAID, workspaceAPath)
 	}
@@ -219,6 +235,29 @@ func TestE2EDockerFileWorkspaceResumePreservesState(t *testing.T) {
 	daemon2.stop(t)
 	assertE2EDaemonReleased(t, daemon2, socketPath, listenAddress2)
 	assertE2ETCPAddressReleased(t, listenAddress1)
+}
+
+func assertE2ELegacySandboxPath(t *testing.T, testRoot, sandboxID, workspacePath string) {
+	t.Helper()
+	want := filepath.Join(testRoot, "sandboxes", sandboxID, "workspace")
+	if filepath.Clean(workspacePath) != filepath.Clean(want) {
+		t.Fatalf("legacy sandbox workspace path = %q, want %q", workspacePath, want)
+	}
+}
+
+func assertE2EDatePartitionedSandboxPath(t *testing.T, testRoot, sandboxID, workspacePath string) {
+	t.Helper()
+	relative, err := filepath.Rel(filepath.Join(testRoot, "sandboxes"), workspacePath)
+	if err != nil {
+		t.Fatalf("resolve partitioned sandbox workspace path: %v", err)
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	if len(parts) != 5 || len(parts[0]) != 4 || len(parts[1]) != 2 || len(parts[2]) != 2 || parts[3] != sandboxID || parts[4] != "workspace" {
+		t.Fatalf("partitioned sandbox workspace path = %q, want <year>/<month>/<day>/%s/workspace", relative, sandboxID)
+	}
+	if _, err := time.ParseInLocation("2006/01/02", strings.Join(parts[:3], "/"), time.Local); err != nil {
+		t.Fatalf("partitioned sandbox workspace date %q is invalid: %v", strings.Join(parts[:3], "/"), err)
+	}
 }
 
 func runE2EWorkspaceSandbox(

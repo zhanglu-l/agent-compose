@@ -45,6 +45,9 @@ func TestE2EStorePersistenceErrorAndUpdateBranches(t *testing.T) {
 func TestStoreCreateSessionUsesConfiguredJupyterProxyBase(t *testing.T) {
 	ctx := context.Background()
 	store := newCoverageStore(t)
+	localZone := time.FixedZone("test-local", 8*60*60)
+	createdAt := time.Date(2026, 7, 23, 0, 30, 0, 0, localZone)
+	store.now = func() time.Time { return createdAt }
 	session, err := store.CreateSandbox(ctx, "Prefixed Proxy", "", driverpkg.RuntimeDriverBoxlite, "", "", "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSession returned error: %v", err)
@@ -68,8 +71,12 @@ func TestStoreCreateSessionUsesConfiguredJupyterProxyBase(t *testing.T) {
 	if session.Summary.WorkspacePath != filepath.Join(sandboxDir, "workspace") {
 		t.Fatalf("workspace path = %q, want under sandbox dir %q", session.Summary.WorkspacePath, sandboxDir)
 	}
-	if gotRoot := filepath.Dir(sandboxDir); filepath.Base(gotRoot) != "sandboxes" {
-		t.Fatalf("sandbox dir root = %q, want sandboxes", gotRoot)
+	wantParent := filepath.Join(store.config.SandboxRoot, "2026", "07", "23")
+	if gotParent := filepath.Dir(sandboxDir); gotParent != wantParent {
+		t.Fatalf("sandbox dir parent = %q, want %q", gotParent, wantParent)
+	}
+	if !session.Summary.CreatedAt.Equal(createdAt.UTC()) || session.Summary.CreatedAt.Location() != time.UTC {
+		t.Fatalf("sandbox created at = %v, want UTC instant %v", session.Summary.CreatedAt, createdAt.UTC())
 	}
 	for _, rel := range []string{
 		"metadata.json",

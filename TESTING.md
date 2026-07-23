@@ -84,6 +84,13 @@ a new sandbox receives the latest Workspace Source without state leaking back
 to that source. It also checks resource cleanup. Inspect verbose test output and
 daemon logs when it fails.
 
+To exercise an upgrade boundary, build a baseline binary and the candidate
+binary separately, then run the same test directly with the baseline in
+`AGENT_COMPOSE_E2E_BINARY` and the candidate in
+`AGENT_COMPOSE_E2E_RESTART_BINARY`. The first daemon creates the persisted
+sandbox; the restarted candidate must discover, resume, execute in, and remove
+it before creating and validating a date-partitioned sandbox of its own.
+
 This focused task is intentionally absent from `task test` and GitHub Actions
 because GitHub-hosted CI does not provide its prebuilt guest-image prerequisite.
 

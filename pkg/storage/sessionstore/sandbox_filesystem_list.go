@@ -3,7 +3,6 @@ package sessionstore
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -14,19 +13,16 @@ import (
 // lightweight stores created through FromConfig, which intentionally do not
 // own an index database lifecycle.
 func (s *Store) listSandboxesFromFilesystem(ctx context.Context, options SandboxListOptions) (SandboxListResult, error) {
-	entries, err := os.ReadDir(s.config.SandboxRoot)
+	locations, err := s.layout.discover()
 	if err != nil {
-		return SandboxListResult{}, fmt.Errorf("read sandbox root: %w", err)
+		return SandboxListResult{}, fmt.Errorf("discover sandbox directories: %w", err)
 	}
 	var sandboxes []*Sandbox
-	for _, entry := range entries {
+	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
 			return SandboxListResult{}, err
 		}
-		if !entry.IsDir() {
-			continue
-		}
-		sandbox, err := s.loadSandbox(entry.Name())
+		sandbox, err := s.loadSandboxFromDir(location.id, location.path)
 		if err != nil {
 			continue
 		}

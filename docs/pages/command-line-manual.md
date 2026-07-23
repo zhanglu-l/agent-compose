@@ -353,6 +353,8 @@ Rules:
 
 `sandbox stop` preserves resumable driver state. `sandbox rm` writes a durable deletion journal under `<SANDBOX_ROOT>/.lifecycle`, rejects a running sandbox unless `--force` is supplied, and removes the driver resource, sandbox accessories, sandbox directory, and metadata in restart-safe stages. A sandbox in `DELETING` cannot be resumed or used for new exec/run work; daemon startup resumes only incomplete deletion journals and never guesses that an ordinary historical resource is orphaned.
 
+New sandbox directories are stored under `<SANDBOX_ROOT>/<year>/<month>/<day>/<sandbox-id>`, using the daemon's local calendar date at creation time. Metadata timestamps remain UTC. Existing flat `<SANDBOX_ROOT>/<sandbox-id>` directories are not migrated and remain usable after upgrade. Because older daemon versions do not scan the date-partitioned layout, downgrading makes newly created sandboxes unavailable until the newer version is restored. Set a consistent daemon `TZ` when deployments require stable calendar boundaries.
+
 ## `stats`: Show Sandbox Resource Stats
 
 Show resource stats snapshots for running sandboxes. Without a sandbox argument, the command shows all running sandboxes for the current compose project.

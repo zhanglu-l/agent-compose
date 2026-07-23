@@ -355,6 +355,8 @@ agent-compose sandbox prune --include-orphans
 
 `sandbox stop` 会保留可恢复的 driver state。`sandbox rm` 在 `<SANDBOX_ROOT>/.lifecycle` 写入持久 deletion journal；running sandbox 必须显式使用 `--force`，删除会按可恢复阶段清理 driver resource、sandbox accessories、sandbox 目录和 metadata。处于 `DELETING` 的 sandbox 不能 resume，也不能接收新的 exec/run；daemon 启动时只继续未完成的 deletion journal，不会猜测或自动删除普通历史残留。
 
+新建 sandbox 的目录位于 `<SANDBOX_ROOT>/<年>/<月>/<日>/<sandbox-id>`，日期取创建时 daemon 的本地日历时间，metadata 时间戳仍使用 UTC。升级时不会迁移已有的扁平 `<SANDBOX_ROOT>/<sandbox-id>` 目录，新版本仍可继续使用这些目录。旧版 daemon 不会扫描日期分层布局，因此降级后无法发现升级后新建的 sandbox，恢复新版本后可重新使用。如部署要求稳定的日期边界，应为 daemon 配置一致的 `TZ`。
+
 ## `stats`：查看 sandbox 资源统计
 
 查看运行中 sandbox 的资源统计快照。未指定 sandbox 参数时，显示当前 compose project 下所有 running sandbox 的统计。

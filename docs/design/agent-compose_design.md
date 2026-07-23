@@ -639,7 +639,8 @@ data/agent-compose/
 ├── skills/<content-id>/
 └── sandboxes/
     ├── .lifecycle/<sandbox-id>.json
-    └── <sandbox_id>/
+    ├── <legacy-sandbox-id>/
+    └── <local-year>/<month>/<day>/<sandbox-id>/
         ├── metadata.json
         ├── workspace/
         ├── context/
@@ -656,6 +657,13 @@ data/agent-compose/
         └── proxy/
             └── jupyter.json
 ```
+
+New sandbox directories are partitioned by the daemon's local calendar date at
+creation time. Persisted timestamps remain UTC. Existing flat directories are
+not moved and remain readable by newer daemons, so both layouts may coexist;
+older daemons do not discover sandboxes created in the partitioned layout.
+Operators that require a stable calendar boundary should configure a consistent
+daemon `TZ` value.
 
 The sandbox directory stores sandbox metadata, workspace, home backing, runtime
 shared directory, cell/event timeline, VM state, and proxy state. By default,

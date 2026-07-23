@@ -298,9 +298,12 @@ Check:
 
 Common file locations:
 
-- `/data/playground/data/agent-compose/sandboxes/<sandbox_id>/metadata.json`
-- `/data/playground/data/agent-compose/sandboxes/<sandbox_id>/vm/runtime.json`
-- `/data/playground/data/agent-compose/sandboxes/<sandbox_id>/proxy/jupyter.json`
+- `/data/playground/data/agent-compose/sandboxes/<year>/<month>/<day>/<sandbox_id>/metadata.json`
+- `/data/playground/data/agent-compose/sandboxes/<year>/<month>/<day>/<sandbox_id>/vm/runtime.json`
+- `/data/playground/data/agent-compose/sandboxes/<year>/<month>/<day>/<sandbox_id>/proxy/jupyter.json`
+
+The date is the daemon's local calendar date when the sandbox was created.
+Sandboxes created by older releases remain directly under `sandboxes/<sandbox_id>`.
 
 ### 4. Guest Image Update Does Not Take Effect
 

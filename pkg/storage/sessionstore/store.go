@@ -59,6 +59,8 @@ type (
 
 type Store struct {
 	config                *appconfig.Config
+	layout                *sandboxLayout
+	now                   func() time.Time
 	database              *storagesqlite.Database
 	sandboxLocks          sync.Map
 	cacheDependencyMu     sync.RWMutex
@@ -121,7 +123,15 @@ func newStoreWithIndex(config *appconfig.Config, index *sandboxCache, dbPath str
 	if err := os.MkdirAll(config.SandboxRoot, 0o755); err != nil {
 		return nil, closeSandboxCacheAfterStoreInitFailure(index, fmt.Errorf("create sandbox root: %w", err))
 	}
-	store := &Store{config: config, projectResolver: projectResolver}
+	store := &Store{
+		config:          config,
+		layout:          newSandboxLayout(config.SandboxRoot),
+		now:             time.Now,
+		projectResolver: projectResolver,
+	}
+	if _, err := store.layout.discover(); err != nil {
+		return nil, closeSandboxCacheAfterStoreInitFailure(index, fmt.Errorf("discover sandbox directories: %w", err))
+	}
 	if err := store.backfillOwnershipRecords(); err != nil {
 		return nil, closeSandboxCacheAfterStoreInitFailure(index, err)
 	}
@@ -175,7 +185,12 @@ func (s *Store) retrySandboxCacheRebuild(ctx context.Context, cause error) error
 }
 
 func FromConfig(config *appconfig.Config) *Store {
-	return &Store{config: config}
+	layout := newSandboxLayout(config.SandboxRoot)
+	// Compatibility stores do not return construction errors. Prime known paths
+	// when possible so ID-addressed reads work before the first filesystem list;
+	// listing still performs discovery and reports any filesystem error.
+	_, _ = layout.discover()
+	return &Store{config: config, layout: layout, now: time.Now}
 }
 
 // Close releases database resources owned by compatibility stores. Stores
@@ -239,20 +254,17 @@ func (s *Store) runIndexRebuild(ctx context.Context) error {
 		return nil
 	}
 
-	entries, err := os.ReadDir(s.config.SandboxRoot)
+	locations, err := s.layout.discover()
 	if err != nil {
-		return fmt.Errorf("read sandbox root: %w", err)
+		return err
 	}
-	validIDs := make(map[string]struct{}, len(entries))
+	validIDs := make(map[string]struct{}, len(locations))
 	var sandboxes []*Sandbox
-	for _, entry := range entries {
+	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !entry.IsDir() || entry.Name() == ".lifecycle" {
-			continue
-		}
-		sandbox, loadErr := s.loadSandbox(entry.Name())
+		sandbox, loadErr := s.loadSandboxFromDir(location.id, location.path)
 		if loadErr != nil {
 			// Not a loadable sandbox (corrupt/foreign dir): skip, not a failure.
 			continue
@@ -340,14 +352,18 @@ func (s *Store) createSandboxWithCacheDependencyLock(ctx context.Context, title,
 }
 
 func (s *Store) createSandboxWithOptions(title, baseWorkspace, driver, guestImage, workspaceID, triggerSource string, workspace *SandboxWorkspace, envItems []SandboxEnvVar, tags []SandboxTag, options CreateSandboxOptions) (*Sandbox, error) {
-	now := time.Now().UTC()
+	localNow := s.currentTime()
+	now := localNow.UTC()
 	workspaceID = strings.TrimSpace(workspaceID)
 	id := identity.NewRandomID(identity.ResourceSandbox)
 	shortID := identity.ShortID(id)
-	sandboxDir := s.sandboxDir(id)
+	sandboxDir, err := s.layout.allocate(id, localNow)
+	if err != nil {
+		return nil, fmt.Errorf("allocate sandbox directory: %w", err)
+	}
 	workspaceDir := filepath.Join(sandboxDir, "workspace")
 	proxyPath := strings.TrimRight(s.config.JupyterProxyBasePath, "/") + "/" + id + "/lab"
-	driver, err := driverpkg.ResolveSandboxRuntimeDriver(driver, s.config.RuntimeDriver)
+	driver, err = driverpkg.ResolveSandboxRuntimeDriver(driver, s.config.RuntimeDriver)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +629,7 @@ func listRowsNeeded(skip, page int) int {
 
 func (s *Store) UpdateSandbox(_ context.Context, session *Sandbox) error {
 	s.hydrateSandboxGuestImage(session)
-	session.Summary.UpdatedAt = time.Now().UTC()
+	session.Summary.UpdatedAt = s.currentTime().UTC()
 	unlock := s.lockSandbox(session.Summary.ID)
 	defer unlock()
 	if err := s.saveSandboxPreservingCounts(session); err != nil {
@@ -642,6 +658,7 @@ func (s *Store) RemoveSandbox(_ context.Context, id string) error {
 	if err := os.RemoveAll(path); err != nil {
 		return fmt.Errorf("remove sandbox dir %s: %w", id, err)
 	}
+	s.layout.remove(id, path)
 	if err := s.deleteIndexRow(id); err != nil {
 		slog.Warn("failed to delete sandbox listing cache row after removing authoritative metadata", "sandbox_id", id, "error", err)
 	}
@@ -650,15 +667,12 @@ func (s *Store) RemoveSandbox(_ context.Context, id string) error {
 }
 
 func (s *Store) backfillOwnershipRecords() error {
-	entries, err := os.ReadDir(s.config.SandboxRoot)
+	locations, err := s.layout.discover()
 	if err != nil {
-		return fmt.Errorf("read sandbox root for lifecycle backfill: %w", err)
+		return fmt.Errorf("discover sandbox directories for lifecycle backfill: %w", err)
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == ".lifecycle" {
-			continue
-		}
-		sandbox, loadErr := s.loadSandbox(entry.Name())
+	for _, location := range locations {
+		sandbox, loadErr := s.loadSandboxFromDir(location.id, location.path)
 		if loadErr != nil {
 			continue
 		}
@@ -671,8 +685,8 @@ func (s *Store) backfillOwnershipRecords() error {
 		record := sessions.OwnershipRecord{
 			Version: sessions.OwnershipRecordVersion, SandboxID: sandbox.Summary.ID,
 			Driver: sandbox.Summary.Driver, RuntimeID: sandbox.Summary.RuntimeRef,
-			SandboxPath: s.sandboxDir(sandbox.Summary.ID), LifecycleState: "active",
-			OwnedResources:    []sessions.OwnedResource{{Kind: "runtime", Identity: sandbox.Summary.RuntimeRef}, {Kind: "sandbox-directory", Path: s.sandboxDir(sandbox.Summary.ID)}},
+			SandboxPath: location.path, LifecycleState: "active",
+			OwnedResources:    []sessions.OwnedResource{{Kind: "runtime", Identity: sandbox.Summary.RuntimeRef}, {Kind: "sandbox-directory", Path: location.path}},
 			CacheDependencies: []sessions.CacheDependency{{Domain: "runtime-image", Identity: sandbox.Summary.GuestImage}},
 		}
 		if writeErr := sessions.WriteOwnershipRecord(s.config.SandboxRoot, record); writeErr != nil {
@@ -787,7 +801,7 @@ func (s *Store) AddEvent(_ context.Context, sessionID string, event SandboxEvent
 
 func (s *Store) persistEventSandboxSummary(session *Sandbox) error {
 	s.hydrateSandboxGuestImage(session)
-	session.Summary.UpdatedAt = time.Now().UTC()
+	session.Summary.UpdatedAt = s.currentTime().UTC()
 	if err := s.saveSandboxPreservingCounts(session); err != nil {
 		return fmt.Errorf("save sandbox summary after event append: %w", err)
 	}
@@ -802,7 +816,7 @@ func (s *Store) ListEvents(_ context.Context, id string) ([]SandboxEvent, error)
 }
 
 func (s *Store) sandboxDir(id string) string {
-	return filepath.Join(s.config.SandboxRoot, sandboxDirName(id))
+	return s.layout.path(id)
 }
 
 func (s *Store) SandboxDir(id string) string {
@@ -876,7 +890,11 @@ func (s *Store) ProxyStatePath(id string) string {
 }
 
 func (s *Store) loadSandbox(id string) (*Sandbox, error) {
-	path := filepath.Join(s.sandboxDir(id), "metadata.json")
+	return s.loadSandboxFromDir(id, s.sandboxDir(id))
+}
+
+func (s *Store) loadSandboxFromDir(id, sandboxDir string) (*Sandbox, error) {
+	path := filepath.Join(sandboxDir, "metadata.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read session metadata %s: %w", id, err)
@@ -885,9 +903,15 @@ func (s *Store) loadSandbox(id string) (*Sandbox, error) {
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("decode session metadata %s: %w", id, err)
 	}
+	if strings.TrimSpace(session.Summary.ID) == "" {
+		return nil, fmt.Errorf("decode session metadata %s: sandbox id is required", id)
+	}
+	if sandboxDirName(session.Summary.ID) != sandboxDirName(id) {
+		return nil, fmt.Errorf("decode session metadata %s: sandbox id %q does not match directory", id, session.Summary.ID)
+	}
 	// WorkspacePath is derived from the active sandbox root. Persisted absolute
 	// paths may refer to the filesystem namespace of an older daemon process.
-	session.Summary.WorkspacePath = filepath.Join(s.sandboxDir(id), "workspace")
+	session.Summary.WorkspacePath = filepath.Join(sandboxDir, "workspace")
 	session.Summary.TriggerSource = domain.NormalizeSandboxTriggerSource(session.Summary.TriggerSource, session.Summary.Tags)
 	if strings.TrimSpace(session.Summary.ShortID) == "" {
 		session.Summary.ShortID = identity.ShortID(session.Summary.ID)
@@ -897,11 +921,21 @@ func (s *Store) loadSandbox(id string) (*Sandbox, error) {
 		return nil, fmt.Errorf("session metadata %s has invalid driver: %w", id, err)
 	}
 	session.Summary.Driver = driver
+	if err := s.layout.register(session.Summary.ID, sandboxDir); err != nil {
+		return nil, fmt.Errorf("register session metadata %s directory: %w", id, err)
+	}
 	return &session, nil
 }
 
 func (s *Store) LoadSandbox(id string) (*Sandbox, error) {
 	return s.loadSandbox(id)
+}
+
+func (s *Store) currentTime() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *Store) saveSandbox(session *Sandbox) error {
@@ -992,7 +1026,7 @@ func (s *Store) saveEventCount(id string, eventCount int) error {
 	}
 	session.Summary.EventCount = eventCount
 	s.hydrateSandboxGuestImage(session)
-	session.Summary.UpdatedAt = time.Now().UTC()
+	session.Summary.UpdatedAt = s.currentTime().UTC()
 	if err := s.saveSandbox(session); err != nil {
 		return err
 	}
