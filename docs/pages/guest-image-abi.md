@@ -210,7 +210,7 @@ guest Dockerfile unless a combination has been independently tested.
 | Claude | `@anthropic-ai/claude-agent-sdk` plus Claude Code; use `CLAUDE_CODE_EXECUTABLE`/`CLAUDE_CODE_PATH`, `/usr/bin/claude`, or the SDK-supported default |
 | Gemini | A `gemini` executable in `PATH` |
 | OpenCode | An `opencode` executable in `PATH` |
-| Pi | A `pi` executable in `PATH` |
+| Pi | A `pi` executable in `PATH`; projects using MCP also require the pinned `pi-mcp-adapter` extension at `/usr/local/share/agent-compose/pi-mcp-adapter/index.ts` |
 
 Provider credentials and endpoint variables are injected at execution time.
 They **MUST NOT** be embedded in the image.

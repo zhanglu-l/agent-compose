@@ -207,30 +207,19 @@ agent definition 的 `system_prompt`、MPI context 与 agent-compose 管理的 r
 
 Pi 官方 README 明确列出 “No MCP”，推荐用 CLI tools/skills 或 extension 扩展。因此不能仅写一个 `.pi` 配置文件期望 Pi 自动加载 MCP。
 
-完整方案是在 agent-compose runtime 包中维护一个最小 Pi extension：
-
-```text
-runtime/javascript/src/pi-mcp/
-  extension.ts          # 注册动态 tools，管理生命周期
-  config.ts             # 读取 stateRoot 下现有规范化 MCP JSON
-  transports.ts         # stdio、streamable HTTP/SSE client boundary
-  result.ts             # MCP content -> Pi tool result
-```
+实现采用社区维护的 `pi-mcp-adapter` extension。官方 guest 通过
+`PI_MCP_ADAPTER_VERSION` build argument 安装精确版本，并把入口固定暴露为
+`/usr/local/share/agent-compose/pi-mcp-adapter/index.ts`；调用方可以像其他
+provider 版本参数一样在构建时覆盖版本，而运行时不联网安装 extension。
 
 设计约束：
 
 - 复用 `execution.WriteAgentMCPConfigFile` 生成的 provider-neutral MCP 配置，避免再维护第三种 host-side MCP 配置格式。
-- extension 作为 runtime 包内受版本控制的资产，通过显式 `--extension <absolute path>` 加载；仍保留 `--no-extensions`，不加载任何用户 extension。
-- MCP SDK依赖固定版本加入 `runtime/javascript/package.json`，不要运行时下载安装第三方 extension。
+- runner 将 provider-neutral 配置转换为 adapter 的 `mcpServers` 格式，写入权限为 `0600` 的 invocation 临时目录，并通过 `--mcp-config` 显式传入；调用结束后删除，避免持久配置和并发覆盖。
+- adapter 通过显式 `--extension <absolute path>` 加载；仍保留 `--no-extensions`，不加载任何用户 extension。
+- headless prompt 模式禁用 sampling 和 elicitation，并启用 output guard；server 默认 lazy 连接。
 - local server 支持 command、args、env；remote server 支持 URL、transport、headers。secret 只在子进程环境/请求 header 中存在，日志必须脱敏。
-- tools 应在 Pi 发起第一轮模型调用前完成发现和注册。server 不可用时返回带 server name 的启动错误，而非空 tool set。
-- 每个 spawned MCP process 有明确 owner；Pi run 完成、取消或初始化失败时全部 close/kill 并 wait。
-- tool name 冲突采用稳定前缀或明确拒绝，不能依赖 map 遍历顺序覆盖。
-- 对 tool input schema 做 JSON Schema 兼容转换；不支持的 schema keyword 必须给出 server/tool 上下文。
-- 对 text/image/resource content 明确定义转换；首版不支持的 audio/resource link 返回结构化错误。
-- tool output 和 stderr 有大小上限，与 runtime command 的输出限制一致。
-
-若 MCP adapter 不在首个 PR 范围，`prepareAgentMCPConfig` 仍写通用配置，但 `PiRunner` 发现 `mcpConfig` 非空时直接报错：`pi provider does not support configured MCP servers in this build`。文档和 release notes 标为限制，不能忽略。
+- stdio/HTTP/SSE 生命周期、schema/content 转换、tool name 冲突和输出限制由固定版本 adapter 负责；升级 adapter 时需要重新执行 MCP 集成测试。
 
 ## 6. 代码改动清单
 

@@ -6,6 +6,7 @@ import { extractText, jsonString } from "../text.js";
 import { readStoredThread, writeStoredThread } from "../session-state.js";
 import { TranscriptWriter, type TranscriptTextWriter } from "../transcript.js";
 import type { AgentResult, RunnerOptions } from "../types.js";
+import { piMCPAdapterExtension, writePiMCPConfig } from "./pi-mcp.js";
 
 const maxDiagnosticBytes = 64 * 1024;
 
@@ -24,10 +25,6 @@ export class PiRunner {
     if (this.options.outputSchema) {
       throw new Error("structured JSON output is not supported by pi runner");
     }
-    if (this.options.mcpConfig && Object.keys(this.options.mcpConfig).length > 0) {
-      throw new Error("pi provider does not support configured MCP servers in this build");
-    }
-
     const stored = await readStoredThread(this.options.stateRoot, "pi");
     const sessionDir = path.join(this.options.stateRoot, "agents", "providers", "pi", "sessions");
     const tempRoot = path.join(this.options.stateRoot, "agents", "providers", "pi", "tmp");
@@ -131,6 +128,10 @@ export class PiRunner {
       args.push("--append-system-prompt", systemPath);
     }
     for (const skillPath of await this.resolveSkillPaths()) args.push("--skill", skillPath);
+    const mcpConfigPath = await writePiMCPConfig(invocationDir, this.options.mcpConfig);
+    if (mcpConfigPath) {
+      args.push("--extension", piMCPAdapterExtension, "--mcp-config", mcpConfigPath);
+    }
     args.push(promptText);
     return args;
   }
@@ -171,7 +172,8 @@ export class PiRunner {
     if (type === "agent_end") {
       result.stopReason = firstString(event, "stopReason", "stop_reason") || "completed";
       result.finalText ||= lastAssistantMessage(event.messages);
-      this.reportedError ??= this.latestAssistantError;
+      this.reportedError ??= this.latestAssistantError
+        || (result.stopReason === "error" ? new Error("pi agent ended with an error") : null);
       return;
     }
     if (type.startsWith("auto_retry_") || type.startsWith("compaction_")) {

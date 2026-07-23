@@ -74,7 +74,7 @@ func EnsurePiFacadeConfig(ctx context.Context, config *appconfig.Config, store P
 }
 
 func resolvePiFacadeTarget(ctx context.Context, config *appconfig.Config, store PiFacadeStore, sandbox *domain.Sandbox, providerID, model string) (ResolvedTarget, error) {
-	envItems := openCodeProviderEnvItems(sandbox)
+	envItems := sandboxProviderEnvItems(sandbox)
 	sandboxID := sandbox.Summary.ID
 	if HasEnabledLLMProviderID(ctx, store, providerID) {
 		return ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandboxID, "", model, providerID, envItems)
@@ -85,7 +85,7 @@ func resolvePiFacadeTarget(ctx context.Context, config *appconfig.Config, store 
 	case ProviderFamilyOpenAI, ProviderIDDefaultOpenAI:
 		return ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandboxID, ProviderFamilyOpenAI, model, "", envItems)
 	default:
-		return resolveOpenCodeCustomFacadeTarget(ctx, config, store, sandbox, providerID, model)
+		return resolveCustomOpenAIFacadeTarget(ctx, config, store, sandbox, providerID, model)
 	}
 }
 

@@ -136,13 +136,34 @@ describe("PiRunner", () => {
     });
   });
 
-  it("fails fast for unsupported capabilities before spawning", async () => {
+  it("loads the managed MCP adapter with an invocation-scoped config", async () => {
     const { PiRunner } = await import("../src/runners/pi.js");
     await withTempSession(async (root) => {
-      await expect(new PiRunner({
+      processState.lines = [
+        JSON.stringify({ type: "session", id: "pi-session" }),
+        JSON.stringify({ type: "agent_end", stopReason: "completed" }),
+      ];
+      await new PiRunner({
         ...runnerOptions(root, "", "pi"),
-        mcpConfig: { docs: { type: "remote" } },
-      }).runPrompt("prompt")).rejects.toThrow("does not support configured MCP servers");
+        mcpConfig: {
+          local: { type: "local", command: "server", args: ["--stdio"], env: { TOKEN: { value: "secret", secret: true } } },
+          remote: { type: "remote", transport: "http", url: "https://mcp.example", headers: { Authorization: { value: "Bearer secret", secret: true } } },
+        },
+      }).runPrompt("prompt");
+      const args = processState.calls[0].args;
+      expect(args).toEqual(expect.arrayContaining([
+        "--no-extensions",
+        "--extension", "/usr/local/share/agent-compose/pi-mcp-adapter/index.ts",
+        "--mcp-config",
+      ]));
+      const configPath = args[args.indexOf("--mcp-config") + 1];
+      await expect(fs.access(configPath)).rejects.toThrow();
+    });
+  });
+
+  it("fails fast for unsupported structured output before spawning", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
       await expect(new PiRunner({
         ...runnerOptions(root, "", "pi"),
         outputSchema: { type: "object" },
@@ -190,6 +211,18 @@ describe("PiRunner", () => {
       ];
       await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
         .rejects.toThrow("pi model request failed: flattened failure");
+    });
+  });
+
+  it("rejects an agent-level error without an assistant error message", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
+      processState.lines = [
+        JSON.stringify({ type: "session", id: "pi-session" }),
+        JSON.stringify({ type: "agent_end", stopReason: "error" }),
+      ];
+      await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
+        .rejects.toThrow("pi agent ended with an error");
     });
   });
 

@@ -149,7 +149,7 @@ daemon 会显式传递 workspace、state 和 home 路径，并注入：
 | Claude | `@anthropic-ai/claude-agent-sdk` 和 Claude Code；通过 `CLAUDE_CODE_EXECUTABLE`/`CLAUDE_CODE_PATH`、`/usr/bin/claude` 或 SDK 支持的默认位置选择 |
 | Gemini | `PATH` 中的 `gemini` 可执行文件 |
 | OpenCode | `PATH` 中的 `opencode` 可执行文件 |
-| Pi | `PATH` 中的 `pi` 可执行文件 |
+| Pi | `PATH` 中的 `pi` 可执行文件；使用 MCP 的 project 还需要 `/usr/local/share/agent-compose/pi-mcp-adapter/index.ts` 中固定版本的 `pi-mcp-adapter` extension |
 
 Provider credential 和 endpoint variable 会在执行时注入，**不得**写入镜像。
 
