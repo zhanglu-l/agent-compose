@@ -72,7 +72,7 @@ func TestMigrationBaseline(t *testing.T) {
 		"idx_project_run_event_sequence", "idx_project_run_project_status", "idx_project_run_sandbox",
 		"idx_project_run_scheduler", "idx_project_scheduler_agent", "idx_project_scheduler_id",
 		"idx_project_scheduler_managed_loader", "idx_project_short_id", "idx_project_source_path",
-		"idx_project_volumes_volume", "idx_sandboxes_type_updated", "idx_sandboxes_updated",
+		"idx_project_volumes_volume", "idx_sandboxes_project_updated", "idx_sandboxes_type_updated", "idx_sandboxes_updated",
 		"idx_sandboxes_vm_status_updated", "idx_volumes_driver", "idx_volumes_project",
 		"idx_webhook_source_enabled_topic",
 	} {
@@ -169,6 +169,51 @@ func TestMigrationBaseline(t *testing.T) {
 	}
 }
 
+func TestSandboxProjectProjectionMigrationInvalidatesCache(t *testing.T) {
+	ctx := context.Background()
+	db := newMemoryDB(t)
+	available, err := loadMigrations(embeddedMigrations)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(available) < 2 {
+		t.Fatalf("migration count = %d, want at least 2", len(available))
+	}
+	if err := applyMigrationSet(ctx, db, available[:1]); err != nil {
+		t.Fatalf("apply baseline migration: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO sandboxes(id, updated_at) VALUES('stale-sandbox', 123);
+		INSERT INTO sandbox_projection_meta(id, version) VALUES(1, 1);
+	`); err != nil {
+		t.Fatalf("seed previous sandbox projection: %v", err)
+	}
+
+	if err := applyMigrationSet(ctx, db, available); err != nil {
+		t.Fatalf("apply sandbox project projection migration: %v", err)
+	}
+	var sandboxCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sandboxes`).Scan(&sandboxCount); err != nil {
+		t.Fatalf("count migrated sandbox projection: %v", err)
+	}
+	if sandboxCount != 0 {
+		t.Fatalf("migrated sandbox projection retained %d stale rows", sandboxCount)
+	}
+	var versionCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sandbox_projection_meta`).Scan(&versionCount); err != nil {
+		t.Fatalf("count migrated sandbox projection versions: %v", err)
+	}
+	if versionCount != 0 {
+		t.Fatalf("migrated sandbox projection version rows = %d, want 0 to force rebuild", versionCount)
+	}
+	if rows, err := db.QueryContext(ctx, `SELECT project_id, project_id_search FROM sandboxes LIMIT 0`); err != nil {
+		t.Fatalf("query migrated sandbox project columns: %v", err)
+	} else if err := rows.Close(); err != nil {
+		t.Fatalf("close migrated sandbox project column query: %v", err)
+	}
+	assertSQLiteIndexColumns(t, db, "idx_sandboxes_project_updated", []string{"project_id_search", "updated_at", "id"}, []bool{false, true, true})
+}
+
 func TestBaselineIncludesPreviouslyOmittedSchema(t *testing.T) {
 	ctx := context.Background()
 	db := newMemoryDB(t)
@@ -183,6 +228,7 @@ func TestBaselineIncludesPreviouslyOmittedSchema(t *testing.T) {
 	}{
 		{name: "idx_sandboxes_updated", columns: []string{"updated_at", "id"}, descending: []bool{true, true}},
 		{name: "idx_sandboxes_vm_status_updated", columns: []string{"vm_status_search", "updated_at", "id"}, descending: []bool{false, true, true}},
+		{name: "idx_sandboxes_project_updated", columns: []string{"project_id_search", "updated_at", "id"}, descending: []bool{false, true, true}},
 		{name: "idx_sandboxes_type_updated", columns: []string{"sandbox_type", "updated_at", "id"}, descending: []bool{false, true, true}},
 		{name: "idx_loader_run_trigger_started", columns: []string{"loader_id", "trigger_id", "started_at", "run_id"}, descending: []bool{false, false, true, true}},
 		{name: "idx_loader_run_status_started", columns: []string{"loader_id", "status", "started_at", "run_id"}, descending: []bool{false, false, true, true}},
@@ -467,7 +513,7 @@ func TestMigratesEveryLegacyAddedColumn(t *testing.T) {
 		"idx_project_run_sandbox", "idx_event_dispatch_attempt", "idx_event_parent",
 		"idx_loader_run_trigger_started", "idx_loader_run_status_started", "idx_loader_run_prune",
 		"idx_loader_event_run_created", "idx_event_sandbox_link_loader_run", "idx_event_delivery_loader_run",
-		"idx_sandboxes_updated", "idx_sandboxes_vm_status_updated", "idx_sandboxes_type_updated",
+		"idx_sandboxes_updated", "idx_sandboxes_vm_status_updated", "idx_sandboxes_project_updated", "idx_sandboxes_type_updated",
 	} {
 		assertSQLiteIndexExists(t, db, index)
 	}
