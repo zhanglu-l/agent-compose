@@ -184,7 +184,7 @@ func TestDaemonHTTPClientRunAttachBidiUsesH2C(t *testing.T) {
 	}
 }
 
-func TestDaemonAttachHTTPClientHasNoRequestTimeout(t *testing.T) {
+func TestDaemonStreamingAndAttachHTTPClientsHaveNoRequestTimeout(t *testing.T) {
 	regular := newDaemonHTTPClient(cliClientConfig{BaseURL: "http://127.0.0.1:7410"})
 	if regular.Timeout != 10*time.Minute {
 		t.Fatalf("regular daemon client timeout = %v, want 10m", regular.Timeout)
@@ -192,6 +192,10 @@ func TestDaemonAttachHTTPClientHasNoRequestTimeout(t *testing.T) {
 	attach := newDaemonAttachHTTPClient(cliClientConfig{BaseURL: "http://127.0.0.1:7410"})
 	if attach.Timeout != 0 {
 		t.Fatalf("attach daemon client timeout = %v, want none", attach.Timeout)
+	}
+	streaming := newDaemonStreamingHTTPClient(cliClientConfig{BaseURL: "http://127.0.0.1:7410"})
+	if streaming.Timeout != 0 {
+		t.Fatalf("streaming daemon client timeout = %v, want none", streaming.Timeout)
 	}
 }
 

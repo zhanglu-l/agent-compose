@@ -102,32 +102,9 @@ func listComposeSchedulerTriggers(ctx context.Context, clients cliServiceClients
 }
 
 func listComposeSchedulerRuns(ctx context.Context, clients cliServiceClients, normalized *compose.NormalizedProjectSpec, projectID, agentRef, triggerRef, status string, limit uint32) ([]composeSchedulerRunItem, error) {
-	agentFilter := ""
-	if strings.TrimSpace(agentRef) != "" {
-		scheduler, resolveErr := resolveComposeScheduler(normalized, projectID, agentRef)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		agentFilter = scheduler.AgentName
-	}
-	runStatus, statusText, statusErr := parseSchedulerRunStatusFilter(status)
-	if statusErr != nil {
-		return nil, statusErr
-	}
-	triggerRef = strings.TrimSpace(triggerRef)
-	triggerID := ""
-	if triggerRef != "" {
-		resolvedTriggerID, resolveErr := resolveSchedulerTriggerIDForQuery(ctx, clients, normalized, projectID, agentFilter, triggerRef)
-		if resolveErr != nil {
-			if errors.Is(resolveErr, domain.ErrAmbiguous) && agentFilter == "" {
-				resolveErr = fmt.Errorf("%w; specify a scheduler argument to disambiguate", resolveErr)
-			}
-			if isSchedulerResourceNotFound(resolveErr) || errors.Is(resolveErr, domain.ErrAmbiguous) {
-				return nil, commandExitError{Code: exitCodeUsage, Err: resolveErr}
-			}
-			return nil, resolveErr
-		}
-		triggerID = resolvedTriggerID
+	agentFilter, triggerID, runStatus, statusText, err := resolveComposeSchedulerRunQuery(ctx, clients, normalized, projectID, agentRef, triggerRef, status)
+	if err != nil {
+		return nil, err
 	}
 	items := make([]composeSchedulerRunItem, 0)
 	cursor := ""
@@ -176,6 +153,37 @@ func listComposeSchedulerRuns(ctx context.Context, clients cliServiceClients, no
 		seenCursors[next] = struct{}{}
 		cursor = next
 	}
+}
+
+func resolveComposeSchedulerRunQuery(ctx context.Context, clients cliServiceClients, normalized *compose.NormalizedProjectSpec, projectID, agentRef, triggerRef, status string) (string, string, agentcomposev2.SchedulerRunStatus, string, error) {
+	agentFilter := ""
+	if strings.TrimSpace(agentRef) != "" {
+		scheduler, resolveErr := resolveComposeScheduler(normalized, projectID, agentRef)
+		if resolveErr != nil {
+			return "", "", agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_UNSPECIFIED, "", resolveErr
+		}
+		agentFilter = scheduler.AgentName
+	}
+	runStatus, statusText, statusErr := parseSchedulerRunStatusFilter(status)
+	if statusErr != nil {
+		return "", "", agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_UNSPECIFIED, "", statusErr
+	}
+	triggerRef = strings.TrimSpace(triggerRef)
+	triggerID := ""
+	if triggerRef != "" {
+		resolvedTriggerID, resolveErr := resolveSchedulerTriggerIDForQuery(ctx, clients, normalized, projectID, agentFilter, triggerRef)
+		if resolveErr != nil {
+			if errors.Is(resolveErr, domain.ErrAmbiguous) && agentFilter == "" {
+				resolveErr = fmt.Errorf("%w; specify a scheduler argument to disambiguate", resolveErr)
+			}
+			if isSchedulerResourceNotFound(resolveErr) || errors.Is(resolveErr, domain.ErrAmbiguous) {
+				return "", "", agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_UNSPECIFIED, "", commandExitError{Code: exitCodeUsage, Err: resolveErr}
+			}
+			return "", "", agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_UNSPECIFIED, "", resolveErr
+		}
+		triggerID = resolvedTriggerID
+	}
+	return agentFilter, triggerID, runStatus, statusText, nil
 }
 
 func resolveSchedulerTriggerIDForQuery(ctx context.Context, clients cliServiceClients, normalized *compose.NormalizedProjectSpec, projectID, agentFilter, triggerRef string) (string, error) {

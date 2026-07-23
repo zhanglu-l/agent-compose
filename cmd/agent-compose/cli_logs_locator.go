@@ -44,12 +44,12 @@ func runComposeLogsForResourceID(cmd *cobra.Command, cli cliOptions, options com
 		return commandExitError{Code: exitCodeUsage, Err: fmt.Errorf("resource id cannot be used with logs")}
 	}
 	if options.RunID != "" {
+		if !cli.JSON {
+			return followRunLogStream(cmd.Context(), cmd.OutOrStdout(), clients.runStream, projectID, &agentcomposev2.RunSummary{RunId: options.RunID}, options)
+		}
 		run, err := getRunDetail(cmd.Context(), clients.run, projectID, options.RunID)
 		if err != nil {
 			return commandExitErrorForConnect(fmt.Errorf("get run %s: %w", options.RunID, err))
-		}
-		if options.Follow {
-			return followRunLogStream(cmd.Context(), cmd.OutOrStdout(), clients.run, projectID, run.Msg.GetRun().GetSummary(), options)
 		}
 		return writeLogsForRun(cmd.OutOrStdout(), run.Msg.GetRun(), cli.JSON, options)
 	}

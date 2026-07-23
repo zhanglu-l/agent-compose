@@ -21,7 +21,7 @@ Global options are placed between `agent-compose` and the subcommand, and apply 
 | --- | --- |
 | `-f, --file <path>` | Path to the project config file. Both `agent-compose.yml` and `agent-compose.yaml` are supported. When this option is used, the project root is the config file directory, so you do not need to `cd` into it. |
 | `--host <endpoint>` | Daemon HTTP endpoint. This can target a local daemon or a remote daemon. |
-| `--project-name <name>` | Override the project name from the config file. Useful when running the same config under different environment names. |
+| `--project-name <name>` | Override the project name from the config file. For `ps` and `sandbox ls`, it also selects an existing daemon project when the current directory has no default compose file. |
 | `--json` | Print machine-readable JSON for scripts, AI agents, and automation. |
 
 Examples:
@@ -273,6 +273,7 @@ agent-compose scheduler inspect <scheduler-or-trigger-or-run-ref> [--scheduler <
 
 List sandboxes in the current project. By default, only running sandboxes are shown. With `--all`, the command includes all statuses while remaining scoped to the current project.
 The project must already exist on the daemon; after `agent-compose down`, run `agent-compose up` again before using `ps`.
+When no default compose file is available, use `--project-name <name>` to select an existing daemon project. An explicit missing `--file` remains an error.
 
 ```bash
 agent-compose ps

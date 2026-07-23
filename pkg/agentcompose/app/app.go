@@ -444,7 +444,24 @@ func NewConfigStore(di do.Injector) (*configstore.ConfigStore, error) {
 func NewSandboxStore(di do.Injector) (*sessionstore.Store, error) {
 	config := do.MustInvoke[*appconfig.Config](di)
 	database := do.MustInvoke[*storagesqlite.Database](di)
-	return sessionstore.NewWithDatabase(config, database.DB())
+	resolver := sandboxProjectProjectionResolver{resolver: do.MustInvoke[*runs.SandboxRunTargetResolver](di)}
+	return sessionstore.NewWithDatabase(config, database.DB(), resolver)
+}
+
+type sandboxProjectProjectionResolver struct {
+	resolver *runs.SandboxRunTargetResolver
+}
+
+func (r sandboxProjectProjectionResolver) ResolveSandboxProjectIDs(ctx context.Context, sandboxes []*domain.Sandbox) (map[string]string, error) {
+	resolved, err := r.resolver.ResolveBatch(ctx, sandboxes)
+	if err != nil {
+		return nil, err
+	}
+	projectIDs := make(map[string]string, len(resolved))
+	for sandboxID, target := range resolved {
+		projectIDs[sandboxID] = target.ProjectID
+	}
+	return projectIDs, nil
 }
 
 func NewWorkspaceProvisioner(di do.Injector) (*workspaces.Provisioner, error) {

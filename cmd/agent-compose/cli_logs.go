@@ -54,12 +54,12 @@ func runComposeLogsCommand(cmd *cobra.Command, cli cliOptions, options composeLo
 		return err
 	}
 	if strings.TrimSpace(normalizedOptions.RunID) != "" {
+		if !cli.JSON {
+			return followRunLogStream(cmd.Context(), cmd.OutOrStdout(), clients.runStream, projectID, &agentcomposev2.RunSummary{RunId: normalizedOptions.RunID}, normalizedOptions)
+		}
 		run, err := getRunDetail(cmd.Context(), clients.run, projectID, normalizedOptions.RunID)
 		if err != nil {
 			return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", strings.TrimSpace(normalizedOptions.RunID), normalized.Name, err))
-		}
-		if normalizedOptions.Follow {
-			return followRunLogStream(cmd.Context(), cmd.OutOrStdout(), clients.run, projectID, run.Msg.GetRun().GetSummary(), normalizedOptions)
 		}
 		return writeLogsForRun(cmd.OutOrStdout(), run.Msg.GetRun(), cli.JSON, normalizedOptions)
 	}
@@ -132,7 +132,7 @@ type composeLogRunOutput struct {
 
 func followOrPrintProjectLogs(cmd *cobra.Command, cli cliOptions, clients cliServiceClients, projectID, projectName string, options composeLogsOptions) error {
 	client := clients.run
-	if options.Follow && !cli.JSON {
+	if !cli.JSON {
 		runs, err := listLogRuns(cmd.Context(), client, projectID, options)
 		if err != nil {
 			return commandExitErrorForConnect(fmt.Errorf("list logs for project %s: %w", projectName, err))
@@ -140,8 +140,21 @@ func followOrPrintProjectLogs(cmd *cobra.Command, cli cliOptions, clients cliSer
 		if len(runs) == 0 && options.SandboxID != "" {
 			return writeSandboxHistoryLogs(cmd, cli, clients.sandbox, projectID, options)
 		}
+		for index, summary := range runs {
+			if _, ok := parseComposeLogSortTimestamp(runLogSortTimestamp(summary)); ok {
+				continue
+			}
+			detail, detailErr := getRunDetail(cmd.Context(), client, projectID, summary.GetRunId())
+			if detailErr != nil {
+				return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", summary.GetRunId(), projectName, detailErr))
+			}
+			if detailSummary := detail.Msg.GetRun().GetSummary(); detailSummary != nil {
+				runs[index] = detailSummary
+			}
+		}
+		sort.SliceStable(runs, func(i, j int) bool { return logRunSummaryLess(runs[i], runs[j]) })
 		for _, summary := range runs {
-			if err := followRunLogStream(cmd.Context(), cmd.OutOrStdout(), client, projectID, summary, options); err != nil {
+			if err := followRunLogStream(cmd.Context(), cmd.OutOrStdout(), clients.runStream, projectID, summary, options); err != nil {
 				return err
 			}
 		}
@@ -239,30 +252,26 @@ func followRunLogStream(ctx context.Context, out io.Writer, client agentcomposev
 	if summary == nil {
 		return nil
 	}
-	detailResp, err := getRunDetail(ctx, client, projectID, summary.GetRunId())
-	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", summary.GetRunId(), projectID, err))
-	}
-	detailRun := detailResp.Msg.GetRun()
 	displaySummary := summary
-	if detailSummary := detailRun.GetSummary(); detailSummary != nil {
-		displaySummary = detailSummary
-	}
-	prompt := runLogPrompt(detailRun)
+	var detailRun *agentcomposev2.RunDetail
+	prompt := ""
+	metadataReceived := false
 	promptPrinted := false
 	refreshPrompt := func() error {
-		if promptPrinted || prompt != "" {
+		if promptPrinted || prompt != "" || metadataReceived {
 			return nil
 		}
-		detailResp, err := getRunDetail(ctx, client, projectID, summary.GetRunId())
-		if err != nil {
-			return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", summary.GetRunId(), projectID, err))
+		for attempts := 0; attempts < 2 && prompt == ""; attempts++ {
+			detailResp, err := getRunDetail(ctx, client, projectID, summary.GetRunId())
+			if err != nil {
+				return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", summary.GetRunId(), projectID, err))
+			}
+			detailRun = detailResp.Msg.GetRun()
+			if detailSummary := detailRun.GetSummary(); detailSummary != nil {
+				displaySummary = detailSummary
+			}
+			prompt = runLogPrompt(detailRun)
 		}
-		detailRun = detailResp.Msg.GetRun()
-		if detailSummary := detailRun.GetSummary(); detailSummary != nil {
-			displaySummary = detailSummary
-		}
-		prompt = runLogPrompt(detailRun)
 		return nil
 	}
 	printPrompt := func() error {
@@ -283,18 +292,39 @@ func followRunLogStream(ctx context.Context, out io.Writer, client agentcomposev
 		tailLines = uint32(options.TailLines)
 	}
 	stream, err := client.FollowRunLogs(ctx, connect.NewRequest(&agentcomposev2.FollowRunLogsRequest{
-		ProjectId: strings.TrimSpace(projectID),
-		RunId:     summary.GetRunId(),
-		TailLines: tailLines,
-		Follow:    true,
+		ProjectId:       strings.TrimSpace(projectID),
+		RunId:           summary.GetRunId(),
+		TailLines:       tailLines,
+		Follow:          options.Follow,
+		IncludeMetadata: true,
+		TailSet:         options.TailLines >= 0,
 	}))
 	if err != nil {
+		if !options.Follow && connect.CodeOf(err) == connect.CodeUnimplemented {
+			return writeLegacyRunLogs(ctx, out, client, projectID, summary.GetRunId(), options)
+		}
 		return commandExitErrorForConnect(fmt.Errorf("follow run %s logs: %w", summary.GetRunId(), err))
 	}
 	assistantStarted := false
+	received := false
+	dataWriter := newPrefixedRunOutputStreamWriter(out, options.Timestamp)
+	suppressData := options.TailLines == 0 && !options.Follow
 	for stream.Receive() {
+		received = true
 		chunk := stream.Msg()
-		if chunk.GetData() != "" {
+		if chunk.GetRun() != nil {
+			displaySummary = chunk.GetRun()
+			metadataReceived = true
+		}
+		if chunk.GetPrompt() != "" {
+			prompt = chunk.GetPrompt()
+		}
+		if metadataReceived {
+			if err := printPrompt(); err != nil {
+				return err
+			}
+		}
+		if chunk.GetData() != "" && !suppressData {
 			if !assistantStarted && !promptPrinted && prompt == "" {
 				if err := refreshPrompt(); err != nil {
 					return err
@@ -309,7 +339,7 @@ func followRunLogStream(ctx context.Context, out io.Writer, client agentcomposev
 				}
 				assistantStarted = true
 			}
-			if err := writePrefixedRunOutput(out, displaySummary, chunk.GetData(), options.Timestamp); err != nil {
+			if err := dataWriter.Write(displaySummary, chunk.GetData(), runLogTimestamp(displaySummary)); err != nil {
 				return err
 			}
 		}
@@ -322,13 +352,27 @@ func followRunLogStream(ctx context.Context, out io.Writer, client agentcomposev
 					return err
 				}
 			}
-			return nil
+			return dataWriter.Finish()
 		}
 	}
-	if err := stream.Err(); err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("follow run %s logs: %w", summary.GetRunId(), err))
+	if err := dataWriter.Finish(); err != nil {
+		return err
 	}
-	return nil
+	if err := stream.Err(); err != nil {
+		if !received && !options.Follow && connect.CodeOf(err) == connect.CodeUnimplemented {
+			return writeLegacyRunLogs(ctx, out, client, projectID, summary.GetRunId(), options)
+		}
+		return commandExitErrorForConnect(fmt.Errorf("stream run %s logs: %w", summary.GetRunId(), err))
+	}
+	return fmt.Errorf("stream run %s logs: daemon closed the stream before completion", summary.GetRunId())
+}
+
+func writeLegacyRunLogs(ctx context.Context, out io.Writer, client agentcomposev2connect.RunServiceClient, projectID, runID string, options composeLogsOptions) error {
+	run, err := getRunDetail(ctx, client, projectID, runID)
+	if err != nil {
+		return commandExitErrorForConnect(fmt.Errorf("get run %s for project %s: %w", runID, projectID, err))
+	}
+	return writeLogsForRun(out, run.Msg.GetRun(), false, options)
 }
 
 func writeLogsForRun(out io.Writer, run *agentcomposev2.RunDetail, asJSON bool, options composeLogsOptions) error {

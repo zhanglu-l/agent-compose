@@ -132,11 +132,13 @@ type SandboxSummary struct {
 
 type SandboxListOptions struct {
 	SandboxType        string
+	ProjectID          string
 	TriggerSourceQuery string
 	TitleQuery         string
 	WorkspaceQuery     string
 	Driver             string
 	VMStatus           string
+	VMStatuses         []string
 	CreatedFrom        time.Time
 	CreatedTo          time.Time
 	UpdatedFrom        time.Time

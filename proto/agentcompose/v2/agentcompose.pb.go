@@ -7554,12 +7554,15 @@ func (x *ListRunsResponse) GetRuns() []*RunSummary {
 }
 
 type FollowRunLogsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	TailLines     uint32                 `protobuf:"varint,3,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
-	StartOffset   uint64                 `protobuf:"varint,4,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`
-	Follow        bool                   `protobuf:"varint,5,opt,name=follow,proto3" json:"follow,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ProjectId       string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	RunId           string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	TailLines       uint32                 `protobuf:"varint,3,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
+	StartOffset     uint64                 `protobuf:"varint,4,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`
+	Follow          bool                   `protobuf:"varint,5,opt,name=follow,proto3" json:"follow,omitempty"`
+	IncludeMetadata bool                   `protobuf:"varint,6,opt,name=include_metadata,json=includeMetadata,proto3" json:"include_metadata,omitempty"`
+	// Distinguishes an explicit zero-line tail from the default full history.
+	TailSet       bool `protobuf:"varint,7,opt,name=tail_set,json=tailSet,proto3" json:"tail_set,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7629,6 +7632,20 @@ func (x *FollowRunLogsRequest) GetFollow() bool {
 	return false
 }
 
+func (x *FollowRunLogsRequest) GetIncludeMetadata() bool {
+	if x != nil {
+		return x.IncludeMetadata
+	}
+	return false
+}
+
+func (x *FollowRunLogsRequest) GetTailSet() bool {
+	if x != nil {
+		return x.TailSet
+	}
+	return false
+}
+
 type RunLogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          string                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -7636,6 +7653,8 @@ type RunLogChunk struct {
 	IsFinal       bool                   `protobuf:"varint,3,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
 	RunStatus     RunStatus              `protobuf:"varint,4,opt,name=run_status,json=runStatus,proto3,enum=agentcompose.v2.RunStatus" json:"run_status,omitempty"`
 	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Run           *RunSummary            `protobuf:"bytes,6,opt,name=run,proto3" json:"run,omitempty"`
+	Prompt        string                 `protobuf:"bytes,7,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7701,6 +7720,20 @@ func (x *RunLogChunk) GetRunStatus() RunStatus {
 func (x *RunLogChunk) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *RunLogChunk) GetRun() *RunSummary {
+	if x != nil {
+		return x.Run
+	}
+	return nil
+}
+
+func (x *RunLogChunk) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
 	}
 	return ""
 }
@@ -8961,6 +8994,8 @@ type ListSandboxesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Limit         uint32                 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	ProjectId     string                 `protobuf:"bytes,3,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Status        []string               `protobuf:"bytes,4,rep,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -9007,6 +9042,20 @@ func (x *ListSandboxesRequest) GetCursor() string {
 		return x.Cursor
 	}
 	return ""
+}
+
+func (x *ListSandboxesRequest) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
+}
+
+func (x *ListSandboxesRequest) GetStatus() []string {
+	if x != nil {
+		return x.Status
+	}
+	return nil
 }
 
 type ListSandboxesResponse struct {
@@ -17043,6 +17092,323 @@ func (x *GenerateLLMResponse) GetJson() string {
 	return ""
 }
 
+// StreamProjectSchedulerEventsRequest describes a finite scan of scheduler
+// trigger-run events. A zero tail returns the complete matching
+// history; callers that want no events should avoid starting the stream.
+type StreamProjectSchedulerEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *ProjectRef            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	AgentName     string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	TriggerId     string                 `protobuf:"bytes,3,opt,name=trigger_id,json=triggerId,proto3" json:"trigger_id,omitempty"`
+	RunId         string                 `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	BatchSize     uint32                 `protobuf:"varint,5,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
+	Tail          uint32                 `protobuf:"varint,6,opt,name=tail,proto3" json:"tail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamProjectSchedulerEventsRequest) Reset() {
+	*x = StreamProjectSchedulerEventsRequest{}
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[221]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamProjectSchedulerEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamProjectSchedulerEventsRequest) ProtoMessage() {}
+
+func (x *StreamProjectSchedulerEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[221]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamProjectSchedulerEventsRequest.ProtoReflect.Descriptor instead.
+func (*StreamProjectSchedulerEventsRequest) Descriptor() ([]byte, []int) {
+	return file_agentcompose_v2_agentcompose_proto_rawDescGZIP(), []int{221}
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetProject() *ProjectRef {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetTriggerId() string {
+	if x != nil {
+		return x.TriggerId
+	}
+	return ""
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetBatchSize() uint32 {
+	if x != nil {
+		return x.BatchSize
+	}
+	return 0
+}
+
+func (x *StreamProjectSchedulerEventsRequest) GetTail() uint32 {
+	if x != nil {
+		return x.Tail
+	}
+	return 0
+}
+
+type StreamProjectSchedulerEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*SchedulerEvent      `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	Checkpoint    string                 `protobuf:"bytes,2,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	Complete      bool                   `protobuf:"varint,3,opt,name=complete,proto3" json:"complete,omitempty"`
+	EmittedCount  uint64                 `protobuf:"varint,4,opt,name=emitted_count,json=emittedCount,proto3" json:"emitted_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamProjectSchedulerEventsResponse) Reset() {
+	*x = StreamProjectSchedulerEventsResponse{}
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[222]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamProjectSchedulerEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamProjectSchedulerEventsResponse) ProtoMessage() {}
+
+func (x *StreamProjectSchedulerEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[222]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamProjectSchedulerEventsResponse.ProtoReflect.Descriptor instead.
+func (*StreamProjectSchedulerEventsResponse) Descriptor() ([]byte, []int) {
+	return file_agentcompose_v2_agentcompose_proto_rawDescGZIP(), []int{222}
+}
+
+func (x *StreamProjectSchedulerEventsResponse) GetEvents() []*SchedulerEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *StreamProjectSchedulerEventsResponse) GetCheckpoint() string {
+	if x != nil {
+		return x.Checkpoint
+	}
+	return ""
+}
+
+func (x *StreamProjectSchedulerEventsResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *StreamProjectSchedulerEventsResponse) GetEmittedCount() uint64 {
+	if x != nil {
+		return x.EmittedCount
+	}
+	return 0
+}
+
+// StreamSchedulerRunsRequest describes a finite scan of scheduler trigger runs.
+// limit is the final result limit; zero means all.
+type StreamSchedulerRunsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Project       *ProjectRef            `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	AgentName     string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	TriggerId     string                 `protobuf:"bytes,3,opt,name=trigger_id,json=triggerId,proto3" json:"trigger_id,omitempty"`
+	Status        SchedulerRunStatus     `protobuf:"varint,4,opt,name=status,proto3,enum=agentcompose.v2.SchedulerRunStatus" json:"status,omitempty"`
+	BatchSize     uint32                 `protobuf:"varint,5,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
+	Limit         uint32                 `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamSchedulerRunsRequest) Reset() {
+	*x = StreamSchedulerRunsRequest{}
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[223]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamSchedulerRunsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamSchedulerRunsRequest) ProtoMessage() {}
+
+func (x *StreamSchedulerRunsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[223]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamSchedulerRunsRequest.ProtoReflect.Descriptor instead.
+func (*StreamSchedulerRunsRequest) Descriptor() ([]byte, []int) {
+	return file_agentcompose_v2_agentcompose_proto_rawDescGZIP(), []int{223}
+}
+
+func (x *StreamSchedulerRunsRequest) GetProject() *ProjectRef {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *StreamSchedulerRunsRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *StreamSchedulerRunsRequest) GetTriggerId() string {
+	if x != nil {
+		return x.TriggerId
+	}
+	return ""
+}
+
+func (x *StreamSchedulerRunsRequest) GetStatus() SchedulerRunStatus {
+	if x != nil {
+		return x.Status
+	}
+	return SchedulerRunStatus_SCHEDULER_RUN_STATUS_UNSPECIFIED
+}
+
+func (x *StreamSchedulerRunsRequest) GetBatchSize() uint32 {
+	if x != nil {
+		return x.BatchSize
+	}
+	return 0
+}
+
+func (x *StreamSchedulerRunsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type StreamSchedulerRunsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runs          []*SchedulerRun        `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	Checkpoint    string                 `protobuf:"bytes,2,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	Complete      bool                   `protobuf:"varint,3,opt,name=complete,proto3" json:"complete,omitempty"`
+	EmittedCount  uint64                 `protobuf:"varint,4,opt,name=emitted_count,json=emittedCount,proto3" json:"emitted_count,omitempty"`
+	Truncated     bool                   `protobuf:"varint,5,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamSchedulerRunsResponse) Reset() {
+	*x = StreamSchedulerRunsResponse{}
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[224]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamSchedulerRunsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamSchedulerRunsResponse) ProtoMessage() {}
+
+func (x *StreamSchedulerRunsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentcompose_v2_agentcompose_proto_msgTypes[224]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamSchedulerRunsResponse.ProtoReflect.Descriptor instead.
+func (*StreamSchedulerRunsResponse) Descriptor() ([]byte, []int) {
+	return file_agentcompose_v2_agentcompose_proto_rawDescGZIP(), []int{224}
+}
+
+func (x *StreamSchedulerRunsResponse) GetRuns() []*SchedulerRun {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
+}
+
+func (x *StreamSchedulerRunsResponse) GetCheckpoint() string {
+	if x != nil {
+		return x.Checkpoint
+	}
+	return ""
+}
+
+func (x *StreamSchedulerRunsResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *StreamSchedulerRunsResponse) GetEmittedCount() uint64 {
+	if x != nil {
+		return x.EmittedCount
+	}
+	return 0
+}
+
+func (x *StreamSchedulerRunsResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
 var File_agentcompose_v2_agentcompose_proto protoreflect.FileDescriptor
 
 const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
@@ -17640,7 +18006,7 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"sandbox_id\x18\v \x01(\tR\tsandboxIdJ\x04\b\x03\x10\x04R\n" +
 	"session_id\"C\n" +
 	"\x10ListRunsResponse\x12/\n" +
-	"\x04runs\x18\x01 \x03(\v2\x1b.agentcompose.v2.RunSummaryR\x04runs\"\xa6\x01\n" +
+	"\x04runs\x18\x01 \x03(\v2\x1b.agentcompose.v2.RunSummaryR\x04runs\"\xec\x01\n" +
 	"\x14FollowRunLogsRequest\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x15\n" +
@@ -17648,7 +18014,9 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\n" +
 	"tail_lines\x18\x03 \x01(\rR\ttailLines\x12!\n" +
 	"\fstart_offset\x18\x04 \x01(\x04R\vstartOffset\x12\x16\n" +
-	"\x06follow\x18\x05 \x01(\bR\x06follow\"\xae\x01\n" +
+	"\x06follow\x18\x05 \x01(\bR\x06follow\x12)\n" +
+	"\x10include_metadata\x18\x06 \x01(\bR\x0fincludeMetadata\x12\x19\n" +
+	"\btail_set\x18\a \x01(\bR\atailSet\"\xf5\x01\n" +
 	"\vRunLogChunk\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\tR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x19\n" +
@@ -17656,7 +18024,9 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\n" +
 	"run_status\x18\x04 \x01(\x0e2\x1a.agentcompose.v2.RunStatusR\trunStatus\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\tR\tcreatedAt\"?\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\x12-\n" +
+	"\x03run\x18\x06 \x01(\v2\x1b.agentcompose.v2.RunSummaryR\x03run\x12\x16\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\"?\n" +
 	"\x0eStopRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"f\n" +
@@ -17781,10 +18151,13 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\n" +
 	"SandboxTag\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"D\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"{\n" +
 	"\x14ListSandboxesRequest\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\rR\x05limit\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"p\n" +
+	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x03 \x01(\tR\tprojectId\x12\x16\n" +
+	"\x06status\x18\x04 \x03(\tR\x06status\"p\n" +
 	"\x15ListSandboxesResponse\x126\n" +
 	"\tsandboxes\x18\x01 \x03(\v2\x18.agentcompose.v2.SandboxR\tsandboxes\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
@@ -18479,7 +18852,42 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\vresponse_id\x18\x03 \x01(\tR\n" +
 	"responseId\x12#\n" +
 	"\rfinish_reason\x18\x04 \x01(\tR\ffinishReason\x12\x12\n" +
-	"\x04json\x18\x05 \x01(\tR\x04json*\x98\x01\n" +
+	"\x04json\x18\x05 \x01(\tR\x04json\"\xe4\x01\n" +
+	"#StreamProjectSchedulerEventsRequest\x125\n" +
+	"\aproject\x18\x01 \x01(\v2\x1b.agentcompose.v2.ProjectRefR\aproject\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\x12\x1d\n" +
+	"\n" +
+	"trigger_id\x18\x03 \x01(\tR\ttriggerId\x12\x15\n" +
+	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x1d\n" +
+	"\n" +
+	"batch_size\x18\x05 \x01(\rR\tbatchSize\x12\x12\n" +
+	"\x04tail\x18\x06 \x01(\rR\x04tail\"\xc0\x01\n" +
+	"$StreamProjectSchedulerEventsResponse\x127\n" +
+	"\x06events\x18\x01 \x03(\v2\x1f.agentcompose.v2.SchedulerEventR\x06events\x12\x1e\n" +
+	"\n" +
+	"checkpoint\x18\x02 \x01(\tR\n" +
+	"checkpoint\x12\x1a\n" +
+	"\bcomplete\x18\x03 \x01(\bR\bcomplete\x12#\n" +
+	"\remitted_count\x18\x04 \x01(\x04R\femittedCount\"\x83\x02\n" +
+	"\x1aStreamSchedulerRunsRequest\x125\n" +
+	"\aproject\x18\x01 \x01(\v2\x1b.agentcompose.v2.ProjectRefR\aproject\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\x12\x1d\n" +
+	"\n" +
+	"trigger_id\x18\x03 \x01(\tR\ttriggerId\x12;\n" +
+	"\x06status\x18\x04 \x01(\x0e2#.agentcompose.v2.SchedulerRunStatusR\x06status\x12\x1d\n" +
+	"\n" +
+	"batch_size\x18\x05 \x01(\rR\tbatchSize\x12\x14\n" +
+	"\x05limit\x18\x06 \x01(\rR\x05limit\"\xcf\x01\n" +
+	"\x1bStreamSchedulerRunsResponse\x121\n" +
+	"\x04runs\x18\x01 \x03(\v2\x1d.agentcompose.v2.SchedulerRunR\x04runs\x12\x1e\n" +
+	"\n" +
+	"checkpoint\x18\x02 \x01(\tR\n" +
+	"checkpoint\x12\x1a\n" +
+	"\bcomplete\x18\x03 \x01(\bR\bcomplete\x12#\n" +
+	"\remitted_count\x18\x04 \x01(\x04R\femittedCount\x12\x1c\n" +
+	"\ttruncated\x18\x05 \x01(\bR\ttruncated*\x98\x01\n" +
 	"\x19ProjectValidationSeverity\x12+\n" +
 	"'PROJECT_VALIDATION_SEVERITY_UNSPECIFIED\x10\x00\x12'\n" +
 	"#PROJECT_VALIDATION_SEVERITY_WARNING\x10\x01\x12%\n" +
@@ -18608,7 +19016,7 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"%SANDBOX_WATCH_EVENT_TYPE_CELL_STARTED\x10\x02\x12(\n" +
 	"$SANDBOX_WATCH_EVENT_TYPE_CELL_OUTPUT\x10\x03\x12+\n" +
 	"'SANDBOX_WATCH_EVENT_TYPE_CELL_COMPLETED\x10\x04\x12(\n" +
-	"$SANDBOX_WATCH_EVENT_TYPE_EVENT_ADDED\x10\x052\xd3\x0f\n" +
+	"$SANDBOX_WATCH_EVENT_TYPE_EVENT_ADDED\x10\x052\xd7\x11\n" +
 	"\x0eProjectService\x12d\n" +
 	"\x0fValidateProject\x12'.agentcompose.v2.ValidateProjectRequest\x1a(.agentcompose.v2.ValidateProjectResponse\x12[\n" +
 	"\fApplyProject\x12$.agentcompose.v2.ApplyProjectRequest\x1a%.agentcompose.v2.ApplyProjectResponse\x12U\n" +
@@ -18620,12 +19028,14 @@ const file_agentcompose_v2_agentcompose_proto_rawDesc = "" +
 	"\fGetScheduler\x12$.agentcompose.v2.GetSchedulerRequest\x1a%.agentcompose.v2.GetSchedulerResponse\x12a\n" +
 	"\x0eListSchedulers\x12&.agentcompose.v2.ListSchedulersRequest\x1a'.agentcompose.v2.ListSchedulersResponse\x12p\n" +
 	"\x13ListSchedulerEvents\x12+.agentcompose.v2.ListSchedulerEventsRequest\x1a,.agentcompose.v2.ListSchedulerEventsResponse\x12\x85\x01\n" +
-	"\x1aListProjectSchedulerEvents\x122.agentcompose.v2.ListProjectSchedulerEventsRequest\x1a3.agentcompose.v2.ListProjectSchedulerEventsResponse\x12d\n" +
+	"\x1aListProjectSchedulerEvents\x122.agentcompose.v2.ListProjectSchedulerEventsRequest\x1a3.agentcompose.v2.ListProjectSchedulerEventsResponse\x12\x8d\x01\n" +
+	"\x1cStreamProjectSchedulerEvents\x124.agentcompose.v2.StreamProjectSchedulerEventsRequest\x1a5.agentcompose.v2.StreamProjectSchedulerEventsResponse0\x01\x12d\n" +
 	"\x0fInvokeScheduler\x12'.agentcompose.v2.InvokeSchedulerRequest\x1a(.agentcompose.v2.InvokeSchedulerResponse\x12[\n" +
 	"\fRunScheduler\x12$.agentcompose.v2.RunSchedulerRequest\x1a%.agentcompose.v2.RunSchedulerResponse\x12j\n" +
 	"\x11StartSchedulerRun\x12).agentcompose.v2.StartSchedulerRunRequest\x1a*.agentcompose.v2.StartSchedulerRunResponse\x12d\n" +
 	"\x0fGetSchedulerRun\x12'.agentcompose.v2.GetSchedulerRunRequest\x1a(.agentcompose.v2.GetSchedulerRunResponse\x12j\n" +
-	"\x11ListSchedulerRuns\x12).agentcompose.v2.ListSchedulerRunsRequest\x1a*.agentcompose.v2.ListSchedulerRunsResponse\x12m\n" +
+	"\x11ListSchedulerRuns\x12).agentcompose.v2.ListSchedulerRunsRequest\x1a*.agentcompose.v2.ListSchedulerRunsResponse\x12r\n" +
+	"\x13StreamSchedulerRuns\x12+.agentcompose.v2.StreamSchedulerRunsRequest\x1a,.agentcompose.v2.StreamSchedulerRunsResponse0\x01\x12m\n" +
 	"\x12PruneSchedulerRuns\x12*.agentcompose.v2.PruneSchedulerRunsRequest\x1a+.agentcompose.v2.PruneSchedulerRunsResponse\x12g\n" +
 	"\x10StopSchedulerRun\x12(.agentcompose.v2.StopSchedulerRunRequest\x1a).agentcompose.v2.StopSchedulerRunResponse\x12p\n" +
 	"\x13SetSchedulerEnabled\x12+.agentcompose.v2.SetSchedulerEnabledRequest\x1a,.agentcompose.v2.SetSchedulerEnabledResponse\x12\x85\x01\n" +
@@ -18714,7 +19124,7 @@ func file_agentcompose_v2_agentcompose_proto_rawDescGZIP() []byte {
 }
 
 var file_agentcompose_v2_agentcompose_proto_enumTypes = make([]protoimpl.EnumInfo, 24)
-var file_agentcompose_v2_agentcompose_proto_msgTypes = make([]protoimpl.MessageInfo, 233)
+var file_agentcompose_v2_agentcompose_proto_msgTypes = make([]protoimpl.MessageInfo, 237)
 var file_agentcompose_v2_agentcompose_proto_goTypes = []any{
 	(ProjectValidationSeverity)(0),                // 0: agentcompose.v2.ProjectValidationSeverity
 	(ProjectChangeAction)(0),                      // 1: agentcompose.v2.ProjectChangeAction
@@ -18961,19 +19371,23 @@ var file_agentcompose_v2_agentcompose_proto_goTypes = []any{
 	(*WatchSandboxResponse)(nil),                  // 242: agentcompose.v2.WatchSandboxResponse
 	(*GenerateLLMRequest)(nil),                    // 243: agentcompose.v2.GenerateLLMRequest
 	(*GenerateLLMResponse)(nil),                   // 244: agentcompose.v2.GenerateLLMResponse
-	nil,                                           // 245: agentcompose.v2.ProjectVolumeSpec.LabelsEntry
-	nil,                                           // 246: agentcompose.v2.ProjectVolumeSpec.OptionsEntry
-	nil,                                           // 247: agentcompose.v2.BuildSpec.ArgsEntry
-	nil,                                           // 248: agentcompose.v2.AttachHumanMessage.MetadataEntry
-	nil,                                           // 249: agentcompose.v2.AttachError.DetailsEntry
-	nil,                                           // 250: agentcompose.v2.BuildImageRequest.BuildArgsEntry
-	nil,                                           // 251: agentcompose.v2.CreateVolumeRequest.LabelsEntry
-	nil,                                           // 252: agentcompose.v2.CreateVolumeRequest.OptionsEntry
-	nil,                                           // 253: agentcompose.v2.Volume.LabelsEntry
-	nil,                                           // 254: agentcompose.v2.Volume.OptionsEntry
-	nil,                                           // 255: agentcompose.v2.Image.LabelsEntry
-	nil,                                           // 256: agentcompose.v2.CapabilityEndpoint.MetadataEntry
-	(*timestamppb.Timestamp)(nil),                 // 257: google.protobuf.Timestamp
+	(*StreamProjectSchedulerEventsRequest)(nil),   // 245: agentcompose.v2.StreamProjectSchedulerEventsRequest
+	(*StreamProjectSchedulerEventsResponse)(nil),  // 246: agentcompose.v2.StreamProjectSchedulerEventsResponse
+	(*StreamSchedulerRunsRequest)(nil),            // 247: agentcompose.v2.StreamSchedulerRunsRequest
+	(*StreamSchedulerRunsResponse)(nil),           // 248: agentcompose.v2.StreamSchedulerRunsResponse
+	nil,                                           // 249: agentcompose.v2.ProjectVolumeSpec.LabelsEntry
+	nil,                                           // 250: agentcompose.v2.ProjectVolumeSpec.OptionsEntry
+	nil,                                           // 251: agentcompose.v2.BuildSpec.ArgsEntry
+	nil,                                           // 252: agentcompose.v2.AttachHumanMessage.MetadataEntry
+	nil,                                           // 253: agentcompose.v2.AttachError.DetailsEntry
+	nil,                                           // 254: agentcompose.v2.BuildImageRequest.BuildArgsEntry
+	nil,                                           // 255: agentcompose.v2.CreateVolumeRequest.LabelsEntry
+	nil,                                           // 256: agentcompose.v2.CreateVolumeRequest.OptionsEntry
+	nil,                                           // 257: agentcompose.v2.Volume.LabelsEntry
+	nil,                                           // 258: agentcompose.v2.Volume.OptionsEntry
+	nil,                                           // 259: agentcompose.v2.Image.LabelsEntry
+	nil,                                           // 260: agentcompose.v2.CapabilityEndpoint.MetadataEntry
+	(*timestamppb.Timestamp)(nil),                 // 261: google.protobuf.Timestamp
 }
 var file_agentcompose_v2_agentcompose_proto_depIdxs = []int32{
 	79,  // 0: agentcompose.v2.ValidateProjectRequest.spec:type_name -> agentcompose.v2.ProjectSpec
@@ -19007,18 +19421,18 @@ var file_agentcompose_v2_agentcompose_proto_depIdxs = []int32{
 	43,  // 28: agentcompose.v2.ProjectAgent.latest_run:type_name -> agentcompose.v2.ProjectAgentLatestRun
 	3,   // 29: agentcompose.v2.ProjectAgentLatestRun.status:type_name -> agentcompose.v2.RunStatus
 	4,   // 30: agentcompose.v2.ProjectAgentLatestRun.source:type_name -> agentcompose.v2.RunSource
-	257, // 31: agentcompose.v2.ProjectAgentLatestRun.at:type_name -> google.protobuf.Timestamp
+	261, // 31: agentcompose.v2.ProjectAgentLatestRun.at:type_name -> google.protobuf.Timestamp
 	36,  // 32: agentcompose.v2.GetSchedulerRequest.project:type_name -> agentcompose.v2.ProjectRef
 	44,  // 33: agentcompose.v2.GetSchedulerResponse.scheduler:type_name -> agentcompose.v2.ProjectScheduler
 	89,  // 34: agentcompose.v2.GetSchedulerResponse.spec:type_name -> agentcompose.v2.SchedulerSpec
 	47,  // 35: agentcompose.v2.GetSchedulerResponse.triggers:type_name -> agentcompose.v2.ResolvedTrigger
 	90,  // 36: agentcompose.v2.ResolvedTrigger.spec:type_name -> agentcompose.v2.TriggerSpec
-	257, // 37: agentcompose.v2.ResolvedTrigger.next_fire_at:type_name -> google.protobuf.Timestamp
-	257, // 38: agentcompose.v2.ResolvedTrigger.last_fired_at:type_name -> google.protobuf.Timestamp
-	257, // 39: agentcompose.v2.SchedulerSummary.latest_run_at:type_name -> google.protobuf.Timestamp
+	261, // 37: agentcompose.v2.ResolvedTrigger.next_fire_at:type_name -> google.protobuf.Timestamp
+	261, // 38: agentcompose.v2.ResolvedTrigger.last_fired_at:type_name -> google.protobuf.Timestamp
+	261, // 39: agentcompose.v2.SchedulerSummary.latest_run_at:type_name -> google.protobuf.Timestamp
 	49,  // 40: agentcompose.v2.ListSchedulersResponse.schedulers:type_name -> agentcompose.v2.SchedulerSummary
 	36,  // 41: agentcompose.v2.ListSchedulerEventsRequest.project:type_name -> agentcompose.v2.ProjectRef
-	257, // 42: agentcompose.v2.SchedulerEvent.created_at:type_name -> google.protobuf.Timestamp
+	261, // 42: agentcompose.v2.SchedulerEvent.created_at:type_name -> google.protobuf.Timestamp
 	52,  // 43: agentcompose.v2.ListSchedulerEventsResponse.events:type_name -> agentcompose.v2.SchedulerEvent
 	36,  // 44: agentcompose.v2.ListProjectSchedulerEventsRequest.project:type_name -> agentcompose.v2.ProjectRef
 	52,  // 45: agentcompose.v2.ListProjectSchedulerEventsResponse.events:type_name -> agentcompose.v2.SchedulerEvent
@@ -19040,8 +19454,8 @@ var file_agentcompose_v2_agentcompose_proto_depIdxs = []int32{
 	36,  // 61: agentcompose.v2.StopSchedulerRunRequest.project:type_name -> agentcompose.v2.ProjectRef
 	72,  // 62: agentcompose.v2.StopSchedulerRunResponse.run:type_name -> agentcompose.v2.SchedulerRun
 	5,   // 63: agentcompose.v2.SchedulerRun.status:type_name -> agentcompose.v2.SchedulerRunStatus
-	257, // 64: agentcompose.v2.SchedulerRun.started_at:type_name -> google.protobuf.Timestamp
-	257, // 65: agentcompose.v2.SchedulerRun.completed_at:type_name -> google.protobuf.Timestamp
+	261, // 64: agentcompose.v2.SchedulerRun.started_at:type_name -> google.protobuf.Timestamp
+	261, // 65: agentcompose.v2.SchedulerRun.completed_at:type_name -> google.protobuf.Timestamp
 	36,  // 66: agentcompose.v2.SetSchedulerEnabledRequest.project:type_name -> agentcompose.v2.ProjectRef
 	44,  // 67: agentcompose.v2.SetSchedulerEnabledResponse.scheduler:type_name -> agentcompose.v2.ProjectScheduler
 	36,  // 68: agentcompose.v2.SetSchedulerTriggerEnabledRequest.project:type_name -> agentcompose.v2.ProjectRef
@@ -19065,9 +19479,9 @@ var file_agentcompose_v2_agentcompose_proto_depIdxs = []int32{
 	201, // 86: agentcompose.v2.AgentSpec.skills:type_name -> agentcompose.v2.SkillSpec
 	86,  // 87: agentcompose.v2.MCPServerSpec.env:type_name -> agentcompose.v2.EnvVarSpec
 	86,  // 88: agentcompose.v2.MCPServerSpec.headers:type_name -> agentcompose.v2.EnvVarSpec
-	245, // 89: agentcompose.v2.ProjectVolumeSpec.labels:type_name -> agentcompose.v2.ProjectVolumeSpec.LabelsEntry
-	246, // 90: agentcompose.v2.ProjectVolumeSpec.options:type_name -> agentcompose.v2.ProjectVolumeSpec.OptionsEntry
-	247, // 91: agentcompose.v2.BuildSpec.args:type_name -> agentcompose.v2.BuildSpec.ArgsEntry
+	249, // 89: agentcompose.v2.ProjectVolumeSpec.labels:type_name -> agentcompose.v2.ProjectVolumeSpec.LabelsEntry
+	250, // 90: agentcompose.v2.ProjectVolumeSpec.options:type_name -> agentcompose.v2.ProjectVolumeSpec.OptionsEntry
+	251, // 91: agentcompose.v2.BuildSpec.args:type_name -> agentcompose.v2.BuildSpec.ArgsEntry
 	90,  // 92: agentcompose.v2.SchedulerSpec.triggers:type_name -> agentcompose.v2.TriggerSpec
 	91,  // 93: agentcompose.v2.TriggerSpec.event:type_name -> agentcompose.v2.EventTriggerSpec
 	93,  // 94: agentcompose.v2.DriverSpec.boxlite:type_name -> agentcompose.v2.BoxliteDriverSpec
@@ -19105,295 +19519,305 @@ var file_agentcompose_v2_agentcompose_proto_depIdxs = []int32{
 	4,   // 126: agentcompose.v2.ListRunsRequest.source:type_name -> agentcompose.v2.RunSource
 	135, // 127: agentcompose.v2.ListRunsResponse.runs:type_name -> agentcompose.v2.RunSummary
 	3,   // 128: agentcompose.v2.RunLogChunk.run_status:type_name -> agentcompose.v2.RunStatus
-	136, // 129: agentcompose.v2.StopRunResponse.run:type_name -> agentcompose.v2.RunDetail
-	8,   // 130: agentcompose.v2.RunEvent.kind:type_name -> agentcompose.v2.RunEventKind
-	257, // 131: agentcompose.v2.RunEvent.created_at:type_name -> google.protobuf.Timestamp
-	112, // 132: agentcompose.v2.ListRunEventsResponse.events:type_name -> agentcompose.v2.RunEvent
-	112, // 133: agentcompose.v2.ListSandboxRunEventsResponse.events:type_name -> agentcompose.v2.RunEvent
-	20,  // 134: agentcompose.v2.SandboxPruneCandidate.kind:type_name -> agentcompose.v2.SandboxPruneCandidateKind
-	257, // 135: agentcompose.v2.SandboxPruneCandidate.updated_at:type_name -> google.protobuf.Timestamp
-	119, // 136: agentcompose.v2.PruneSandboxesResponse.matched:type_name -> agentcompose.v2.SandboxPruneCandidate
-	119, // 137: agentcompose.v2.PruneSandboxesResponse.skipped:type_name -> agentcompose.v2.SandboxPruneCandidate
-	134, // 138: agentcompose.v2.GetSandboxStatsResponse.stats:type_name -> agentcompose.v2.SandboxStats
-	257, // 139: agentcompose.v2.Sandbox.created_at:type_name -> google.protobuf.Timestamp
-	257, // 140: agentcompose.v2.Sandbox.updated_at:type_name -> google.protobuf.Timestamp
-	125, // 141: agentcompose.v2.Sandbox.tags:type_name -> agentcompose.v2.SandboxTag
-	257, // 142: agentcompose.v2.Sandbox.workspace_reclamation_started_at:type_name -> google.protobuf.Timestamp
-	257, // 143: agentcompose.v2.Sandbox.workspace_reclamation_completed_at:type_name -> google.protobuf.Timestamp
-	124, // 144: agentcompose.v2.ListSandboxesResponse.sandboxes:type_name -> agentcompose.v2.Sandbox
-	124, // 145: agentcompose.v2.GetSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
-	124, // 146: agentcompose.v2.StopSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
-	124, // 147: agentcompose.v2.ResumeSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
-	17,  // 148: agentcompose.v2.MetricValue.status:type_name -> agentcompose.v2.MetricStatus
-	133, // 149: agentcompose.v2.SandboxStats.cpu_percent:type_name -> agentcompose.v2.MetricValue
-	133, // 150: agentcompose.v2.SandboxStats.memory_usage_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 151: agentcompose.v2.SandboxStats.memory_limit_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 152: agentcompose.v2.SandboxStats.memory_percent:type_name -> agentcompose.v2.MetricValue
-	133, // 153: agentcompose.v2.SandboxStats.network_rx_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 154: agentcompose.v2.SandboxStats.network_tx_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 155: agentcompose.v2.SandboxStats.block_read_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 156: agentcompose.v2.SandboxStats.block_write_bytes:type_name -> agentcompose.v2.MetricValue
-	133, // 157: agentcompose.v2.SandboxStats.uptime_seconds:type_name -> agentcompose.v2.MetricValue
-	4,   // 158: agentcompose.v2.RunSummary.source:type_name -> agentcompose.v2.RunSource
-	3,   // 159: agentcompose.v2.RunSummary.status:type_name -> agentcompose.v2.RunStatus
-	135, // 160: agentcompose.v2.RunDetail.summary:type_name -> agentcompose.v2.RunSummary
-	138, // 161: agentcompose.v2.ExecRequest.selector:type_name -> agentcompose.v2.ExecSandboxSelector
-	139, // 162: agentcompose.v2.ExecRequest.command:type_name -> agentcompose.v2.ExecCommand
-	86,  // 163: agentcompose.v2.ExecRequest.env:type_name -> agentcompose.v2.EnvVarSpec
-	158, // 164: agentcompose.v2.ExecResponse.result:type_name -> agentcompose.v2.ExecResult
-	11,  // 165: agentcompose.v2.ExecStreamResponse.event_type:type_name -> agentcompose.v2.ExecStreamEventType
-	13,  // 166: agentcompose.v2.ExecStreamResponse.stream:type_name -> agentcompose.v2.StdioStream
-	158, // 167: agentcompose.v2.ExecStreamResponse.result:type_name -> agentcompose.v2.ExecResult
-	102, // 168: agentcompose.v2.ExecStreamResponse.transcript:type_name -> agentcompose.v2.TranscriptEvent
-	144, // 169: agentcompose.v2.ExecAttachRequest.start:type_name -> agentcompose.v2.ExecAttachStart
-	146, // 170: agentcompose.v2.ExecAttachRequest.stdin:type_name -> agentcompose.v2.AttachStdin
-	147, // 171: agentcompose.v2.ExecAttachRequest.stdin_eof:type_name -> agentcompose.v2.AttachStdinEOF
-	148, // 172: agentcompose.v2.ExecAttachRequest.resize:type_name -> agentcompose.v2.AttachResize
-	149, // 173: agentcompose.v2.ExecAttachRequest.signal:type_name -> agentcompose.v2.AttachSignal
-	151, // 174: agentcompose.v2.ExecAttachRequest.cancel:type_name -> agentcompose.v2.AttachCancel
-	150, // 175: agentcompose.v2.ExecAttachRequest.human_message:type_name -> agentcompose.v2.AttachHumanMessage
-	152, // 176: agentcompose.v2.ExecAttachResponse.started:type_name -> agentcompose.v2.AttachStarted
-	153, // 177: agentcompose.v2.ExecAttachResponse.output:type_name -> agentcompose.v2.AttachOutput
-	156, // 178: agentcompose.v2.ExecAttachResponse.result:type_name -> agentcompose.v2.AttachResult
-	157, // 179: agentcompose.v2.ExecAttachResponse.error:type_name -> agentcompose.v2.AttachError
-	154, // 180: agentcompose.v2.ExecAttachResponse.agent_event:type_name -> agentcompose.v2.AttachAgentEvent
-	155, // 181: agentcompose.v2.ExecAttachResponse.agent_turn_completed:type_name -> agentcompose.v2.AttachAgentTurnCompleted
-	137, // 182: agentcompose.v2.ExecAttachStart.request:type_name -> agentcompose.v2.ExecRequest
-	145, // 183: agentcompose.v2.ExecAttachStart.terminal_size:type_name -> agentcompose.v2.AttachTerminalSize
-	12,  // 184: agentcompose.v2.ExecAttachStart.mode:type_name -> agentcompose.v2.AttachRunMode
-	145, // 185: agentcompose.v2.AttachResize.terminal_size:type_name -> agentcompose.v2.AttachTerminalSize
-	248, // 186: agentcompose.v2.AttachHumanMessage.metadata:type_name -> agentcompose.v2.AttachHumanMessage.MetadataEntry
-	135, // 187: agentcompose.v2.AttachStarted.run:type_name -> agentcompose.v2.RunSummary
-	13,  // 188: agentcompose.v2.AttachOutput.stream:type_name -> agentcompose.v2.StdioStream
-	102, // 189: agentcompose.v2.AttachOutput.transcript:type_name -> agentcompose.v2.TranscriptEvent
-	158, // 190: agentcompose.v2.AttachResult.exec_result:type_name -> agentcompose.v2.ExecResult
-	135, // 191: agentcompose.v2.AttachResult.run:type_name -> agentcompose.v2.RunSummary
-	249, // 192: agentcompose.v2.AttachError.details:type_name -> agentcompose.v2.AttachError.DetailsEntry
-	139, // 193: agentcompose.v2.ExecResult.command:type_name -> agentcompose.v2.ExecCommand
-	14,  // 194: agentcompose.v2.ListImagesRequest.store:type_name -> agentcompose.v2.ImageStoreKind
-	191, // 195: agentcompose.v2.ListImagesResponse.images:type_name -> agentcompose.v2.Image
-	193, // 196: agentcompose.v2.ListImagesResponse.store_status:type_name -> agentcompose.v2.ImageStoreStatus
-	14,  // 197: agentcompose.v2.PullImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
-	192, // 198: agentcompose.v2.PullImageRequest.platform:type_name -> agentcompose.v2.ImagePlatform
-	191, // 199: agentcompose.v2.PullImageResponse.image:type_name -> agentcompose.v2.Image
-	16,  // 200: agentcompose.v2.PullImageResponse.status:type_name -> agentcompose.v2.ImageOperationStatus
-	196, // 201: agentcompose.v2.PullImageResponse.progress:type_name -> agentcompose.v2.ImagePullProgress
-	14,  // 202: agentcompose.v2.InspectImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
-	191, // 203: agentcompose.v2.InspectImageResponse.image:type_name -> agentcompose.v2.Image
-	193, // 204: agentcompose.v2.InspectImageResponse.store_status:type_name -> agentcompose.v2.ImageStoreStatus
-	14,  // 205: agentcompose.v2.RemoveImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
-	250, // 206: agentcompose.v2.BuildImageRequest.build_args:type_name -> agentcompose.v2.BuildImageRequest.BuildArgsEntry
-	14,  // 207: agentcompose.v2.BuildImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
-	192, // 208: agentcompose.v2.BuildImageRequest.platform:type_name -> agentcompose.v2.ImagePlatform
-	16,  // 209: agentcompose.v2.BuildImageEvent.status:type_name -> agentcompose.v2.ImageOperationStatus
-	191, // 210: agentcompose.v2.BuildImageEvent.image:type_name -> agentcompose.v2.Image
-	18,  // 211: agentcompose.v2.CacheFilter.domain:type_name -> agentcompose.v2.CacheDomain
-	21,  // 212: agentcompose.v2.CacheFilter.status:type_name -> agentcompose.v2.CacheStatus
-	169, // 213: agentcompose.v2.ListCachesRequest.filter:type_name -> agentcompose.v2.CacheFilter
-	178, // 214: agentcompose.v2.ListCachesResponse.caches:type_name -> agentcompose.v2.CacheItem
-	178, // 215: agentcompose.v2.InspectCacheResponse.cache:type_name -> agentcompose.v2.CacheItem
-	169, // 216: agentcompose.v2.PruneCachesRequest.filter:type_name -> agentcompose.v2.CacheFilter
-	178, // 217: agentcompose.v2.PruneCachesResponse.matched:type_name -> agentcompose.v2.CacheItem
-	178, // 218: agentcompose.v2.PruneCachesResponse.skipped:type_name -> agentcompose.v2.CacheItem
-	178, // 219: agentcompose.v2.RemoveCacheResponse.matched:type_name -> agentcompose.v2.CacheItem
-	178, // 220: agentcompose.v2.RemoveCacheResponse.skipped:type_name -> agentcompose.v2.CacheItem
-	18,  // 221: agentcompose.v2.CacheItem.domain:type_name -> agentcompose.v2.CacheDomain
-	21,  // 222: agentcompose.v2.CacheItem.status:type_name -> agentcompose.v2.CacheStatus
-	179, // 223: agentcompose.v2.CacheItem.references:type_name -> agentcompose.v2.CacheReference
-	19,  // 224: agentcompose.v2.CacheReference.policy:type_name -> agentcompose.v2.CacheReferencePolicy
-	190, // 225: agentcompose.v2.ListVolumesResponse.volumes:type_name -> agentcompose.v2.Volume
-	251, // 226: agentcompose.v2.CreateVolumeRequest.labels:type_name -> agentcompose.v2.CreateVolumeRequest.LabelsEntry
-	252, // 227: agentcompose.v2.CreateVolumeRequest.options:type_name -> agentcompose.v2.CreateVolumeRequest.OptionsEntry
-	190, // 228: agentcompose.v2.CreateVolumeResponse.volume:type_name -> agentcompose.v2.Volume
-	190, // 229: agentcompose.v2.InspectVolumeResponse.volume:type_name -> agentcompose.v2.Volume
-	190, // 230: agentcompose.v2.PruneVolumesResponse.matched:type_name -> agentcompose.v2.Volume
-	190, // 231: agentcompose.v2.PruneVolumesResponse.removed:type_name -> agentcompose.v2.Volume
-	190, // 232: agentcompose.v2.PruneVolumesResponse.skipped:type_name -> agentcompose.v2.Volume
-	253, // 233: agentcompose.v2.Volume.labels:type_name -> agentcompose.v2.Volume.LabelsEntry
-	254, // 234: agentcompose.v2.Volume.options:type_name -> agentcompose.v2.Volume.OptionsEntry
-	14,  // 235: agentcompose.v2.Image.store:type_name -> agentcompose.v2.ImageStoreKind
-	15,  // 236: agentcompose.v2.Image.availability_status:type_name -> agentcompose.v2.ImageAvailabilityStatus
-	192, // 237: agentcompose.v2.Image.platform:type_name -> agentcompose.v2.ImagePlatform
-	194, // 238: agentcompose.v2.Image.docker:type_name -> agentcompose.v2.DockerImageStatus
-	195, // 239: agentcompose.v2.Image.oci:type_name -> agentcompose.v2.OCIImageStatus
-	255, // 240: agentcompose.v2.Image.labels:type_name -> agentcompose.v2.Image.LabelsEntry
-	14,  // 241: agentcompose.v2.ImageStoreStatus.store:type_name -> agentcompose.v2.ImageStoreKind
-	96,  // 242: agentcompose.v2.StartRunRequest.run:type_name -> agentcompose.v2.RunAgentRequest
-	135, // 243: agentcompose.v2.StartRunResponse.run:type_name -> agentcompose.v2.RunSummary
-	22,  // 244: agentcompose.v2.ResolveResourceIDRequest.kinds:type_name -> agentcompose.v2.ResourceKind
-	204, // 245: agentcompose.v2.ResolveResourceIDResponse.targets:type_name -> agentcompose.v2.ResourceTarget
-	22,  // 246: agentcompose.v2.ResourceTarget.kind:type_name -> agentcompose.v2.ResourceKind
-	207, // 247: agentcompose.v2.DashboardOverview.runs:type_name -> agentcompose.v2.RunOverview
-	257, // 248: agentcompose.v2.DashboardOverview.updated_at:type_name -> google.protobuf.Timestamp
-	208, // 249: agentcompose.v2.GetDashboardOverviewResponse.overview:type_name -> agentcompose.v2.DashboardOverview
-	208, // 250: agentcompose.v2.WatchDashboardOverviewResponse.overview:type_name -> agentcompose.v2.DashboardOverview
-	86,  // 251: agentcompose.v2.GetGlobalEnvResponse.env:type_name -> agentcompose.v2.EnvVarSpec
-	87,  // 252: agentcompose.v2.UpdateGlobalEnvRequest.env:type_name -> agentcompose.v2.EnvVarUpdateSpec
-	86,  // 253: agentcompose.v2.UpdateGlobalEnvResponse.env:type_name -> agentcompose.v2.EnvVarSpec
-	216, // 254: agentcompose.v2.GetCapabilityGatewayConfigResponse.config:type_name -> agentcompose.v2.CapabilityGatewayConfig
-	216, // 255: agentcompose.v2.UpdateCapabilityGatewayConfigResponse.config:type_name -> agentcompose.v2.CapabilityGatewayConfig
-	257, // 256: agentcompose.v2.WorkspacePreset.created_at:type_name -> google.protobuf.Timestamp
-	257, // 257: agentcompose.v2.WorkspacePreset.updated_at:type_name -> google.protobuf.Timestamp
-	220, // 258: agentcompose.v2.ListWorkspacePresetsResponse.presets:type_name -> agentcompose.v2.WorkspacePreset
-	220, // 259: agentcompose.v2.WorkspacePresetResponse.preset:type_name -> agentcompose.v2.WorkspacePreset
-	231, // 260: agentcompose.v2.ListCapabilitySetsResponse.capsets:type_name -> agentcompose.v2.CapabilitySet
-	256, // 261: agentcompose.v2.CapabilityEndpoint.metadata:type_name -> agentcompose.v2.CapabilityEndpoint.MetadataEntry
-	234, // 262: agentcompose.v2.CapabilityMethod.endpoints:type_name -> agentcompose.v2.CapabilityEndpoint
-	235, // 263: agentcompose.v2.GetCapabilityCatalogResponse.methods:type_name -> agentcompose.v2.CapabilityMethod
-	257, // 264: agentcompose.v2.SandboxHistoryCell.created_at:type_name -> google.protobuf.Timestamp
-	257, // 265: agentcompose.v2.SandboxHistoryEvent.created_at:type_name -> google.protobuf.Timestamp
-	238, // 266: agentcompose.v2.ListSandboxHistoryResponse.cells:type_name -> agentcompose.v2.SandboxHistoryCell
-	239, // 267: agentcompose.v2.ListSandboxHistoryResponse.events:type_name -> agentcompose.v2.SandboxHistoryEvent
-	23,  // 268: agentcompose.v2.WatchSandboxResponse.event_type:type_name -> agentcompose.v2.SandboxWatchEventType
-	124, // 269: agentcompose.v2.WatchSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
-	238, // 270: agentcompose.v2.WatchSandboxResponse.cell:type_name -> agentcompose.v2.SandboxHistoryCell
-	239, // 271: agentcompose.v2.WatchSandboxResponse.event:type_name -> agentcompose.v2.SandboxHistoryEvent
-	13,  // 272: agentcompose.v2.WatchSandboxResponse.stream:type_name -> agentcompose.v2.StdioStream
-	24,  // 273: agentcompose.v2.ProjectService.ValidateProject:input_type -> agentcompose.v2.ValidateProjectRequest
-	26,  // 274: agentcompose.v2.ProjectService.ApplyProject:input_type -> agentcompose.v2.ApplyProjectRequest
-	28,  // 275: agentcompose.v2.ProjectService.GetProject:input_type -> agentcompose.v2.GetProjectRequest
-	30,  // 276: agentcompose.v2.ProjectService.ListProjects:input_type -> agentcompose.v2.ListProjectsRequest
-	32,  // 277: agentcompose.v2.ProjectService.RemoveProject:input_type -> agentcompose.v2.RemoveProjectRequest
-	34,  // 278: agentcompose.v2.ProjectService.WatchProject:input_type -> agentcompose.v2.WatchProjectRequest
-	45,  // 279: agentcompose.v2.ProjectService.GetScheduler:input_type -> agentcompose.v2.GetSchedulerRequest
-	48,  // 280: agentcompose.v2.ProjectService.ListSchedulers:input_type -> agentcompose.v2.ListSchedulersRequest
-	51,  // 281: agentcompose.v2.ProjectService.ListSchedulerEvents:input_type -> agentcompose.v2.ListSchedulerEventsRequest
-	54,  // 282: agentcompose.v2.ProjectService.ListProjectSchedulerEvents:input_type -> agentcompose.v2.ListProjectSchedulerEventsRequest
-	56,  // 283: agentcompose.v2.ProjectService.InvokeScheduler:input_type -> agentcompose.v2.InvokeSchedulerRequest
-	58,  // 284: agentcompose.v2.ProjectService.RunScheduler:input_type -> agentcompose.v2.RunSchedulerRequest
-	60,  // 285: agentcompose.v2.ProjectService.StartSchedulerRun:input_type -> agentcompose.v2.StartSchedulerRunRequest
-	62,  // 286: agentcompose.v2.ProjectService.GetSchedulerRun:input_type -> agentcompose.v2.GetSchedulerRunRequest
-	64,  // 287: agentcompose.v2.ProjectService.ListSchedulerRuns:input_type -> agentcompose.v2.ListSchedulerRunsRequest
-	66,  // 288: agentcompose.v2.ProjectService.PruneSchedulerRuns:input_type -> agentcompose.v2.PruneSchedulerRunsRequest
-	70,  // 289: agentcompose.v2.ProjectService.StopSchedulerRun:input_type -> agentcompose.v2.StopSchedulerRunRequest
-	73,  // 290: agentcompose.v2.ProjectService.SetSchedulerEnabled:input_type -> agentcompose.v2.SetSchedulerEnabledRequest
-	75,  // 291: agentcompose.v2.ProjectService.SetSchedulerTriggerEnabled:input_type -> agentcompose.v2.SetSchedulerTriggerEnabledRequest
-	96,  // 292: agentcompose.v2.RunService.RunAgent:input_type -> agentcompose.v2.RunAgentRequest
-	199, // 293: agentcompose.v2.RunService.StartRun:input_type -> agentcompose.v2.StartRunRequest
-	96,  // 294: agentcompose.v2.RunService.RunAgentStream:input_type -> agentcompose.v2.RunAgentRequest
-	99,  // 295: agentcompose.v2.RunService.RunAttach:input_type -> agentcompose.v2.RunAttachRequest
-	103, // 296: agentcompose.v2.RunService.GetRun:input_type -> agentcompose.v2.GetRunRequest
-	105, // 297: agentcompose.v2.RunService.ListRuns:input_type -> agentcompose.v2.ListRunsRequest
-	107, // 298: agentcompose.v2.RunService.FollowRunLogs:input_type -> agentcompose.v2.FollowRunLogsRequest
-	109, // 299: agentcompose.v2.RunService.StopRun:input_type -> agentcompose.v2.StopRunRequest
-	111, // 300: agentcompose.v2.RunService.ListRunEvents:input_type -> agentcompose.v2.ListRunEventsRequest
-	114, // 301: agentcompose.v2.RunService.ListSandboxRunEvents:input_type -> agentcompose.v2.ListSandboxRunEventsRequest
-	137, // 302: agentcompose.v2.ExecService.Exec:input_type -> agentcompose.v2.ExecRequest
-	137, // 303: agentcompose.v2.ExecService.ExecStream:input_type -> agentcompose.v2.ExecRequest
-	142, // 304: agentcompose.v2.ExecService.ExecAttach:input_type -> agentcompose.v2.ExecAttachRequest
-	159, // 305: agentcompose.v2.ImageService.ListImages:input_type -> agentcompose.v2.ListImagesRequest
-	161, // 306: agentcompose.v2.ImageService.PullImage:input_type -> agentcompose.v2.PullImageRequest
-	163, // 307: agentcompose.v2.ImageService.InspectImage:input_type -> agentcompose.v2.InspectImageRequest
-	165, // 308: agentcompose.v2.ImageService.RemoveImage:input_type -> agentcompose.v2.RemoveImageRequest
-	167, // 309: agentcompose.v2.ImageService.BuildImage:input_type -> agentcompose.v2.BuildImageRequest
-	170, // 310: agentcompose.v2.CacheService.ListCaches:input_type -> agentcompose.v2.ListCachesRequest
-	172, // 311: agentcompose.v2.CacheService.InspectCache:input_type -> agentcompose.v2.InspectCacheRequest
-	174, // 312: agentcompose.v2.CacheService.PruneCaches:input_type -> agentcompose.v2.PruneCachesRequest
-	176, // 313: agentcompose.v2.CacheService.RemoveCache:input_type -> agentcompose.v2.RemoveCacheRequest
-	180, // 314: agentcompose.v2.VolumeService.ListVolumes:input_type -> agentcompose.v2.ListVolumesRequest
-	182, // 315: agentcompose.v2.VolumeService.CreateVolume:input_type -> agentcompose.v2.CreateVolumeRequest
-	184, // 316: agentcompose.v2.VolumeService.InspectVolume:input_type -> agentcompose.v2.InspectVolumeRequest
-	186, // 317: agentcompose.v2.VolumeService.RemoveVolume:input_type -> agentcompose.v2.RemoveVolumeRequest
-	188, // 318: agentcompose.v2.VolumeService.PruneVolumes:input_type -> agentcompose.v2.PruneVolumesRequest
-	116, // 319: agentcompose.v2.SandboxService.RemoveSandbox:input_type -> agentcompose.v2.RemoveSandboxRequest
-	118, // 320: agentcompose.v2.SandboxService.PruneSandboxes:input_type -> agentcompose.v2.PruneSandboxesRequest
-	121, // 321: agentcompose.v2.SandboxService.GetSandboxStats:input_type -> agentcompose.v2.GetSandboxStatsRequest
-	123, // 322: agentcompose.v2.SandboxService.GetSandbox:input_type -> agentcompose.v2.GetSandboxRequest
-	129, // 323: agentcompose.v2.SandboxService.StopSandbox:input_type -> agentcompose.v2.StopSandboxRequest
-	131, // 324: agentcompose.v2.SandboxService.ResumeSandbox:input_type -> agentcompose.v2.ResumeSandboxRequest
-	126, // 325: agentcompose.v2.SandboxService.ListSandboxes:input_type -> agentcompose.v2.ListSandboxesRequest
-	237, // 326: agentcompose.v2.SandboxService.ListSandboxHistory:input_type -> agentcompose.v2.ListSandboxHistoryRequest
-	241, // 327: agentcompose.v2.SandboxService.WatchSandbox:input_type -> agentcompose.v2.WatchSandboxRequest
-	205, // 328: agentcompose.v2.DashboardService.GetDashboardOverview:input_type -> agentcompose.v2.GetDashboardOverviewRequest
-	206, // 329: agentcompose.v2.DashboardService.WatchDashboardOverview:input_type -> agentcompose.v2.WatchDashboardOverviewRequest
-	211, // 330: agentcompose.v2.SettingsService.GetGlobalEnv:input_type -> agentcompose.v2.GetGlobalEnvRequest
-	213, // 331: agentcompose.v2.SettingsService.UpdateGlobalEnv:input_type -> agentcompose.v2.UpdateGlobalEnvRequest
-	215, // 332: agentcompose.v2.SettingsService.GetCapabilityGatewayConfig:input_type -> agentcompose.v2.GetCapabilityGatewayConfigRequest
-	218, // 333: agentcompose.v2.SettingsService.UpdateCapabilityGatewayConfig:input_type -> agentcompose.v2.UpdateCapabilityGatewayConfigRequest
-	221, // 334: agentcompose.v2.SettingsService.ListWorkspacePresets:input_type -> agentcompose.v2.ListWorkspacePresetsRequest
-	223, // 335: agentcompose.v2.SettingsService.CreateWorkspacePreset:input_type -> agentcompose.v2.CreateWorkspacePresetRequest
-	224, // 336: agentcompose.v2.SettingsService.UpdateWorkspacePreset:input_type -> agentcompose.v2.UpdateWorkspacePresetRequest
-	225, // 337: agentcompose.v2.SettingsService.DeleteWorkspacePreset:input_type -> agentcompose.v2.DeleteWorkspacePresetRequest
-	228, // 338: agentcompose.v2.CapabilityService.GetCapabilityStatus:input_type -> agentcompose.v2.GetCapabilityStatusRequest
-	230, // 339: agentcompose.v2.CapabilityService.ListCapabilitySets:input_type -> agentcompose.v2.ListCapabilitySetsRequest
-	233, // 340: agentcompose.v2.CapabilityService.GetCapabilityCatalog:input_type -> agentcompose.v2.GetCapabilityCatalogRequest
-	243, // 341: agentcompose.v2.LLMService.Generate:input_type -> agentcompose.v2.GenerateLLMRequest
-	202, // 342: agentcompose.v2.ResourceService.ResolveID:input_type -> agentcompose.v2.ResolveResourceIDRequest
-	25,  // 343: agentcompose.v2.ProjectService.ValidateProject:output_type -> agentcompose.v2.ValidateProjectResponse
-	27,  // 344: agentcompose.v2.ProjectService.ApplyProject:output_type -> agentcompose.v2.ApplyProjectResponse
-	29,  // 345: agentcompose.v2.ProjectService.GetProject:output_type -> agentcompose.v2.GetProjectResponse
-	31,  // 346: agentcompose.v2.ProjectService.ListProjects:output_type -> agentcompose.v2.ListProjectsResponse
-	33,  // 347: agentcompose.v2.ProjectService.RemoveProject:output_type -> agentcompose.v2.RemoveProjectResponse
-	35,  // 348: agentcompose.v2.ProjectService.WatchProject:output_type -> agentcompose.v2.WatchProjectResponse
-	46,  // 349: agentcompose.v2.ProjectService.GetScheduler:output_type -> agentcompose.v2.GetSchedulerResponse
-	50,  // 350: agentcompose.v2.ProjectService.ListSchedulers:output_type -> agentcompose.v2.ListSchedulersResponse
-	53,  // 351: agentcompose.v2.ProjectService.ListSchedulerEvents:output_type -> agentcompose.v2.ListSchedulerEventsResponse
-	55,  // 352: agentcompose.v2.ProjectService.ListProjectSchedulerEvents:output_type -> agentcompose.v2.ListProjectSchedulerEventsResponse
-	57,  // 353: agentcompose.v2.ProjectService.InvokeScheduler:output_type -> agentcompose.v2.InvokeSchedulerResponse
-	59,  // 354: agentcompose.v2.ProjectService.RunScheduler:output_type -> agentcompose.v2.RunSchedulerResponse
-	61,  // 355: agentcompose.v2.ProjectService.StartSchedulerRun:output_type -> agentcompose.v2.StartSchedulerRunResponse
-	63,  // 356: agentcompose.v2.ProjectService.GetSchedulerRun:output_type -> agentcompose.v2.GetSchedulerRunResponse
-	65,  // 357: agentcompose.v2.ProjectService.ListSchedulerRuns:output_type -> agentcompose.v2.ListSchedulerRunsResponse
-	69,  // 358: agentcompose.v2.ProjectService.PruneSchedulerRuns:output_type -> agentcompose.v2.PruneSchedulerRunsResponse
-	71,  // 359: agentcompose.v2.ProjectService.StopSchedulerRun:output_type -> agentcompose.v2.StopSchedulerRunResponse
-	74,  // 360: agentcompose.v2.ProjectService.SetSchedulerEnabled:output_type -> agentcompose.v2.SetSchedulerEnabledResponse
-	76,  // 361: agentcompose.v2.ProjectService.SetSchedulerTriggerEnabled:output_type -> agentcompose.v2.SetSchedulerTriggerEnabledResponse
-	97,  // 362: agentcompose.v2.RunService.RunAgent:output_type -> agentcompose.v2.RunAgentResponse
-	200, // 363: agentcompose.v2.RunService.StartRun:output_type -> agentcompose.v2.StartRunResponse
-	98,  // 364: agentcompose.v2.RunService.RunAgentStream:output_type -> agentcompose.v2.RunAgentStreamResponse
-	100, // 365: agentcompose.v2.RunService.RunAttach:output_type -> agentcompose.v2.RunAttachResponse
-	104, // 366: agentcompose.v2.RunService.GetRun:output_type -> agentcompose.v2.GetRunResponse
-	106, // 367: agentcompose.v2.RunService.ListRuns:output_type -> agentcompose.v2.ListRunsResponse
-	108, // 368: agentcompose.v2.RunService.FollowRunLogs:output_type -> agentcompose.v2.RunLogChunk
-	110, // 369: agentcompose.v2.RunService.StopRun:output_type -> agentcompose.v2.StopRunResponse
-	113, // 370: agentcompose.v2.RunService.ListRunEvents:output_type -> agentcompose.v2.ListRunEventsResponse
-	115, // 371: agentcompose.v2.RunService.ListSandboxRunEvents:output_type -> agentcompose.v2.ListSandboxRunEventsResponse
-	140, // 372: agentcompose.v2.ExecService.Exec:output_type -> agentcompose.v2.ExecResponse
-	141, // 373: agentcompose.v2.ExecService.ExecStream:output_type -> agentcompose.v2.ExecStreamResponse
-	143, // 374: agentcompose.v2.ExecService.ExecAttach:output_type -> agentcompose.v2.ExecAttachResponse
-	160, // 375: agentcompose.v2.ImageService.ListImages:output_type -> agentcompose.v2.ListImagesResponse
-	162, // 376: agentcompose.v2.ImageService.PullImage:output_type -> agentcompose.v2.PullImageResponse
-	164, // 377: agentcompose.v2.ImageService.InspectImage:output_type -> agentcompose.v2.InspectImageResponse
-	166, // 378: agentcompose.v2.ImageService.RemoveImage:output_type -> agentcompose.v2.RemoveImageResponse
-	168, // 379: agentcompose.v2.ImageService.BuildImage:output_type -> agentcompose.v2.BuildImageEvent
-	171, // 380: agentcompose.v2.CacheService.ListCaches:output_type -> agentcompose.v2.ListCachesResponse
-	173, // 381: agentcompose.v2.CacheService.InspectCache:output_type -> agentcompose.v2.InspectCacheResponse
-	175, // 382: agentcompose.v2.CacheService.PruneCaches:output_type -> agentcompose.v2.PruneCachesResponse
-	177, // 383: agentcompose.v2.CacheService.RemoveCache:output_type -> agentcompose.v2.RemoveCacheResponse
-	181, // 384: agentcompose.v2.VolumeService.ListVolumes:output_type -> agentcompose.v2.ListVolumesResponse
-	183, // 385: agentcompose.v2.VolumeService.CreateVolume:output_type -> agentcompose.v2.CreateVolumeResponse
-	185, // 386: agentcompose.v2.VolumeService.InspectVolume:output_type -> agentcompose.v2.InspectVolumeResponse
-	187, // 387: agentcompose.v2.VolumeService.RemoveVolume:output_type -> agentcompose.v2.RemoveVolumeResponse
-	189, // 388: agentcompose.v2.VolumeService.PruneVolumes:output_type -> agentcompose.v2.PruneVolumesResponse
-	117, // 389: agentcompose.v2.SandboxService.RemoveSandbox:output_type -> agentcompose.v2.RemoveSandboxResponse
-	120, // 390: agentcompose.v2.SandboxService.PruneSandboxes:output_type -> agentcompose.v2.PruneSandboxesResponse
-	122, // 391: agentcompose.v2.SandboxService.GetSandboxStats:output_type -> agentcompose.v2.GetSandboxStatsResponse
-	128, // 392: agentcompose.v2.SandboxService.GetSandbox:output_type -> agentcompose.v2.GetSandboxResponse
-	130, // 393: agentcompose.v2.SandboxService.StopSandbox:output_type -> agentcompose.v2.StopSandboxResponse
-	132, // 394: agentcompose.v2.SandboxService.ResumeSandbox:output_type -> agentcompose.v2.ResumeSandboxResponse
-	127, // 395: agentcompose.v2.SandboxService.ListSandboxes:output_type -> agentcompose.v2.ListSandboxesResponse
-	240, // 396: agentcompose.v2.SandboxService.ListSandboxHistory:output_type -> agentcompose.v2.ListSandboxHistoryResponse
-	242, // 397: agentcompose.v2.SandboxService.WatchSandbox:output_type -> agentcompose.v2.WatchSandboxResponse
-	209, // 398: agentcompose.v2.DashboardService.GetDashboardOverview:output_type -> agentcompose.v2.GetDashboardOverviewResponse
-	210, // 399: agentcompose.v2.DashboardService.WatchDashboardOverview:output_type -> agentcompose.v2.WatchDashboardOverviewResponse
-	212, // 400: agentcompose.v2.SettingsService.GetGlobalEnv:output_type -> agentcompose.v2.GetGlobalEnvResponse
-	214, // 401: agentcompose.v2.SettingsService.UpdateGlobalEnv:output_type -> agentcompose.v2.UpdateGlobalEnvResponse
-	217, // 402: agentcompose.v2.SettingsService.GetCapabilityGatewayConfig:output_type -> agentcompose.v2.GetCapabilityGatewayConfigResponse
-	219, // 403: agentcompose.v2.SettingsService.UpdateCapabilityGatewayConfig:output_type -> agentcompose.v2.UpdateCapabilityGatewayConfigResponse
-	222, // 404: agentcompose.v2.SettingsService.ListWorkspacePresets:output_type -> agentcompose.v2.ListWorkspacePresetsResponse
-	227, // 405: agentcompose.v2.SettingsService.CreateWorkspacePreset:output_type -> agentcompose.v2.WorkspacePresetResponse
-	227, // 406: agentcompose.v2.SettingsService.UpdateWorkspacePreset:output_type -> agentcompose.v2.WorkspacePresetResponse
-	226, // 407: agentcompose.v2.SettingsService.DeleteWorkspacePreset:output_type -> agentcompose.v2.DeleteWorkspacePresetResponse
-	229, // 408: agentcompose.v2.CapabilityService.GetCapabilityStatus:output_type -> agentcompose.v2.CapabilityStatusResponse
-	232, // 409: agentcompose.v2.CapabilityService.ListCapabilitySets:output_type -> agentcompose.v2.ListCapabilitySetsResponse
-	236, // 410: agentcompose.v2.CapabilityService.GetCapabilityCatalog:output_type -> agentcompose.v2.GetCapabilityCatalogResponse
-	244, // 411: agentcompose.v2.LLMService.Generate:output_type -> agentcompose.v2.GenerateLLMResponse
-	203, // 412: agentcompose.v2.ResourceService.ResolveID:output_type -> agentcompose.v2.ResolveResourceIDResponse
-	343, // [343:413] is the sub-list for method output_type
-	273, // [273:343] is the sub-list for method input_type
-	273, // [273:273] is the sub-list for extension type_name
-	273, // [273:273] is the sub-list for extension extendee
-	0,   // [0:273] is the sub-list for field type_name
+	135, // 129: agentcompose.v2.RunLogChunk.run:type_name -> agentcompose.v2.RunSummary
+	136, // 130: agentcompose.v2.StopRunResponse.run:type_name -> agentcompose.v2.RunDetail
+	8,   // 131: agentcompose.v2.RunEvent.kind:type_name -> agentcompose.v2.RunEventKind
+	261, // 132: agentcompose.v2.RunEvent.created_at:type_name -> google.protobuf.Timestamp
+	112, // 133: agentcompose.v2.ListRunEventsResponse.events:type_name -> agentcompose.v2.RunEvent
+	112, // 134: agentcompose.v2.ListSandboxRunEventsResponse.events:type_name -> agentcompose.v2.RunEvent
+	20,  // 135: agentcompose.v2.SandboxPruneCandidate.kind:type_name -> agentcompose.v2.SandboxPruneCandidateKind
+	261, // 136: agentcompose.v2.SandboxPruneCandidate.updated_at:type_name -> google.protobuf.Timestamp
+	119, // 137: agentcompose.v2.PruneSandboxesResponse.matched:type_name -> agentcompose.v2.SandboxPruneCandidate
+	119, // 138: agentcompose.v2.PruneSandboxesResponse.skipped:type_name -> agentcompose.v2.SandboxPruneCandidate
+	134, // 139: agentcompose.v2.GetSandboxStatsResponse.stats:type_name -> agentcompose.v2.SandboxStats
+	261, // 140: agentcompose.v2.Sandbox.created_at:type_name -> google.protobuf.Timestamp
+	261, // 141: agentcompose.v2.Sandbox.updated_at:type_name -> google.protobuf.Timestamp
+	125, // 142: agentcompose.v2.Sandbox.tags:type_name -> agentcompose.v2.SandboxTag
+	261, // 143: agentcompose.v2.Sandbox.workspace_reclamation_started_at:type_name -> google.protobuf.Timestamp
+	261, // 144: agentcompose.v2.Sandbox.workspace_reclamation_completed_at:type_name -> google.protobuf.Timestamp
+	124, // 145: agentcompose.v2.ListSandboxesResponse.sandboxes:type_name -> agentcompose.v2.Sandbox
+	124, // 146: agentcompose.v2.GetSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
+	124, // 147: agentcompose.v2.StopSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
+	124, // 148: agentcompose.v2.ResumeSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
+	17,  // 149: agentcompose.v2.MetricValue.status:type_name -> agentcompose.v2.MetricStatus
+	133, // 150: agentcompose.v2.SandboxStats.cpu_percent:type_name -> agentcompose.v2.MetricValue
+	133, // 151: agentcompose.v2.SandboxStats.memory_usage_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 152: agentcompose.v2.SandboxStats.memory_limit_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 153: agentcompose.v2.SandboxStats.memory_percent:type_name -> agentcompose.v2.MetricValue
+	133, // 154: agentcompose.v2.SandboxStats.network_rx_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 155: agentcompose.v2.SandboxStats.network_tx_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 156: agentcompose.v2.SandboxStats.block_read_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 157: agentcompose.v2.SandboxStats.block_write_bytes:type_name -> agentcompose.v2.MetricValue
+	133, // 158: agentcompose.v2.SandboxStats.uptime_seconds:type_name -> agentcompose.v2.MetricValue
+	4,   // 159: agentcompose.v2.RunSummary.source:type_name -> agentcompose.v2.RunSource
+	3,   // 160: agentcompose.v2.RunSummary.status:type_name -> agentcompose.v2.RunStatus
+	135, // 161: agentcompose.v2.RunDetail.summary:type_name -> agentcompose.v2.RunSummary
+	138, // 162: agentcompose.v2.ExecRequest.selector:type_name -> agentcompose.v2.ExecSandboxSelector
+	139, // 163: agentcompose.v2.ExecRequest.command:type_name -> agentcompose.v2.ExecCommand
+	86,  // 164: agentcompose.v2.ExecRequest.env:type_name -> agentcompose.v2.EnvVarSpec
+	158, // 165: agentcompose.v2.ExecResponse.result:type_name -> agentcompose.v2.ExecResult
+	11,  // 166: agentcompose.v2.ExecStreamResponse.event_type:type_name -> agentcompose.v2.ExecStreamEventType
+	13,  // 167: agentcompose.v2.ExecStreamResponse.stream:type_name -> agentcompose.v2.StdioStream
+	158, // 168: agentcompose.v2.ExecStreamResponse.result:type_name -> agentcompose.v2.ExecResult
+	102, // 169: agentcompose.v2.ExecStreamResponse.transcript:type_name -> agentcompose.v2.TranscriptEvent
+	144, // 170: agentcompose.v2.ExecAttachRequest.start:type_name -> agentcompose.v2.ExecAttachStart
+	146, // 171: agentcompose.v2.ExecAttachRequest.stdin:type_name -> agentcompose.v2.AttachStdin
+	147, // 172: agentcompose.v2.ExecAttachRequest.stdin_eof:type_name -> agentcompose.v2.AttachStdinEOF
+	148, // 173: agentcompose.v2.ExecAttachRequest.resize:type_name -> agentcompose.v2.AttachResize
+	149, // 174: agentcompose.v2.ExecAttachRequest.signal:type_name -> agentcompose.v2.AttachSignal
+	151, // 175: agentcompose.v2.ExecAttachRequest.cancel:type_name -> agentcompose.v2.AttachCancel
+	150, // 176: agentcompose.v2.ExecAttachRequest.human_message:type_name -> agentcompose.v2.AttachHumanMessage
+	152, // 177: agentcompose.v2.ExecAttachResponse.started:type_name -> agentcompose.v2.AttachStarted
+	153, // 178: agentcompose.v2.ExecAttachResponse.output:type_name -> agentcompose.v2.AttachOutput
+	156, // 179: agentcompose.v2.ExecAttachResponse.result:type_name -> agentcompose.v2.AttachResult
+	157, // 180: agentcompose.v2.ExecAttachResponse.error:type_name -> agentcompose.v2.AttachError
+	154, // 181: agentcompose.v2.ExecAttachResponse.agent_event:type_name -> agentcompose.v2.AttachAgentEvent
+	155, // 182: agentcompose.v2.ExecAttachResponse.agent_turn_completed:type_name -> agentcompose.v2.AttachAgentTurnCompleted
+	137, // 183: agentcompose.v2.ExecAttachStart.request:type_name -> agentcompose.v2.ExecRequest
+	145, // 184: agentcompose.v2.ExecAttachStart.terminal_size:type_name -> agentcompose.v2.AttachTerminalSize
+	12,  // 185: agentcompose.v2.ExecAttachStart.mode:type_name -> agentcompose.v2.AttachRunMode
+	145, // 186: agentcompose.v2.AttachResize.terminal_size:type_name -> agentcompose.v2.AttachTerminalSize
+	252, // 187: agentcompose.v2.AttachHumanMessage.metadata:type_name -> agentcompose.v2.AttachHumanMessage.MetadataEntry
+	135, // 188: agentcompose.v2.AttachStarted.run:type_name -> agentcompose.v2.RunSummary
+	13,  // 189: agentcompose.v2.AttachOutput.stream:type_name -> agentcompose.v2.StdioStream
+	102, // 190: agentcompose.v2.AttachOutput.transcript:type_name -> agentcompose.v2.TranscriptEvent
+	158, // 191: agentcompose.v2.AttachResult.exec_result:type_name -> agentcompose.v2.ExecResult
+	135, // 192: agentcompose.v2.AttachResult.run:type_name -> agentcompose.v2.RunSummary
+	253, // 193: agentcompose.v2.AttachError.details:type_name -> agentcompose.v2.AttachError.DetailsEntry
+	139, // 194: agentcompose.v2.ExecResult.command:type_name -> agentcompose.v2.ExecCommand
+	14,  // 195: agentcompose.v2.ListImagesRequest.store:type_name -> agentcompose.v2.ImageStoreKind
+	191, // 196: agentcompose.v2.ListImagesResponse.images:type_name -> agentcompose.v2.Image
+	193, // 197: agentcompose.v2.ListImagesResponse.store_status:type_name -> agentcompose.v2.ImageStoreStatus
+	14,  // 198: agentcompose.v2.PullImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
+	192, // 199: agentcompose.v2.PullImageRequest.platform:type_name -> agentcompose.v2.ImagePlatform
+	191, // 200: agentcompose.v2.PullImageResponse.image:type_name -> agentcompose.v2.Image
+	16,  // 201: agentcompose.v2.PullImageResponse.status:type_name -> agentcompose.v2.ImageOperationStatus
+	196, // 202: agentcompose.v2.PullImageResponse.progress:type_name -> agentcompose.v2.ImagePullProgress
+	14,  // 203: agentcompose.v2.InspectImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
+	191, // 204: agentcompose.v2.InspectImageResponse.image:type_name -> agentcompose.v2.Image
+	193, // 205: agentcompose.v2.InspectImageResponse.store_status:type_name -> agentcompose.v2.ImageStoreStatus
+	14,  // 206: agentcompose.v2.RemoveImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
+	254, // 207: agentcompose.v2.BuildImageRequest.build_args:type_name -> agentcompose.v2.BuildImageRequest.BuildArgsEntry
+	14,  // 208: agentcompose.v2.BuildImageRequest.store:type_name -> agentcompose.v2.ImageStoreKind
+	192, // 209: agentcompose.v2.BuildImageRequest.platform:type_name -> agentcompose.v2.ImagePlatform
+	16,  // 210: agentcompose.v2.BuildImageEvent.status:type_name -> agentcompose.v2.ImageOperationStatus
+	191, // 211: agentcompose.v2.BuildImageEvent.image:type_name -> agentcompose.v2.Image
+	18,  // 212: agentcompose.v2.CacheFilter.domain:type_name -> agentcompose.v2.CacheDomain
+	21,  // 213: agentcompose.v2.CacheFilter.status:type_name -> agentcompose.v2.CacheStatus
+	169, // 214: agentcompose.v2.ListCachesRequest.filter:type_name -> agentcompose.v2.CacheFilter
+	178, // 215: agentcompose.v2.ListCachesResponse.caches:type_name -> agentcompose.v2.CacheItem
+	178, // 216: agentcompose.v2.InspectCacheResponse.cache:type_name -> agentcompose.v2.CacheItem
+	169, // 217: agentcompose.v2.PruneCachesRequest.filter:type_name -> agentcompose.v2.CacheFilter
+	178, // 218: agentcompose.v2.PruneCachesResponse.matched:type_name -> agentcompose.v2.CacheItem
+	178, // 219: agentcompose.v2.PruneCachesResponse.skipped:type_name -> agentcompose.v2.CacheItem
+	178, // 220: agentcompose.v2.RemoveCacheResponse.matched:type_name -> agentcompose.v2.CacheItem
+	178, // 221: agentcompose.v2.RemoveCacheResponse.skipped:type_name -> agentcompose.v2.CacheItem
+	18,  // 222: agentcompose.v2.CacheItem.domain:type_name -> agentcompose.v2.CacheDomain
+	21,  // 223: agentcompose.v2.CacheItem.status:type_name -> agentcompose.v2.CacheStatus
+	179, // 224: agentcompose.v2.CacheItem.references:type_name -> agentcompose.v2.CacheReference
+	19,  // 225: agentcompose.v2.CacheReference.policy:type_name -> agentcompose.v2.CacheReferencePolicy
+	190, // 226: agentcompose.v2.ListVolumesResponse.volumes:type_name -> agentcompose.v2.Volume
+	255, // 227: agentcompose.v2.CreateVolumeRequest.labels:type_name -> agentcompose.v2.CreateVolumeRequest.LabelsEntry
+	256, // 228: agentcompose.v2.CreateVolumeRequest.options:type_name -> agentcompose.v2.CreateVolumeRequest.OptionsEntry
+	190, // 229: agentcompose.v2.CreateVolumeResponse.volume:type_name -> agentcompose.v2.Volume
+	190, // 230: agentcompose.v2.InspectVolumeResponse.volume:type_name -> agentcompose.v2.Volume
+	190, // 231: agentcompose.v2.PruneVolumesResponse.matched:type_name -> agentcompose.v2.Volume
+	190, // 232: agentcompose.v2.PruneVolumesResponse.removed:type_name -> agentcompose.v2.Volume
+	190, // 233: agentcompose.v2.PruneVolumesResponse.skipped:type_name -> agentcompose.v2.Volume
+	257, // 234: agentcompose.v2.Volume.labels:type_name -> agentcompose.v2.Volume.LabelsEntry
+	258, // 235: agentcompose.v2.Volume.options:type_name -> agentcompose.v2.Volume.OptionsEntry
+	14,  // 236: agentcompose.v2.Image.store:type_name -> agentcompose.v2.ImageStoreKind
+	15,  // 237: agentcompose.v2.Image.availability_status:type_name -> agentcompose.v2.ImageAvailabilityStatus
+	192, // 238: agentcompose.v2.Image.platform:type_name -> agentcompose.v2.ImagePlatform
+	194, // 239: agentcompose.v2.Image.docker:type_name -> agentcompose.v2.DockerImageStatus
+	195, // 240: agentcompose.v2.Image.oci:type_name -> agentcompose.v2.OCIImageStatus
+	259, // 241: agentcompose.v2.Image.labels:type_name -> agentcompose.v2.Image.LabelsEntry
+	14,  // 242: agentcompose.v2.ImageStoreStatus.store:type_name -> agentcompose.v2.ImageStoreKind
+	96,  // 243: agentcompose.v2.StartRunRequest.run:type_name -> agentcompose.v2.RunAgentRequest
+	135, // 244: agentcompose.v2.StartRunResponse.run:type_name -> agentcompose.v2.RunSummary
+	22,  // 245: agentcompose.v2.ResolveResourceIDRequest.kinds:type_name -> agentcompose.v2.ResourceKind
+	204, // 246: agentcompose.v2.ResolveResourceIDResponse.targets:type_name -> agentcompose.v2.ResourceTarget
+	22,  // 247: agentcompose.v2.ResourceTarget.kind:type_name -> agentcompose.v2.ResourceKind
+	207, // 248: agentcompose.v2.DashboardOverview.runs:type_name -> agentcompose.v2.RunOverview
+	261, // 249: agentcompose.v2.DashboardOverview.updated_at:type_name -> google.protobuf.Timestamp
+	208, // 250: agentcompose.v2.GetDashboardOverviewResponse.overview:type_name -> agentcompose.v2.DashboardOverview
+	208, // 251: agentcompose.v2.WatchDashboardOverviewResponse.overview:type_name -> agentcompose.v2.DashboardOverview
+	86,  // 252: agentcompose.v2.GetGlobalEnvResponse.env:type_name -> agentcompose.v2.EnvVarSpec
+	87,  // 253: agentcompose.v2.UpdateGlobalEnvRequest.env:type_name -> agentcompose.v2.EnvVarUpdateSpec
+	86,  // 254: agentcompose.v2.UpdateGlobalEnvResponse.env:type_name -> agentcompose.v2.EnvVarSpec
+	216, // 255: agentcompose.v2.GetCapabilityGatewayConfigResponse.config:type_name -> agentcompose.v2.CapabilityGatewayConfig
+	216, // 256: agentcompose.v2.UpdateCapabilityGatewayConfigResponse.config:type_name -> agentcompose.v2.CapabilityGatewayConfig
+	261, // 257: agentcompose.v2.WorkspacePreset.created_at:type_name -> google.protobuf.Timestamp
+	261, // 258: agentcompose.v2.WorkspacePreset.updated_at:type_name -> google.protobuf.Timestamp
+	220, // 259: agentcompose.v2.ListWorkspacePresetsResponse.presets:type_name -> agentcompose.v2.WorkspacePreset
+	220, // 260: agentcompose.v2.WorkspacePresetResponse.preset:type_name -> agentcompose.v2.WorkspacePreset
+	231, // 261: agentcompose.v2.ListCapabilitySetsResponse.capsets:type_name -> agentcompose.v2.CapabilitySet
+	260, // 262: agentcompose.v2.CapabilityEndpoint.metadata:type_name -> agentcompose.v2.CapabilityEndpoint.MetadataEntry
+	234, // 263: agentcompose.v2.CapabilityMethod.endpoints:type_name -> agentcompose.v2.CapabilityEndpoint
+	235, // 264: agentcompose.v2.GetCapabilityCatalogResponse.methods:type_name -> agentcompose.v2.CapabilityMethod
+	261, // 265: agentcompose.v2.SandboxHistoryCell.created_at:type_name -> google.protobuf.Timestamp
+	261, // 266: agentcompose.v2.SandboxHistoryEvent.created_at:type_name -> google.protobuf.Timestamp
+	238, // 267: agentcompose.v2.ListSandboxHistoryResponse.cells:type_name -> agentcompose.v2.SandboxHistoryCell
+	239, // 268: agentcompose.v2.ListSandboxHistoryResponse.events:type_name -> agentcompose.v2.SandboxHistoryEvent
+	23,  // 269: agentcompose.v2.WatchSandboxResponse.event_type:type_name -> agentcompose.v2.SandboxWatchEventType
+	124, // 270: agentcompose.v2.WatchSandboxResponse.sandbox:type_name -> agentcompose.v2.Sandbox
+	238, // 271: agentcompose.v2.WatchSandboxResponse.cell:type_name -> agentcompose.v2.SandboxHistoryCell
+	239, // 272: agentcompose.v2.WatchSandboxResponse.event:type_name -> agentcompose.v2.SandboxHistoryEvent
+	13,  // 273: agentcompose.v2.WatchSandboxResponse.stream:type_name -> agentcompose.v2.StdioStream
+	36,  // 274: agentcompose.v2.StreamProjectSchedulerEventsRequest.project:type_name -> agentcompose.v2.ProjectRef
+	52,  // 275: agentcompose.v2.StreamProjectSchedulerEventsResponse.events:type_name -> agentcompose.v2.SchedulerEvent
+	36,  // 276: agentcompose.v2.StreamSchedulerRunsRequest.project:type_name -> agentcompose.v2.ProjectRef
+	5,   // 277: agentcompose.v2.StreamSchedulerRunsRequest.status:type_name -> agentcompose.v2.SchedulerRunStatus
+	72,  // 278: agentcompose.v2.StreamSchedulerRunsResponse.runs:type_name -> agentcompose.v2.SchedulerRun
+	24,  // 279: agentcompose.v2.ProjectService.ValidateProject:input_type -> agentcompose.v2.ValidateProjectRequest
+	26,  // 280: agentcompose.v2.ProjectService.ApplyProject:input_type -> agentcompose.v2.ApplyProjectRequest
+	28,  // 281: agentcompose.v2.ProjectService.GetProject:input_type -> agentcompose.v2.GetProjectRequest
+	30,  // 282: agentcompose.v2.ProjectService.ListProjects:input_type -> agentcompose.v2.ListProjectsRequest
+	32,  // 283: agentcompose.v2.ProjectService.RemoveProject:input_type -> agentcompose.v2.RemoveProjectRequest
+	34,  // 284: agentcompose.v2.ProjectService.WatchProject:input_type -> agentcompose.v2.WatchProjectRequest
+	45,  // 285: agentcompose.v2.ProjectService.GetScheduler:input_type -> agentcompose.v2.GetSchedulerRequest
+	48,  // 286: agentcompose.v2.ProjectService.ListSchedulers:input_type -> agentcompose.v2.ListSchedulersRequest
+	51,  // 287: agentcompose.v2.ProjectService.ListSchedulerEvents:input_type -> agentcompose.v2.ListSchedulerEventsRequest
+	54,  // 288: agentcompose.v2.ProjectService.ListProjectSchedulerEvents:input_type -> agentcompose.v2.ListProjectSchedulerEventsRequest
+	245, // 289: agentcompose.v2.ProjectService.StreamProjectSchedulerEvents:input_type -> agentcompose.v2.StreamProjectSchedulerEventsRequest
+	56,  // 290: agentcompose.v2.ProjectService.InvokeScheduler:input_type -> agentcompose.v2.InvokeSchedulerRequest
+	58,  // 291: agentcompose.v2.ProjectService.RunScheduler:input_type -> agentcompose.v2.RunSchedulerRequest
+	60,  // 292: agentcompose.v2.ProjectService.StartSchedulerRun:input_type -> agentcompose.v2.StartSchedulerRunRequest
+	62,  // 293: agentcompose.v2.ProjectService.GetSchedulerRun:input_type -> agentcompose.v2.GetSchedulerRunRequest
+	64,  // 294: agentcompose.v2.ProjectService.ListSchedulerRuns:input_type -> agentcompose.v2.ListSchedulerRunsRequest
+	247, // 295: agentcompose.v2.ProjectService.StreamSchedulerRuns:input_type -> agentcompose.v2.StreamSchedulerRunsRequest
+	66,  // 296: agentcompose.v2.ProjectService.PruneSchedulerRuns:input_type -> agentcompose.v2.PruneSchedulerRunsRequest
+	70,  // 297: agentcompose.v2.ProjectService.StopSchedulerRun:input_type -> agentcompose.v2.StopSchedulerRunRequest
+	73,  // 298: agentcompose.v2.ProjectService.SetSchedulerEnabled:input_type -> agentcompose.v2.SetSchedulerEnabledRequest
+	75,  // 299: agentcompose.v2.ProjectService.SetSchedulerTriggerEnabled:input_type -> agentcompose.v2.SetSchedulerTriggerEnabledRequest
+	96,  // 300: agentcompose.v2.RunService.RunAgent:input_type -> agentcompose.v2.RunAgentRequest
+	199, // 301: agentcompose.v2.RunService.StartRun:input_type -> agentcompose.v2.StartRunRequest
+	96,  // 302: agentcompose.v2.RunService.RunAgentStream:input_type -> agentcompose.v2.RunAgentRequest
+	99,  // 303: agentcompose.v2.RunService.RunAttach:input_type -> agentcompose.v2.RunAttachRequest
+	103, // 304: agentcompose.v2.RunService.GetRun:input_type -> agentcompose.v2.GetRunRequest
+	105, // 305: agentcompose.v2.RunService.ListRuns:input_type -> agentcompose.v2.ListRunsRequest
+	107, // 306: agentcompose.v2.RunService.FollowRunLogs:input_type -> agentcompose.v2.FollowRunLogsRequest
+	109, // 307: agentcompose.v2.RunService.StopRun:input_type -> agentcompose.v2.StopRunRequest
+	111, // 308: agentcompose.v2.RunService.ListRunEvents:input_type -> agentcompose.v2.ListRunEventsRequest
+	114, // 309: agentcompose.v2.RunService.ListSandboxRunEvents:input_type -> agentcompose.v2.ListSandboxRunEventsRequest
+	137, // 310: agentcompose.v2.ExecService.Exec:input_type -> agentcompose.v2.ExecRequest
+	137, // 311: agentcompose.v2.ExecService.ExecStream:input_type -> agentcompose.v2.ExecRequest
+	142, // 312: agentcompose.v2.ExecService.ExecAttach:input_type -> agentcompose.v2.ExecAttachRequest
+	159, // 313: agentcompose.v2.ImageService.ListImages:input_type -> agentcompose.v2.ListImagesRequest
+	161, // 314: agentcompose.v2.ImageService.PullImage:input_type -> agentcompose.v2.PullImageRequest
+	163, // 315: agentcompose.v2.ImageService.InspectImage:input_type -> agentcompose.v2.InspectImageRequest
+	165, // 316: agentcompose.v2.ImageService.RemoveImage:input_type -> agentcompose.v2.RemoveImageRequest
+	167, // 317: agentcompose.v2.ImageService.BuildImage:input_type -> agentcompose.v2.BuildImageRequest
+	170, // 318: agentcompose.v2.CacheService.ListCaches:input_type -> agentcompose.v2.ListCachesRequest
+	172, // 319: agentcompose.v2.CacheService.InspectCache:input_type -> agentcompose.v2.InspectCacheRequest
+	174, // 320: agentcompose.v2.CacheService.PruneCaches:input_type -> agentcompose.v2.PruneCachesRequest
+	176, // 321: agentcompose.v2.CacheService.RemoveCache:input_type -> agentcompose.v2.RemoveCacheRequest
+	180, // 322: agentcompose.v2.VolumeService.ListVolumes:input_type -> agentcompose.v2.ListVolumesRequest
+	182, // 323: agentcompose.v2.VolumeService.CreateVolume:input_type -> agentcompose.v2.CreateVolumeRequest
+	184, // 324: agentcompose.v2.VolumeService.InspectVolume:input_type -> agentcompose.v2.InspectVolumeRequest
+	186, // 325: agentcompose.v2.VolumeService.RemoveVolume:input_type -> agentcompose.v2.RemoveVolumeRequest
+	188, // 326: agentcompose.v2.VolumeService.PruneVolumes:input_type -> agentcompose.v2.PruneVolumesRequest
+	116, // 327: agentcompose.v2.SandboxService.RemoveSandbox:input_type -> agentcompose.v2.RemoveSandboxRequest
+	118, // 328: agentcompose.v2.SandboxService.PruneSandboxes:input_type -> agentcompose.v2.PruneSandboxesRequest
+	121, // 329: agentcompose.v2.SandboxService.GetSandboxStats:input_type -> agentcompose.v2.GetSandboxStatsRequest
+	123, // 330: agentcompose.v2.SandboxService.GetSandbox:input_type -> agentcompose.v2.GetSandboxRequest
+	129, // 331: agentcompose.v2.SandboxService.StopSandbox:input_type -> agentcompose.v2.StopSandboxRequest
+	131, // 332: agentcompose.v2.SandboxService.ResumeSandbox:input_type -> agentcompose.v2.ResumeSandboxRequest
+	126, // 333: agentcompose.v2.SandboxService.ListSandboxes:input_type -> agentcompose.v2.ListSandboxesRequest
+	237, // 334: agentcompose.v2.SandboxService.ListSandboxHistory:input_type -> agentcompose.v2.ListSandboxHistoryRequest
+	241, // 335: agentcompose.v2.SandboxService.WatchSandbox:input_type -> agentcompose.v2.WatchSandboxRequest
+	205, // 336: agentcompose.v2.DashboardService.GetDashboardOverview:input_type -> agentcompose.v2.GetDashboardOverviewRequest
+	206, // 337: agentcompose.v2.DashboardService.WatchDashboardOverview:input_type -> agentcompose.v2.WatchDashboardOverviewRequest
+	211, // 338: agentcompose.v2.SettingsService.GetGlobalEnv:input_type -> agentcompose.v2.GetGlobalEnvRequest
+	213, // 339: agentcompose.v2.SettingsService.UpdateGlobalEnv:input_type -> agentcompose.v2.UpdateGlobalEnvRequest
+	215, // 340: agentcompose.v2.SettingsService.GetCapabilityGatewayConfig:input_type -> agentcompose.v2.GetCapabilityGatewayConfigRequest
+	218, // 341: agentcompose.v2.SettingsService.UpdateCapabilityGatewayConfig:input_type -> agentcompose.v2.UpdateCapabilityGatewayConfigRequest
+	221, // 342: agentcompose.v2.SettingsService.ListWorkspacePresets:input_type -> agentcompose.v2.ListWorkspacePresetsRequest
+	223, // 343: agentcompose.v2.SettingsService.CreateWorkspacePreset:input_type -> agentcompose.v2.CreateWorkspacePresetRequest
+	224, // 344: agentcompose.v2.SettingsService.UpdateWorkspacePreset:input_type -> agentcompose.v2.UpdateWorkspacePresetRequest
+	225, // 345: agentcompose.v2.SettingsService.DeleteWorkspacePreset:input_type -> agentcompose.v2.DeleteWorkspacePresetRequest
+	228, // 346: agentcompose.v2.CapabilityService.GetCapabilityStatus:input_type -> agentcompose.v2.GetCapabilityStatusRequest
+	230, // 347: agentcompose.v2.CapabilityService.ListCapabilitySets:input_type -> agentcompose.v2.ListCapabilitySetsRequest
+	233, // 348: agentcompose.v2.CapabilityService.GetCapabilityCatalog:input_type -> agentcompose.v2.GetCapabilityCatalogRequest
+	243, // 349: agentcompose.v2.LLMService.Generate:input_type -> agentcompose.v2.GenerateLLMRequest
+	202, // 350: agentcompose.v2.ResourceService.ResolveID:input_type -> agentcompose.v2.ResolveResourceIDRequest
+	25,  // 351: agentcompose.v2.ProjectService.ValidateProject:output_type -> agentcompose.v2.ValidateProjectResponse
+	27,  // 352: agentcompose.v2.ProjectService.ApplyProject:output_type -> agentcompose.v2.ApplyProjectResponse
+	29,  // 353: agentcompose.v2.ProjectService.GetProject:output_type -> agentcompose.v2.GetProjectResponse
+	31,  // 354: agentcompose.v2.ProjectService.ListProjects:output_type -> agentcompose.v2.ListProjectsResponse
+	33,  // 355: agentcompose.v2.ProjectService.RemoveProject:output_type -> agentcompose.v2.RemoveProjectResponse
+	35,  // 356: agentcompose.v2.ProjectService.WatchProject:output_type -> agentcompose.v2.WatchProjectResponse
+	46,  // 357: agentcompose.v2.ProjectService.GetScheduler:output_type -> agentcompose.v2.GetSchedulerResponse
+	50,  // 358: agentcompose.v2.ProjectService.ListSchedulers:output_type -> agentcompose.v2.ListSchedulersResponse
+	53,  // 359: agentcompose.v2.ProjectService.ListSchedulerEvents:output_type -> agentcompose.v2.ListSchedulerEventsResponse
+	55,  // 360: agentcompose.v2.ProjectService.ListProjectSchedulerEvents:output_type -> agentcompose.v2.ListProjectSchedulerEventsResponse
+	246, // 361: agentcompose.v2.ProjectService.StreamProjectSchedulerEvents:output_type -> agentcompose.v2.StreamProjectSchedulerEventsResponse
+	57,  // 362: agentcompose.v2.ProjectService.InvokeScheduler:output_type -> agentcompose.v2.InvokeSchedulerResponse
+	59,  // 363: agentcompose.v2.ProjectService.RunScheduler:output_type -> agentcompose.v2.RunSchedulerResponse
+	61,  // 364: agentcompose.v2.ProjectService.StartSchedulerRun:output_type -> agentcompose.v2.StartSchedulerRunResponse
+	63,  // 365: agentcompose.v2.ProjectService.GetSchedulerRun:output_type -> agentcompose.v2.GetSchedulerRunResponse
+	65,  // 366: agentcompose.v2.ProjectService.ListSchedulerRuns:output_type -> agentcompose.v2.ListSchedulerRunsResponse
+	248, // 367: agentcompose.v2.ProjectService.StreamSchedulerRuns:output_type -> agentcompose.v2.StreamSchedulerRunsResponse
+	69,  // 368: agentcompose.v2.ProjectService.PruneSchedulerRuns:output_type -> agentcompose.v2.PruneSchedulerRunsResponse
+	71,  // 369: agentcompose.v2.ProjectService.StopSchedulerRun:output_type -> agentcompose.v2.StopSchedulerRunResponse
+	74,  // 370: agentcompose.v2.ProjectService.SetSchedulerEnabled:output_type -> agentcompose.v2.SetSchedulerEnabledResponse
+	76,  // 371: agentcompose.v2.ProjectService.SetSchedulerTriggerEnabled:output_type -> agentcompose.v2.SetSchedulerTriggerEnabledResponse
+	97,  // 372: agentcompose.v2.RunService.RunAgent:output_type -> agentcompose.v2.RunAgentResponse
+	200, // 373: agentcompose.v2.RunService.StartRun:output_type -> agentcompose.v2.StartRunResponse
+	98,  // 374: agentcompose.v2.RunService.RunAgentStream:output_type -> agentcompose.v2.RunAgentStreamResponse
+	100, // 375: agentcompose.v2.RunService.RunAttach:output_type -> agentcompose.v2.RunAttachResponse
+	104, // 376: agentcompose.v2.RunService.GetRun:output_type -> agentcompose.v2.GetRunResponse
+	106, // 377: agentcompose.v2.RunService.ListRuns:output_type -> agentcompose.v2.ListRunsResponse
+	108, // 378: agentcompose.v2.RunService.FollowRunLogs:output_type -> agentcompose.v2.RunLogChunk
+	110, // 379: agentcompose.v2.RunService.StopRun:output_type -> agentcompose.v2.StopRunResponse
+	113, // 380: agentcompose.v2.RunService.ListRunEvents:output_type -> agentcompose.v2.ListRunEventsResponse
+	115, // 381: agentcompose.v2.RunService.ListSandboxRunEvents:output_type -> agentcompose.v2.ListSandboxRunEventsResponse
+	140, // 382: agentcompose.v2.ExecService.Exec:output_type -> agentcompose.v2.ExecResponse
+	141, // 383: agentcompose.v2.ExecService.ExecStream:output_type -> agentcompose.v2.ExecStreamResponse
+	143, // 384: agentcompose.v2.ExecService.ExecAttach:output_type -> agentcompose.v2.ExecAttachResponse
+	160, // 385: agentcompose.v2.ImageService.ListImages:output_type -> agentcompose.v2.ListImagesResponse
+	162, // 386: agentcompose.v2.ImageService.PullImage:output_type -> agentcompose.v2.PullImageResponse
+	164, // 387: agentcompose.v2.ImageService.InspectImage:output_type -> agentcompose.v2.InspectImageResponse
+	166, // 388: agentcompose.v2.ImageService.RemoveImage:output_type -> agentcompose.v2.RemoveImageResponse
+	168, // 389: agentcompose.v2.ImageService.BuildImage:output_type -> agentcompose.v2.BuildImageEvent
+	171, // 390: agentcompose.v2.CacheService.ListCaches:output_type -> agentcompose.v2.ListCachesResponse
+	173, // 391: agentcompose.v2.CacheService.InspectCache:output_type -> agentcompose.v2.InspectCacheResponse
+	175, // 392: agentcompose.v2.CacheService.PruneCaches:output_type -> agentcompose.v2.PruneCachesResponse
+	177, // 393: agentcompose.v2.CacheService.RemoveCache:output_type -> agentcompose.v2.RemoveCacheResponse
+	181, // 394: agentcompose.v2.VolumeService.ListVolumes:output_type -> agentcompose.v2.ListVolumesResponse
+	183, // 395: agentcompose.v2.VolumeService.CreateVolume:output_type -> agentcompose.v2.CreateVolumeResponse
+	185, // 396: agentcompose.v2.VolumeService.InspectVolume:output_type -> agentcompose.v2.InspectVolumeResponse
+	187, // 397: agentcompose.v2.VolumeService.RemoveVolume:output_type -> agentcompose.v2.RemoveVolumeResponse
+	189, // 398: agentcompose.v2.VolumeService.PruneVolumes:output_type -> agentcompose.v2.PruneVolumesResponse
+	117, // 399: agentcompose.v2.SandboxService.RemoveSandbox:output_type -> agentcompose.v2.RemoveSandboxResponse
+	120, // 400: agentcompose.v2.SandboxService.PruneSandboxes:output_type -> agentcompose.v2.PruneSandboxesResponse
+	122, // 401: agentcompose.v2.SandboxService.GetSandboxStats:output_type -> agentcompose.v2.GetSandboxStatsResponse
+	128, // 402: agentcompose.v2.SandboxService.GetSandbox:output_type -> agentcompose.v2.GetSandboxResponse
+	130, // 403: agentcompose.v2.SandboxService.StopSandbox:output_type -> agentcompose.v2.StopSandboxResponse
+	132, // 404: agentcompose.v2.SandboxService.ResumeSandbox:output_type -> agentcompose.v2.ResumeSandboxResponse
+	127, // 405: agentcompose.v2.SandboxService.ListSandboxes:output_type -> agentcompose.v2.ListSandboxesResponse
+	240, // 406: agentcompose.v2.SandboxService.ListSandboxHistory:output_type -> agentcompose.v2.ListSandboxHistoryResponse
+	242, // 407: agentcompose.v2.SandboxService.WatchSandbox:output_type -> agentcompose.v2.WatchSandboxResponse
+	209, // 408: agentcompose.v2.DashboardService.GetDashboardOverview:output_type -> agentcompose.v2.GetDashboardOverviewResponse
+	210, // 409: agentcompose.v2.DashboardService.WatchDashboardOverview:output_type -> agentcompose.v2.WatchDashboardOverviewResponse
+	212, // 410: agentcompose.v2.SettingsService.GetGlobalEnv:output_type -> agentcompose.v2.GetGlobalEnvResponse
+	214, // 411: agentcompose.v2.SettingsService.UpdateGlobalEnv:output_type -> agentcompose.v2.UpdateGlobalEnvResponse
+	217, // 412: agentcompose.v2.SettingsService.GetCapabilityGatewayConfig:output_type -> agentcompose.v2.GetCapabilityGatewayConfigResponse
+	219, // 413: agentcompose.v2.SettingsService.UpdateCapabilityGatewayConfig:output_type -> agentcompose.v2.UpdateCapabilityGatewayConfigResponse
+	222, // 414: agentcompose.v2.SettingsService.ListWorkspacePresets:output_type -> agentcompose.v2.ListWorkspacePresetsResponse
+	227, // 415: agentcompose.v2.SettingsService.CreateWorkspacePreset:output_type -> agentcompose.v2.WorkspacePresetResponse
+	227, // 416: agentcompose.v2.SettingsService.UpdateWorkspacePreset:output_type -> agentcompose.v2.WorkspacePresetResponse
+	226, // 417: agentcompose.v2.SettingsService.DeleteWorkspacePreset:output_type -> agentcompose.v2.DeleteWorkspacePresetResponse
+	229, // 418: agentcompose.v2.CapabilityService.GetCapabilityStatus:output_type -> agentcompose.v2.CapabilityStatusResponse
+	232, // 419: agentcompose.v2.CapabilityService.ListCapabilitySets:output_type -> agentcompose.v2.ListCapabilitySetsResponse
+	236, // 420: agentcompose.v2.CapabilityService.GetCapabilityCatalog:output_type -> agentcompose.v2.GetCapabilityCatalogResponse
+	244, // 421: agentcompose.v2.LLMService.Generate:output_type -> agentcompose.v2.GenerateLLMResponse
+	203, // 422: agentcompose.v2.ResourceService.ResolveID:output_type -> agentcompose.v2.ResolveResourceIDResponse
+	351, // [351:423] is the sub-list for method output_type
+	279, // [279:351] is the sub-list for method input_type
+	279, // [279:279] is the sub-list for extension type_name
+	279, // [279:279] is the sub-list for extension extendee
+	0,   // [0:279] is the sub-list for field type_name
 }
 
 func init() { file_agentcompose_v2_agentcompose_proto_init() }
@@ -19450,7 +19874,7 @@ func file_agentcompose_v2_agentcompose_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentcompose_v2_agentcompose_proto_rawDesc), len(file_agentcompose_v2_agentcompose_proto_rawDesc)),
 			NumEnums:      24,
-			NumMessages:   233,
+			NumMessages:   237,
 			NumExtensions: 0,
 			NumServices:   12,
 		},

@@ -26,6 +26,10 @@ func sandboxWhere(o domain.SandboxListOptions) (string, []any) {
 		conds = append(conds, "sandbox_type = ?")
 		args = append(args, strings.ToLower(v))
 	}
+	if v := strings.TrimSpace(o.ProjectID); v != "" {
+		conds = append(conds, "project_id_search = ?")
+		args = append(args, strings.ToLower(v))
+	}
 	if v := strings.TrimSpace(o.TriggerSourceQuery); v != "" {
 		contains("trigger_source_search", v)
 	}
@@ -44,6 +48,21 @@ func sandboxWhere(o domain.SandboxListOptions) (string, []any) {
 	if v := strings.TrimSpace(o.VMStatus); v != "" {
 		conds = append(conds, "vm_status_search = ?")
 		args = append(args, strings.ToUpper(v))
+	}
+	if len(o.VMStatuses) > 0 {
+		statuses := make([]string, 0, len(o.VMStatuses))
+		for _, status := range o.VMStatuses {
+			status = strings.ToUpper(strings.TrimSpace(status))
+			if status != "" {
+				statuses = append(statuses, status)
+			}
+		}
+		if len(statuses) > 0 {
+			conds = append(conds, "vm_status_search IN ("+strings.TrimSuffix(strings.Repeat("?,", len(statuses)), ",")+")")
+			for _, status := range statuses {
+				args = append(args, status)
+			}
+		}
 	}
 	if !o.CreatedFrom.IsZero() {
 		conds = append(conds, "created_at >= ?")

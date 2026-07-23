@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 )
@@ -63,6 +64,18 @@ func composePSStatusFilter(options composePSOptions) (map[string]bool, error) {
 		return nil, nil
 	}
 	return map[string]bool{"running": true}, nil
+}
+
+func composePSStatusValues(filter map[string]bool) []string {
+	if filter == nil {
+		return nil
+	}
+	values := make([]string, 0, len(filter))
+	for value := range filter {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
 }
 
 func writePSText(out io.Writer, output composePSOutput, verbose bool) error {

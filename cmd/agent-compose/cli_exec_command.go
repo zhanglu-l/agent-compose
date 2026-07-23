@@ -119,7 +119,7 @@ func runComposeExecCommand(cmd *cobra.Command, cli cliOptions, options composeEx
 		}
 		return runComposeExecPromptOnceCommand(cmd, normalized.Name, connectExecAttachClient{client: attachClient}, req, options, cli.JSON)
 	}
-	stream, err := clients.exec.ExecStream(cmd.Context(), connect.NewRequest(req))
+	stream, err := clients.execStream.ExecStream(cmd.Context(), connect.NewRequest(req))
 	if err != nil {
 		return commandExitErrorForConnect(fmt.Errorf("exec project %s: %w", normalized.Name, err))
 	}

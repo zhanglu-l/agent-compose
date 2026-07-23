@@ -171,39 +171,64 @@ func writePrefixedRunOutput(out io.Writer, summary *agentcomposev2.RunSummary, o
 }
 
 func writePrefixedRunOutputWithTimestamp(out io.Writer, summary *agentcomposev2.RunSummary, output string, timestamp bool, timestampValue string) error {
-	if output == "" {
-		return nil
+	writer := newPrefixedRunOutputStreamWriter(out, timestamp)
+	if err := writer.Write(summary, output, timestampValue); err != nil {
+		return err
 	}
-	prefix := runLogPrefix(summary)
-	runTime := ""
-	if timestamp {
-		runTime = formatComposeLogTimestamp(timestampValue)
-	}
+	return writer.Finish()
+}
+
+type prefixedRunOutputStreamWriter struct {
+	out       io.Writer
+	timestamp bool
+	lineOpen  bool
+}
+
+func newPrefixedRunOutputStreamWriter(out io.Writer, timestamp bool) *prefixedRunOutputStreamWriter {
+	return &prefixedRunOutputStreamWriter{out: out, timestamp: timestamp}
+}
+
+func (w *prefixedRunOutputStreamWriter) Write(summary *agentcomposev2.RunSummary, output, timestampValue string) error {
 	for len(output) > 0 {
-		line := output
+		if !w.lineOpen {
+			if err := w.writePrefix(summary, timestampValue); err != nil {
+				return err
+			}
+		}
+		chunk := output
 		rest := ""
 		if idx := strings.IndexByte(output, '\n'); idx >= 0 {
-			line = output[:idx+1]
+			chunk = output[:idx+1]
 			rest = output[idx+1:]
 		}
-		if runTime != "" {
-			if _, err := fmt.Fprintf(out, "%s [%s]| ", prefix, runTime); err != nil {
-				return err
-			}
-		} else if _, err := fmt.Fprintf(out, "%s | ", prefix); err != nil {
+		if _, err := io.WriteString(w.out, chunk); err != nil {
 			return err
 		}
-		if err := writeCommandOutput(out, []byte(line)); err != nil {
-			return err
-		}
-		if !strings.HasSuffix(line, "\n") {
-			if _, err := fmt.Fprintln(out); err != nil {
-				return err
-			}
-		}
+		w.lineOpen = !strings.HasSuffix(chunk, "\n")
 		output = rest
 	}
 	return nil
+}
+
+func (w *prefixedRunOutputStreamWriter) Finish() error {
+	if !w.lineOpen {
+		return nil
+	}
+	w.lineOpen = false
+	_, err := fmt.Fprintln(w.out)
+	return err
+}
+
+func (w *prefixedRunOutputStreamWriter) writePrefix(summary *agentcomposev2.RunSummary, timestampValue string) error {
+	prefix := runLogPrefix(summary)
+	if w.timestamp {
+		if runTime := formatComposeLogTimestamp(timestampValue); runTime != "" {
+			_, err := fmt.Fprintf(w.out, "%s [%s]| ", prefix, runTime)
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(w.out, "%s | ", prefix)
+	return err
 }
 
 func runSummaryExitCode(run *agentcomposev2.RunSummary) int {

@@ -486,6 +486,10 @@ func newDaemonAttachHTTPClient(clientConfig cliClientConfig) *http.Client {
 	return newDaemonHTTPClientWithTimeout(clientConfig, 0)
 }
 
+func newDaemonStreamingHTTPClient(clientConfig cliClientConfig) *http.Client {
+	return newDaemonHTTPClientWithTimeout(clientConfig, 0)
+}
+
 func newDaemonHTTPClientWithTimeout(clientConfig cliClientConfig, timeout time.Duration) *http.Client {
 	roundTripper := http.RoundTripper(newDaemonBaseRoundTripper(clientConfig))
 	if !clientConfig.UseUnixSocket && clientConfig.AuthToken != "" {

@@ -349,6 +349,7 @@ func runComposeRunCommand(cmd *cobra.Command, cli cliOptions, options composeRun
 	if normalizedOptions.Detach {
 		return startDetachedRun(cmd, cli, normalized.Name, client, runReq)
 	}
+	client = clients.runStream
 	if normalizedOptions.Interactive {
 		if normalizedOptions.TTY {
 			attachClient, err := newCLIRunAttachServiceClient(cli)
@@ -470,7 +471,7 @@ func normalizeOptionalRunModeValue(value string) string {
 }
 
 func runComposePSCommand(cmd *cobra.Command, cli cliOptions, options composePSOptions) error {
-	composePath, normalized, projectID, err := resolveComposeProject(cli)
+	selection, err := resolveComposePSProject(cli)
 	if err != nil {
 		return err
 	}
@@ -479,14 +480,14 @@ func runComposePSCommand(cmd *cobra.Command, cli cliOptions, options composePSOp
 		return err
 	}
 	project, err := clients.project.GetProject(cmd.Context(), connect.NewRequest(&agentcomposev2.GetProjectRequest{
-		Project: &agentcomposev2.ProjectRef{ProjectId: projectID},
+		Project: selection.projectRef,
 	}))
 	if err != nil {
-		return commandExitErrorForComposeProject(fmt.Errorf("get project %s: %w", normalized.Name, err), "ps", normalized.Name, composePath)
+		return commandExitErrorForComposeProject(fmt.Errorf("get project %s: %w", selection.projectName, err), "ps", selection.projectName, selection.composePath)
 	}
 	output, err := composePSOutputFromProject(cmd.Context(), clients, project.Msg.GetProject(), options)
 	if err != nil {
-		return commandExitErrorForConnect(fmt.Errorf("build ps for project %s: %w", normalized.Name, err))
+		return commandExitErrorForConnect(fmt.Errorf("build ps for project %s: %w", selection.projectName, err))
 	}
 	if cli.JSON {
 		data, err := json.MarshalIndent(output, "", "  ")

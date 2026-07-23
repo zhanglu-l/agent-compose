@@ -86,6 +86,7 @@ func (h *ExecHandler) Exec(ctx context.Context, req *connect.Request[agentcompos
 }
 
 func (h *ExecHandler) ExecStream(ctx context.Context, req *connect.Request[agentcomposev2.ExecRequest], stream *connect.ServerStream[agentcomposev2.ExecStreamResponse]) error {
+	PrepareStreamingHeaders(stream.ResponseHeader())
 	execID := uuid.NewString()
 	result, err := h.executeProjectCommand(ctx, req.Msg, execID, func(resp *agentcomposev2.ExecStreamResponse) error {
 		return stream.Send(resp)

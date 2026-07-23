@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	domain "agent-compose/pkg/model"
 )
@@ -34,6 +35,19 @@ func (s *Store) listSandboxesFromFilesystem(ctx context.Context, options Sandbox
 			continue
 		}
 		sandboxes = append(sandboxes, sandbox)
+	}
+	if projectID := strings.TrimSpace(options.ProjectID); projectID != "" {
+		projectIDs, err := s.resolveSandboxProjectIDs(ctx, sandboxes)
+		if err != nil {
+			return SandboxListResult{}, fmt.Errorf("resolve sandbox project filter: %w", err)
+		}
+		filtered := sandboxes[:0]
+		for _, sandbox := range sandboxes {
+			if strings.EqualFold(projectIDs[sandbox.Summary.ID], projectID) {
+				filtered = append(filtered, sandbox)
+			}
+		}
+		sandboxes = filtered
 	}
 	sort.Slice(sandboxes, func(i, j int) bool {
 		if sandboxes[i].Summary.UpdatedAt.Equal(sandboxes[j].Summary.UpdatedAt) {

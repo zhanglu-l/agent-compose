@@ -469,7 +469,7 @@ func composePSOutputFromProject(ctx context.Context, clients cliServiceClients, 
 		return composePSOutput{}, err
 	}
 	runBySandbox := latestRunsBySandbox(runs)
-	sessions, err := listAllSandboxes(ctx, clients.sandbox)
+	sessions, err := listFilteredSandboxes(ctx, clients.sandbox, projectID, composePSStatusValues(statusFilter))
 	if err != nil {
 		return composePSOutput{}, err
 	}
@@ -587,6 +587,12 @@ func composeProjectAgentOutputFromProto(agent *agentcomposev2.ProjectAgent) comp
 
 func commandExitErrorForComposeProject(err error, command, projectName, composePath string) error {
 	if connect.CodeOf(err) == connect.CodeNotFound {
+		if strings.TrimSpace(composePath) == "" {
+			return commandExitError{
+				Code: exitCodeUsage,
+				Err:  fmt.Errorf("project %q was not found on this daemon", projectName),
+			}
+		}
 		return commandExitError{
 			Code: exitCodeUsage,
 			Err: fmt.Errorf(

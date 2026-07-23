@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domain "agent-compose/pkg/model"
+	storagesqlite "agent-compose/pkg/storage/sqlite"
 )
 
 func newTestIndex(t *testing.T) *sandboxCache {
@@ -200,7 +201,7 @@ func TestSandboxCacheListFiltersOrderKeysetOffset(t *testing.T) {
 	c := sb("c", base.Add(3*time.Second))
 	b.Summary.Driver = "boxlite"
 	for _, s := range []*domain.Sandbox{a, b, c} {
-		if err := idx.Upsert(ctx, s); err != nil {
+		if err := idx.Upsert(ctx, s, ""); err != nil {
 			t.Fatalf("upsert: %v", err)
 		}
 	}
@@ -254,19 +255,51 @@ func TestSandboxCacheListFiltersOrderKeysetOffset(t *testing.T) {
 	}
 }
 
+func TestSandboxCacheListFiltersProjectAndStatuses(t *testing.T) {
+	idx := newTestIndex(t)
+	ctx := context.Background()
+	dir := func(id string) string { return "/root/" + id }
+	base := time.Unix(10_000, 0).UTC()
+
+	running := sb("project-running", base.Add(2*time.Second))
+	stopped := sb("project-stopped", base.Add(time.Second))
+	stopped.Summary.VMStatus = "STOPPED"
+	other := sb("other-running", base)
+	if err := idx.Upsert(ctx, running, "project-a"); err != nil {
+		t.Fatalf("upsert running: %v", err)
+	}
+	if err := idx.Upsert(ctx, stopped, "project-a"); err != nil {
+		t.Fatalf("upsert stopped: %v", err)
+	}
+	if err := idx.Upsert(ctx, other, "project-b"); err != nil {
+		t.Fatalf("upsert other: %v", err)
+	}
+
+	page, total, err := idx.list(ctx, domain.SandboxListOptions{
+		ProjectID: "PROJECT-A", VMStatuses: []string{"running", "stopped"}, Limit: 10,
+	}, dir)
+	if err != nil {
+		t.Fatalf("list by project and statuses: %v", err)
+	}
+	got := ids(page)
+	if total != 2 || len(got) != 2 || got[0] != "project-running" || got[1] != "project-stopped" {
+		t.Fatalf("project/status result total=%d ids=%v", total, got)
+	}
+}
+
 func TestSandboxCacheUpsertAcceptsAuthoritativeOlderTimestamp(t *testing.T) {
 	idx := newTestIndex(t)
 	ctx := context.Background()
 	t0 := time.Unix(1000, 0).UTC()
 	t1 := time.Unix(2000, 0).UTC()
 
-	if err := idx.Upsert(ctx, sb("x", t1)); err != nil {
+	if err := idx.Upsert(ctx, sb("x", t1), ""); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	// A successfully committed older timestamp remains authoritative.
 	stale := sb("x", t0)
 	stale.Summary.Driver = "STALE"
-	if err := idx.Upsert(ctx, stale); err != nil {
+	if err := idx.Upsert(ctx, stale, ""); err != nil {
 		t.Fatalf("stale upsert: %v", err)
 	}
 	var driver string
@@ -301,10 +334,13 @@ func TestSandboxCacheSharesDataDatabaseForJoinsAndIsolatedRebuilds(t *testing.T)
 		}
 	})
 	ctx := context.Background()
+	if err := storagesqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate shared data database: %v", err)
+	}
 	if _, err := db.ExecContext(ctx, `
-		CREATE TABLE project_run (run_id TEXT PRIMARY KEY, sandbox_id TEXT NOT NULL, project_id TEXT NOT NULL);
+		CREATE TABLE sandbox_owner (sandbox_id TEXT PRIMARY KEY, project_id TEXT NOT NULL);
 		CREATE TABLE unrelated_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-		INSERT INTO project_run(run_id, sandbox_id, project_id) VALUES('run-1', 'sandbox-1', 'project-1');
+		INSERT INTO sandbox_owner(sandbox_id, project_id) VALUES('sandbox-1', 'project-1');
 		INSERT INTO unrelated_state(id, value) VALUES('keep', 'authoritative');
 	`); err != nil {
 		t.Fatalf("seed shared data database: %v", err)
@@ -313,14 +349,14 @@ func TestSandboxCacheSharesDataDatabaseForJoinsAndIsolatedRebuilds(t *testing.T)
 	if err != nil {
 		t.Fatalf("open sandbox listing cache on shared database: %v", err)
 	}
-	if err := idx.Upsert(ctx, sb("sandbox-1", time.Unix(100, 0).UTC())); err != nil {
+	if err := idx.Upsert(ctx, sb("sandbox-1", time.Unix(100, 0).UTC()), ""); err != nil {
 		t.Fatalf("upsert sandbox listing cache: %v", err)
 	}
 	if err := idx.markComplete(ctx); err != nil {
 		t.Fatalf("mark sandbox listing cache complete: %v", err)
 	}
 	var projectID string
-	if err := db.QueryRowContext(ctx, `SELECT pr.project_id FROM sandboxes si JOIN project_run pr ON pr.sandbox_id = si.id WHERE si.id = ?`, "sandbox-1").Scan(&projectID); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT owner.project_id FROM sandboxes si JOIN sandbox_owner owner ON owner.sandbox_id = si.id WHERE si.id = ?`, "sandbox-1").Scan(&projectID); err != nil {
 		t.Fatalf("join sandbox listing cache with project run: %v", err)
 	}
 	if projectID != "project-1" {
@@ -346,10 +382,8 @@ func TestSandboxCacheSharesDataDatabaseForJoinsAndIsolatedRebuilds(t *testing.T)
 	if _, err := db.ExecContext(ctx, `DROP TABLE sandbox_projection_meta; CREATE TABLE sandbox_projection_meta (broken TEXT)`); err != nil {
 		t.Fatalf("malform sandbox projection metadata: %v", err)
 	}
-	if _, needsRebuild, err := openSandboxCacheDB(ctx, db); err != nil {
-		t.Fatalf("recover malformed sandbox projection metadata: %v", err)
-	} else if !needsRebuild {
-		t.Fatal("malformed sandbox projection metadata did not request rebuild")
+	if _, _, err := openSandboxCacheDB(ctx, db); err == nil {
+		t.Fatal("malformed migration-owned sandbox projection metadata returned no error")
 	}
 	if err := db.QueryRowContext(ctx, `SELECT value FROM unrelated_state WHERE id = 'keep'`).Scan(&value); err != nil {
 		t.Fatalf("query unrelated state after metadata recovery: %v", err)

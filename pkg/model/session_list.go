@@ -110,6 +110,25 @@ func SandboxMatchesListOptions(session *Sandbox, options SandboxListOptions) boo
 			return false
 		}
 	}
+	if len(options.VMStatuses) > 0 {
+		status := strings.ToUpper(strings.TrimSpace(summary.VMStatus))
+		matched := false
+		required := false
+		for _, value := range options.VMStatuses {
+			value = strings.ToUpper(strings.TrimSpace(value))
+			if value == "" {
+				continue
+			}
+			required = true
+			if status == value {
+				matched = true
+				break
+			}
+		}
+		if required && !matched {
+			return false
+		}
+	}
 	if !MatchesTimeRange(summary.CreatedAt, options.CreatedFrom, options.CreatedTo) {
 		return false
 	}

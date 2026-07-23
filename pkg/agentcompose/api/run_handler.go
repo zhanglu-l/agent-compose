@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -80,6 +81,7 @@ func (h *RunHandler) StartRun(ctx context.Context, req *connect.Request[agentcom
 }
 
 func (h *RunHandler) RunAgentStream(ctx context.Context, req *connect.Request[agentcomposev2.RunAgentRequest], stream *connect.ServerStream[agentcomposev2.RunAgentStreamResponse]) error {
+	PrepareStreamingHeaders(stream.ResponseHeader())
 	return h.delegate.RunAgentStream(ctx, req, stream)
 }
 
@@ -299,13 +301,22 @@ func (h *RunHandler) FollowRunLogs(ctx context.Context, req *connect.Request[age
 	if runID == "" {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("run id is required"))
 	}
+	PrepareStreamingHeaders(stream.ResponseHeader())
 	run, err := h.projectRunForLogRequest(ctx, req.Msg.GetProjectId(), runID)
 	if err != nil {
 		return err
 	}
-	offset, err := initialRunLogOffset(run.LogsPath, int(req.Msg.GetTailLines()), req.Msg.GetStartOffset(), req.Msg.GetFollow())
+	offset, err := initialRunLogOffset(run.LogsPath, int(req.Msg.GetTailLines()), req.Msg.GetStartOffset(), req.Msg.GetTailSet() || req.Msg.GetTailLines() > 0)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
+	}
+	if req.Msg.GetIncludeMetadata() {
+		if err := stream.Send(&agentcomposev2.RunLogChunk{
+			Offset: offset, RunStatus: ProjectRunStatusToProto(run.Status), CreatedAt: FormatProjectTime(time.Now().UTC()),
+			Run: ProjectRunSummaryToProto(run), Prompt: run.Prompt,
+		}); err != nil {
+			return err
+		}
 	}
 	if req.Msg.GetFollow() && h.runLogs != nil {
 		return h.followRunLogsWithHub(ctx, req.Msg.GetProjectId(), run, offset, stream)
@@ -323,7 +334,7 @@ func (h *RunHandler) followRunLogsByPolling(ctx context.Context, req *connect.Re
 		if err != nil {
 			return err
 		}
-		if err := sendRunLogFileChunk(stream, run, &offset, time.Now().UTC()); err != nil {
+		if err := sendRunLogFileChunks(stream, run, &offset, time.Now().UTC()); err != nil {
 			return err
 		}
 		if !req.Msg.GetFollow() || runs.StatusIsTerminal(run.Status) {
@@ -343,7 +354,7 @@ func (h *RunHandler) followRunLogsWithHub(ctx context.Context, projectID string,
 		return h.followRunLogsByPolling(ctx, connect.NewRequest(&agentcomposev2.FollowRunLogsRequest{ProjectId: projectID, RunId: run.RunID, Follow: true}), run, offset, stream)
 	}
 	defer sub.Close()
-	if err := sendRunLogFileChunk(stream, run, &offset, time.Now().UTC()); err != nil {
+	if err := sendRunLogFileChunks(stream, run, &offset, time.Now().UTC()); err != nil {
 		return err
 	}
 	if runs.StatusIsTerminal(run.Status) {
@@ -366,7 +377,7 @@ func (h *RunHandler) followRunLogsWithHub(ctx context.Context, projectID string,
 			if err != nil {
 				return err
 			}
-			if err := sendRunLogFileChunk(stream, current, &offset, event.CreatedAt); err != nil {
+			if err := sendRunLogFileChunks(stream, current, &offset, event.CreatedAt); err != nil {
 				return err
 			}
 		case <-ticker.C:
@@ -374,7 +385,7 @@ func (h *RunHandler) followRunLogsWithHub(ctx context.Context, projectID string,
 			if err != nil {
 				return err
 			}
-			if err := sendRunLogFileChunk(stream, current, &offset, time.Now().UTC()); err != nil {
+			if err := sendRunLogFileChunks(stream, current, &offset, time.Now().UTC()); err != nil {
 				return err
 			}
 			if runs.StatusIsTerminal(current.Status) {
@@ -384,27 +395,33 @@ func (h *RunHandler) followRunLogsWithHub(ctx context.Context, projectID string,
 	}
 }
 
-func sendRunLogFileChunk(stream *connect.ServerStream[agentcomposev2.RunLogChunk], run domain.ProjectRunRecord, offset *uint64, createdAt time.Time) error {
-	data, nextOffset, err := readRunLogFromOffset(run.LogsPath, *offset)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return connect.NewError(connect.CodeInternal, err)
+func sendRunLogFileChunks(stream *connect.ServerStream[agentcomposev2.RunLogChunk], run domain.ProjectRunRecord, offset *uint64, createdAt time.Time) error {
+	for {
+		data, nextOffset, atEnd, err := readRunLogChunkFromOffset(run.LogsPath, *offset)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return connect.NewError(connect.CodeInternal, err)
+		}
+		*offset = nextOffset
+		if data != "" {
+			if createdAt.IsZero() {
+				createdAt = time.Now().UTC()
+			}
+			if err := stream.Send(&agentcomposev2.RunLogChunk{
+				Data:      data,
+				Offset:    *offset,
+				RunStatus: ProjectRunStatusToProto(run.Status),
+				CreatedAt: FormatProjectTime(createdAt),
+			}); err != nil {
+				return connect.NewError(connect.CodeUnknown, err)
+			}
+		}
+		if atEnd {
+			return nil
+		}
 	}
-	if data == "" {
-		return nil
-	}
-	*offset = nextOffset
-	if createdAt.IsZero() {
-		createdAt = time.Now().UTC()
-	}
-	if err := stream.Send(&agentcomposev2.RunLogChunk{
-		Data:      data,
-		Offset:    *offset,
-		RunStatus: ProjectRunStatusToProto(run.Status),
-		CreatedAt: FormatProjectTime(createdAt),
-	}); err != nil {
-		return connect.NewError(connect.CodeUnknown, err)
-	}
-	return nil
 }
 
 func sendRunLogFinal(stream *connect.ServerStream[agentcomposev2.RunLogChunk], run domain.ProjectRunRecord, offset uint64) error {
@@ -413,6 +430,7 @@ func sendRunLogFinal(stream *connect.ServerStream[agentcomposev2.RunLogChunk], r
 		IsFinal:   true,
 		RunStatus: ProjectRunStatusToProto(run.Status),
 		CreatedAt: FormatProjectTime(time.Now().UTC()),
+		Run:       ProjectRunSummaryToProto(run),
 	})
 }
 
@@ -430,8 +448,8 @@ func (h *RunHandler) projectRunForLogRequest(ctx context.Context, projectID, run
 	return run, nil
 }
 
-func initialRunLogOffset(path string, tailLines int, startOffset uint64, _ bool) (uint64, error) {
-	if tailLines > 0 {
+func initialRunLogOffset(path string, tailLines int, startOffset uint64, tailSet bool) (uint64, error) {
+	if tailSet {
 		return tailRunLogOffset(path, tailLines)
 	}
 	if startOffset > 0 {
@@ -440,45 +458,95 @@ func initialRunLogOffset(path string, tailLines int, startOffset uint64, _ bool)
 	return 0, nil
 }
 
-func readRunLogFromOffset(path string, offset uint64) (string, uint64, error) {
+const runLogFileChunkBytes = 64 * 1024
+
+func readRunLogChunkFromOffset(path string, offset uint64) (string, uint64, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", offset, err
+		return "", offset, false, err
 	}
 	defer func() { _ = file.Close() }()
-	if _, err := file.Seek(int64(offset), io.SeekStart); err != nil {
-		return "", offset, err
-	}
-	data, err := io.ReadAll(file)
+	info, err := file.Stat()
 	if err != nil {
-		return "", offset, err
+		return "", offset, false, err
 	}
-	return string(data), offset + uint64(len(data)), nil
+	if offset > uint64(info.Size()) {
+		offset = 0
+	}
+	if _, err := file.Seek(int64(offset), io.SeekStart); err != nil {
+		return "", offset, false, err
+	}
+	data := make([]byte, runLogFileChunkBytes)
+	n, err := io.ReadFull(file, data)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", offset, false, err
+	}
+	nextOffset := offset + uint64(n)
+	atSnapshotEnd := nextOffset >= uint64(info.Size())
+	if !utf8.Valid(data[:n]) {
+		prefixLength, incomplete := incompleteUTF8SuffixStart(data[:n])
+		if !incomplete {
+			return "", offset, false, fmt.Errorf("run log contains invalid UTF-8 at or after byte offset %d", offset)
+		}
+		n = prefixLength
+		nextOffset = offset + uint64(n)
+		if atSnapshotEnd {
+			return string(data[:n]), nextOffset, true, nil
+		}
+	}
+	return string(data[:n]), nextOffset, nextOffset >= uint64(info.Size()), nil
+}
+
+func incompleteUTF8SuffixStart(data []byte) (int, bool) {
+	if len(data) == 0 || utf8.Valid(data) {
+		return len(data), false
+	}
+	start := len(data) - 1
+	for start > 0 && !utf8.RuneStart(data[start]) {
+		start--
+	}
+	if !utf8.RuneStart(data[start]) || utf8.FullRune(data[start:]) || !utf8.Valid(data[:start]) {
+		return 0, false
+	}
+	return start, true
 }
 
 func tailRunLogOffset(path string, lines int) (uint64, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, nil
 		}
 		return 0, err
 	}
-	if lines <= 0 || len(data) == 0 {
-		return uint64(len(data)), nil
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := info.Size()
+	if lines <= 0 || size == 0 {
+		return uint64(size), nil
 	}
 	seen := 0
-	for index := len(data) - 1; index >= 0; index-- {
-		if data[index] != '\n' {
-			continue
+	buffer := make([]byte, runLogFileChunkBytes)
+	for end := size; end > 0; {
+		start := max(int64(0), end-int64(len(buffer)))
+		chunk := buffer[:end-start]
+		if _, err := file.ReadAt(chunk, start); err != nil && !errors.Is(err, io.EOF) {
+			return 0, err
 		}
-		if index == len(data)-1 {
-			continue
+		for index := len(chunk) - 1; index >= 0; index-- {
+			position := start + int64(index)
+			if chunk[index] != '\n' || position == size-1 {
+				continue
+			}
+			seen++
+			if seen == lines {
+				return uint64(position + 1), nil
+			}
 		}
-		seen++
-		if seen == lines {
-			return uint64(index + 1), nil
-		}
+		end = start
 	}
 	return 0, nil
 }

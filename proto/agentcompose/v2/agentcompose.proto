@@ -17,11 +17,13 @@ service ProjectService {
   rpc ListSchedulers(ListSchedulersRequest) returns (ListSchedulersResponse);
   rpc ListSchedulerEvents(ListSchedulerEventsRequest) returns (ListSchedulerEventsResponse);
   rpc ListProjectSchedulerEvents(ListProjectSchedulerEventsRequest) returns (ListProjectSchedulerEventsResponse);
+  rpc StreamProjectSchedulerEvents(StreamProjectSchedulerEventsRequest) returns (stream StreamProjectSchedulerEventsResponse);
   rpc InvokeScheduler(InvokeSchedulerRequest) returns (InvokeSchedulerResponse);
   rpc RunScheduler(RunSchedulerRequest) returns (RunSchedulerResponse);
   rpc StartSchedulerRun(StartSchedulerRunRequest) returns (StartSchedulerRunResponse);
   rpc GetSchedulerRun(GetSchedulerRunRequest) returns (GetSchedulerRunResponse);
   rpc ListSchedulerRuns(ListSchedulerRunsRequest) returns (ListSchedulerRunsResponse);
+  rpc StreamSchedulerRuns(StreamSchedulerRunsRequest) returns (stream StreamSchedulerRunsResponse);
   rpc PruneSchedulerRuns(PruneSchedulerRunsRequest) returns (PruneSchedulerRunsResponse);
   rpc StopSchedulerRun(StopSchedulerRunRequest) returns (StopSchedulerRunResponse);
   rpc SetSchedulerEnabled(SetSchedulerEnabledRequest) returns (SetSchedulerEnabledResponse);
@@ -962,6 +964,9 @@ message FollowRunLogsRequest {
   uint32 tail_lines = 3;
   uint64 start_offset = 4;
   bool follow = 5;
+  bool include_metadata = 6;
+  // Distinguishes an explicit zero-line tail from the default full history.
+  bool tail_set = 7;
 }
 
 message RunLogChunk {
@@ -970,6 +975,8 @@ message RunLogChunk {
   bool is_final = 3;
   RunStatus run_status = 4;
   string created_at = 5;
+  RunSummary run = 6;
+  string prompt = 7;
 }
 
 message StopRunRequest {
@@ -1106,6 +1113,8 @@ message SandboxTag {
 message ListSandboxesRequest {
   uint32 limit = 1;
   string cursor = 2;
+  string project_id = 3;
+  repeated string status = 4;
 }
 
 message ListSandboxesResponse {
@@ -1887,4 +1896,42 @@ message GenerateLLMResponse {
   string response_id = 3;
   string finish_reason = 4;
   string json = 5;
+}
+
+// StreamProjectSchedulerEventsRequest describes a finite scan of scheduler
+// trigger-run events. A zero tail returns the complete matching
+// history; callers that want no events should avoid starting the stream.
+message StreamProjectSchedulerEventsRequest {
+  ProjectRef project = 1;
+  string agent_name = 2;
+  string trigger_id = 3;
+  string run_id = 4;
+  uint32 batch_size = 5;
+  uint32 tail = 6;
+}
+
+message StreamProjectSchedulerEventsResponse {
+  repeated SchedulerEvent events = 1;
+  string checkpoint = 2;
+  bool complete = 3;
+  uint64 emitted_count = 4;
+}
+
+// StreamSchedulerRunsRequest describes a finite scan of scheduler trigger runs.
+// limit is the final result limit; zero means all.
+message StreamSchedulerRunsRequest {
+  ProjectRef project = 1;
+  string agent_name = 2;
+  string trigger_id = 3;
+  SchedulerRunStatus status = 4;
+  uint32 batch_size = 5;
+  uint32 limit = 6;
+}
+
+message StreamSchedulerRunsResponse {
+  repeated SchedulerRun runs = 1;
+  string checkpoint = 2;
+  bool complete = 3;
+  uint64 emitted_count = 4;
+  bool truncated = 5;
 }

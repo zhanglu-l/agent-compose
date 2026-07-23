@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestConfigCommandUsesGlobalFileProjectNameAndJSON(t *testing.T) {
@@ -575,11 +577,13 @@ type projectServiceStub struct {
 	getScheduler               func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRequest]) (*connect.Response[agentcomposev2.GetSchedulerResponse], error)
 	listSchedulerEvents        func(context.Context, *connect.Request[agentcomposev2.ListSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListSchedulerEventsResponse], error)
 	listProjectSchedulerEvents func(context.Context, *connect.Request[agentcomposev2.ListProjectSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListProjectSchedulerEventsResponse], error)
+	streamSchedulerEvents      func(context.Context, *connect.Request[agentcomposev2.StreamProjectSchedulerEventsRequest], *connect.ServerStream[agentcomposev2.StreamProjectSchedulerEventsResponse]) error
 	invokeScheduler            func(context.Context, *connect.Request[agentcomposev2.InvokeSchedulerRequest]) (*connect.Response[agentcomposev2.InvokeSchedulerResponse], error)
 	runScheduler               func(context.Context, *connect.Request[agentcomposev2.RunSchedulerRequest]) (*connect.Response[agentcomposev2.RunSchedulerResponse], error)
 	startSchedulerRun          func(context.Context, *connect.Request[agentcomposev2.StartSchedulerRunRequest]) (*connect.Response[agentcomposev2.StartSchedulerRunResponse], error)
 	getSchedulerRun            func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRunRequest]) (*connect.Response[agentcomposev2.GetSchedulerRunResponse], error)
 	listSchedulerRuns          func(context.Context, *connect.Request[agentcomposev2.ListSchedulerRunsRequest]) (*connect.Response[agentcomposev2.ListSchedulerRunsResponse], error)
+	streamSchedulerRuns        func(context.Context, *connect.Request[agentcomposev2.StreamSchedulerRunsRequest], *connect.ServerStream[agentcomposev2.StreamSchedulerRunsResponse]) error
 	stopSchedulerRun           func(context.Context, *connect.Request[agentcomposev2.StopSchedulerRunRequest]) (*connect.Response[agentcomposev2.StopSchedulerRunResponse], error)
 	pruneSchedulerRuns         func(context.Context, *connect.Request[agentcomposev2.PruneSchedulerRunsRequest]) (*connect.Response[agentcomposev2.PruneSchedulerRunsResponse], error)
 
@@ -598,6 +602,13 @@ func (s projectServiceStub) ListProjectSchedulerEvents(ctx context.Context, req 
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListProjectSchedulerEvents stub is not configured"))
 	}
 	return s.listProjectSchedulerEvents(ctx, req)
+}
+
+func (s projectServiceStub) StreamProjectSchedulerEvents(ctx context.Context, req *connect.Request[agentcomposev2.StreamProjectSchedulerEventsRequest], stream *connect.ServerStream[agentcomposev2.StreamProjectSchedulerEventsResponse]) error {
+	if s.streamSchedulerEvents == nil {
+		return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("StreamProjectSchedulerEvents stub is not configured"))
+	}
+	return s.streamSchedulerEvents(ctx, req, stream)
 }
 
 func (s projectServiceStub) InvokeScheduler(ctx context.Context, req *connect.Request[agentcomposev2.InvokeSchedulerRequest]) (*connect.Response[agentcomposev2.InvokeSchedulerResponse], error) {
@@ -637,11 +648,13 @@ func (s projectServiceStub) RemoveProject(ctx context.Context, req *connect.Requ
 
 func TestComposePSAllIncludesEveryStatusOnlyForCurrentProject(t *testing.T) {
 	project := testCLIProject("project-1", "project-one", "/work/agent-compose.yml")
+	var sandboxRequests []*agentcomposev2.ListSandboxesRequest
 	stubs := composeServiceStubs{
 		run: runServiceStub{listRuns: func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
 			return connect.NewResponse(&agentcomposev2.ListRunsResponse{}), nil
 		}},
-		sandbox: sandboxServiceStub{listSandboxes: func(context.Context, *connect.Request[agentcomposev2.ListSandboxesRequest]) (*connect.Response[agentcomposev2.ListSandboxesResponse], error) {
+		sandbox: sandboxServiceStub{listSandboxes: func(_ context.Context, req *connect.Request[agentcomposev2.ListSandboxesRequest]) (*connect.Response[agentcomposev2.ListSandboxesResponse], error) {
+			sandboxRequests = append(sandboxRequests, proto.Clone(req.Msg).(*agentcomposev2.ListSandboxesRequest))
 			return connect.NewResponse(&agentcomposev2.ListSandboxesResponse{Sandboxes: []*agentcomposev2.Sandbox{
 				{SandboxId: "sandbox-project-running", Status: "running", Tags: []*agentcomposev2.SandboxTag{{Name: "project_id", Value: "project-1"}}},
 				{SandboxId: "sandbox-project-stopped", Status: "stopped", Tags: []*agentcomposev2.SandboxTag{{Name: "project_id", Value: "project-1"}}},
@@ -670,6 +683,23 @@ func TestComposePSAllIncludesEveryStatusOnlyForCurrentProject(t *testing.T) {
 	}
 	if len(allOutput.Sandboxes) != 2 || allOutput.Sandboxes[0].RawID != "sandbox-project-running" || allOutput.Sandboxes[1].RawID != "sandbox-project-stopped" {
 		t.Fatalf("ps --all sandboxes = %#v, want all statuses from current project only", allOutput.Sandboxes)
+	}
+
+	filteredOutput, err := composePSOutputFromProject(t.Context(), clients, project, composePSOptions{Status: "stopped,running"})
+	if err != nil || len(filteredOutput.Sandboxes) != 2 {
+		t.Fatalf("build multi-status ps output = %#v, err=%v", filteredOutput, err)
+	}
+	if len(sandboxRequests) != 3 {
+		t.Fatalf("sandbox requests = %d, want 3", len(sandboxRequests))
+	}
+	if sandboxRequests[0].GetProjectId() != "project-1" || !slices.Equal(sandboxRequests[0].GetStatus(), []string{"running"}) {
+		t.Fatalf("default sandbox request = %#v", sandboxRequests[0])
+	}
+	if sandboxRequests[1].GetProjectId() != "project-1" || len(sandboxRequests[1].GetStatus()) != 0 {
+		t.Fatalf("all sandbox request = %#v", sandboxRequests[1])
+	}
+	if !slices.Equal(sandboxRequests[2].GetStatus(), []string{"running", "stopped"}) {
+		t.Fatalf("multi-status sandbox request = %#v", sandboxRequests[2])
 	}
 }
 

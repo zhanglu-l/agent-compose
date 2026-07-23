@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -207,6 +208,25 @@ func TestV2ListSandboxesUsesOpaquePagination(t *testing.T) {
 	}
 	if _, err := handler.ListSandboxes(context.Background(), connect.NewRequest(&agentcomposev2.ListSandboxesRequest{Cursor: "invalid"})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("invalid token code=%v err=%v", connect.CodeOf(err), err)
+	}
+}
+
+func TestV2ListSandboxesPassesProjectAndStatusFiltersToStore(t *testing.T) {
+	store := &characterizationSandboxStore{}
+	handler := NewSandboxHandler(&characterizationSessionDelegate{}, store, &characterizationSandboxRemover{}, nil)
+
+	_, err := handler.ListSandboxes(context.Background(), connect.NewRequest(&agentcomposev2.ListSandboxesRequest{
+		ProjectId: " project-a ", Status: []string{"running", "stopped"},
+	}))
+	if err != nil {
+		t.Fatalf("ListSandboxes() error = %v", err)
+	}
+	if len(store.listOptions) != 1 {
+		t.Fatalf("list options count = %d, want 1", len(store.listOptions))
+	}
+	options := store.listOptions[0]
+	if options.ProjectID != "project-a" || !slices.Equal(options.VMStatuses, []string{"running", "stopped"}) {
+		t.Fatalf("list options = %#v", options)
 	}
 }
 

@@ -44,7 +44,7 @@ agents:
 			followRunLogs: func(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
 				sawFollow = true
 				followRequests = append(followRequests, req.Msg)
-				if req.Msg.GetRunId() != "run-detached-logs" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 3 {
+				if req.Msg.GetRunId() != "run-detached-logs" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 3 || !req.Msg.GetTailSet() {
 					t.Fatalf("FollowRunLogs request = %#v", req.Msg)
 				}
 				if err := stream.Send(&agentcomposev2.RunLogChunk{
@@ -335,7 +335,7 @@ agents:
 		},
 		followRunLogs: func(ctx context.Context, req *connect.Request[agentcomposev2.FollowRunLogsRequest], stream *connect.ServerStream[agentcomposev2.RunLogChunk]) error {
 			followCalls++
-			if req.Msg.GetRunId() != "run-follow" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 2 {
+			if req.Msg.GetRunId() != "run-follow" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 2 || !req.Msg.GetTailSet() {
 				t.Fatalf("FollowRunLogs request = %#v", req.Msg)
 			}
 			if err := stream.Send(&agentcomposev2.RunLogChunk{Data: "first\n", Offset: 6, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, CreatedAt: "2026-07-06T08:01:36.372Z"}); err != nil {

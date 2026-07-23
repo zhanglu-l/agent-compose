@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestMigrationBaseline(t *testing.T) {
 		"idx_project_run_event_sequence", "idx_project_run_project_status", "idx_project_run_sandbox",
 		"idx_project_run_scheduler", "idx_project_scheduler_agent", "idx_project_scheduler_id",
 		"idx_project_scheduler_managed_loader", "idx_project_short_id", "idx_project_source_path",
-		"idx_project_volumes_volume", "idx_sandboxes_type_updated", "idx_sandboxes_updated",
+		"idx_project_volumes_volume", "idx_sandboxes_project_updated", "idx_sandboxes_type_updated", "idx_sandboxes_updated",
 		"idx_sandboxes_vm_status_updated", "idx_volumes_driver", "idx_volumes_project",
 		"idx_webhook_source_enabled_topic",
 	} {
@@ -176,8 +177,8 @@ func TestLoaderBindingConfigHashMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if len(available) < 2 || available[1].version != 2 {
-		t.Fatalf("available migrations = %#v, want version 2", available)
+	if len(available) < 3 || available[2].version != 3 {
+		t.Fatalf("available migrations = %#v, want version 3", available)
 	}
 	if err := applyMigrationSet(ctx, db, available[:1]); err != nil {
 		t.Fatalf("apply baseline migration: %v", err)
@@ -198,21 +199,66 @@ func TestLoaderBindingConfigHashMigration(t *testing.T) {
 		t.Fatalf("migrated binding = (%q, %q), want (%q, %q)", sandboxID, configHash, "sandbox-1", "")
 	}
 	var versionCount int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 2`).Scan(&versionCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
 		t.Fatalf("query migration history: %v", err)
 	}
 	if versionCount != 1 {
-		t.Fatalf("version 2 history count = %d, want 1", versionCount)
+		t.Fatalf("version 3 history count = %d, want 1", versionCount)
 	}
 	if err := applyMigrations(ctx, db, embeddedMigrations); err != nil {
 		t.Fatalf("reapply migrations: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 2`).Scan(&versionCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
 		t.Fatalf("query migration history after reapply: %v", err)
 	}
 	if versionCount != 1 {
-		t.Fatalf("version 2 history count after reapply = %d, want 1", versionCount)
+		t.Fatalf("version 3 history count after reapply = %d, want 1", versionCount)
 	}
+}
+
+func TestSandboxProjectProjectionMigrationInvalidatesCache(t *testing.T) {
+	ctx := context.Background()
+	db := newMemoryDB(t)
+	available, err := loadMigrations(embeddedMigrations)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(available) < 2 {
+		t.Fatalf("migration count = %d, want at least 2", len(available))
+	}
+	if err := applyMigrationSet(ctx, db, available[:1]); err != nil {
+		t.Fatalf("apply baseline migration: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO sandboxes(id, updated_at) VALUES('stale-sandbox', 123);
+		INSERT INTO sandbox_projection_meta(id, version) VALUES(1, 1);
+	`); err != nil {
+		t.Fatalf("seed previous sandbox projection: %v", err)
+	}
+
+	if err := applyMigrationSet(ctx, db, available); err != nil {
+		t.Fatalf("apply sandbox project projection migration: %v", err)
+	}
+	var sandboxCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sandboxes`).Scan(&sandboxCount); err != nil {
+		t.Fatalf("count migrated sandbox projection: %v", err)
+	}
+	if sandboxCount != 0 {
+		t.Fatalf("migrated sandbox projection retained %d stale rows", sandboxCount)
+	}
+	var versionCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sandbox_projection_meta`).Scan(&versionCount); err != nil {
+		t.Fatalf("count migrated sandbox projection versions: %v", err)
+	}
+	if versionCount != 0 {
+		t.Fatalf("migrated sandbox projection version rows = %d, want 0 to force rebuild", versionCount)
+	}
+	if rows, err := db.QueryContext(ctx, `SELECT project_id, project_id_search FROM sandboxes LIMIT 0`); err != nil {
+		t.Fatalf("query migrated sandbox project columns: %v", err)
+	} else if err := rows.Close(); err != nil {
+		t.Fatalf("close migrated sandbox project column query: %v", err)
+	}
+	assertSQLiteIndexColumns(t, db, "idx_sandboxes_project_updated", []string{"project_id_search", "updated_at", "id"}, []bool{false, true, true})
 }
 
 func TestBaselineIncludesPreviouslyOmittedSchema(t *testing.T) {
@@ -229,6 +275,7 @@ func TestBaselineIncludesPreviouslyOmittedSchema(t *testing.T) {
 	}{
 		{name: "idx_sandboxes_updated", columns: []string{"updated_at", "id"}, descending: []bool{true, true}},
 		{name: "idx_sandboxes_vm_status_updated", columns: []string{"vm_status_search", "updated_at", "id"}, descending: []bool{false, true, true}},
+		{name: "idx_sandboxes_project_updated", columns: []string{"project_id_search", "updated_at", "id"}, descending: []bool{false, true, true}},
 		{name: "idx_sandboxes_type_updated", columns: []string{"sandbox_type", "updated_at", "id"}, descending: []bool{false, true, true}},
 		{name: "idx_loader_run_trigger_started", columns: []string{"loader_id", "trigger_id", "started_at", "run_id"}, descending: []bool{false, false, true, true}},
 		{name: "idx_loader_run_status_started", columns: []string{"loader_id", "status", "started_at", "run_id"}, descending: []bool{false, false, true, true}},
@@ -441,6 +488,33 @@ func TestSQLiteDSNConfiguresProductionConnection(t *testing.T) {
 	}
 }
 
+func TestOpenSupportsRelativePath(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	if err := os.Mkdir("data", 0o755); err != nil {
+		t.Fatalf("create data directory: %v", err)
+	}
+
+	database, err := Open(filepath.Join("data", "data.db"), time.Second)
+	if err != nil {
+		t.Fatalf("Open relative path: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	dbPath := filepath.Join(workDir, "data", "data.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("stat database file %q: %v", dbPath, err)
+	}
+
+	var migrationCount int
+	if err := database.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&migrationCount); err != nil {
+		t.Fatalf("query migration history: %v", err)
+	}
+	if migrationCount == 0 {
+		t.Fatal("migration history is empty")
+	}
+}
+
 func TestMigratesEveryLegacyAddedColumn(t *testing.T) {
 	ctx := context.Background()
 	db := newMemoryDB(t)
@@ -513,7 +587,7 @@ func TestMigratesEveryLegacyAddedColumn(t *testing.T) {
 		"idx_project_run_sandbox", "idx_event_dispatch_attempt", "idx_event_parent",
 		"idx_loader_run_trigger_started", "idx_loader_run_status_started", "idx_loader_run_prune",
 		"idx_loader_event_run_created", "idx_event_sandbox_link_loader_run", "idx_event_delivery_loader_run",
-		"idx_sandboxes_updated", "idx_sandboxes_vm_status_updated", "idx_sandboxes_type_updated",
+		"idx_sandboxes_updated", "idx_sandboxes_vm_status_updated", "idx_sandboxes_project_updated", "idx_sandboxes_type_updated",
 	} {
 		assertSQLiteIndexExists(t, db, index)
 	}

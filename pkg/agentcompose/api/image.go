@@ -141,6 +141,7 @@ func (h *ImageHandler) BuildImage(ctx context.Context, req *connect.Request[agen
 	if len(tags) == 0 {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("at least one tag is required"))
 	}
+	PrepareStreamingHeaders(stream.ResponseHeader())
 	backend, err := h.backends.ImageBackendForStore(req.Msg.GetStore())
 	if err != nil {
 		return err

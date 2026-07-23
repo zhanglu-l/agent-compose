@@ -19,12 +19,23 @@ type LoaderRunKey struct {
 }
 
 type LoaderEventPageFilter struct {
-	LoaderIDs       []string
-	RequireTrigger  bool
-	TriggerID       string
-	RunID           string
-	BeforeCreatedAt time.Time
-	BeforeLoaderID  string
-	BeforeEventID   string
-	Limit           int
+	LoaderIDs        []string
+	RequireTrigger   bool
+	TriggerID        string
+	RunID            string
+	BeforeCreatedAt  time.Time
+	BeforeLoaderID   string
+	BeforeEventID    string
+	AfterCreatedAt   time.Time
+	AfterLoaderID    string
+	AfterEventID     string
+	FromCreatedAt    time.Time
+	FromLoaderID     string
+	FromEventID      string
+	ThroughCreatedAt time.Time
+	ThroughLoaderID  string
+	ThroughEventID   string
+	Ascending        bool
+	Offset           int
+	Limit            int
 }

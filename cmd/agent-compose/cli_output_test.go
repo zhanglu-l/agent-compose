@@ -7,6 +7,26 @@ import (
 	"testing"
 )
 
+func TestPrefixedRunOutputStreamWriterPreservesLinesAcrossChunks(t *testing.T) {
+	summary := &agentcomposev2.RunSummary{RunId: "run-stream-boundary", AgentName: "reviewer"}
+	var out bytes.Buffer
+	writer := newPrefixedRunOutputStreamWriter(&out, false)
+	if err := writer.Write(summary, "first line\npartial", ""); err != nil {
+		t.Fatalf("write first chunk: %v", err)
+	}
+	if err := writer.Write(summary, " line\nlast", ""); err != nil {
+		t.Fatalf("write second chunk: %v", err)
+	}
+	if err := writer.Finish(); err != nil {
+		t.Fatalf("finish stream: %v", err)
+	}
+	prefix := runLogPrefix(summary) + " | "
+	want := prefix + "first line\n" + prefix + "partial line\n" + prefix + "last\n"
+	if out.String() != want {
+		t.Fatalf("streamed prefixed output = %q, want %q", out.String(), want)
+	}
+}
+
 func TestCLIOutputHelpersCoverEdgeBranches(t *testing.T) {
 	project := &agentcomposev2.Project{
 		Summary: &agentcomposev2.ProjectSummary{

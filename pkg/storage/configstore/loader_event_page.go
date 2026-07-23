@@ -42,8 +42,32 @@ func (s *loaderStore) ListLoaderEventsPage(ctx context.Context, filter loaders.L
 		beforeMillis := filter.BeforeCreatedAt.UTC().UnixMilli()
 		args = append(args, beforeMillis, beforeMillis, strings.TrimSpace(filter.BeforeLoaderID), strings.TrimSpace(filter.BeforeLoaderID), strings.TrimSpace(filter.BeforeEventID))
 	}
-	query += ` ORDER BY e.created_at DESC, e.loader_id DESC, e.event_id DESC LIMIT ?`
+	if !filter.AfterCreatedAt.IsZero() {
+		query += ` AND (e.created_at > ? OR (e.created_at = ? AND (e.loader_id > ? OR (e.loader_id = ? AND e.event_id > ?))))`
+		afterMillis := filter.AfterCreatedAt.UTC().UnixMilli()
+		args = append(args, afterMillis, afterMillis, strings.TrimSpace(filter.AfterLoaderID), strings.TrimSpace(filter.AfterLoaderID), strings.TrimSpace(filter.AfterEventID))
+	}
+	if !filter.FromCreatedAt.IsZero() {
+		query += ` AND (e.created_at > ? OR (e.created_at = ? AND (e.loader_id > ? OR (e.loader_id = ? AND e.event_id >= ?))))`
+		fromMillis := filter.FromCreatedAt.UTC().UnixMilli()
+		args = append(args, fromMillis, fromMillis, strings.TrimSpace(filter.FromLoaderID), strings.TrimSpace(filter.FromLoaderID), strings.TrimSpace(filter.FromEventID))
+	}
+	if !filter.ThroughCreatedAt.IsZero() {
+		query += ` AND (e.created_at < ? OR (e.created_at = ? AND (e.loader_id < ? OR (e.loader_id = ? AND e.event_id <= ?))))`
+		throughMillis := filter.ThroughCreatedAt.UTC().UnixMilli()
+		args = append(args, throughMillis, throughMillis, strings.TrimSpace(filter.ThroughLoaderID), strings.TrimSpace(filter.ThroughLoaderID), strings.TrimSpace(filter.ThroughEventID))
+	}
+	if filter.Ascending {
+		query += ` ORDER BY e.created_at ASC, e.loader_id ASC, e.event_id ASC`
+	} else {
+		query += ` ORDER BY e.created_at DESC, e.loader_id DESC, e.event_id DESC`
+	}
+	query += ` LIMIT ?`
 	args = append(args, filter.Limit)
+	if filter.Offset > 0 {
+		query += ` OFFSET ?`
+		args = append(args, filter.Offset)
+	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query loader event page: %w", err)

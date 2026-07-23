@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,18 +281,49 @@ type schedulerRunProjectStoreFake struct {
 }
 
 func (s *schedulerRunProjectStoreFake) ListLoaderEventsPage(_ context.Context, filter loaders.LoaderEventPageFilter) ([]domain.LoaderEvent, error) {
-	start := 0
-	if filter.BeforeEventID != "" {
-		start = len(s.events)
-		for index, event := range s.events {
-			if event.ID == filter.BeforeEventID {
-				start = index + 1
-				break
-			}
+	items := make([]domain.LoaderEvent, 0, len(s.events))
+	for _, event := range s.events {
+		if !slices.Contains(filter.LoaderIDs, event.LoaderID) || (filter.RequireTrigger && event.TriggerID == "") ||
+			(strings.TrimSpace(filter.TriggerID) != "" && event.TriggerID != filter.TriggerID) || (strings.TrimSpace(filter.RunID) != "" && event.RunID != filter.RunID) {
+			continue
 		}
+		if !filter.BeforeCreatedAt.IsZero() && compareLoaderEventKey(event, filter.BeforeCreatedAt, filter.BeforeLoaderID, filter.BeforeEventID) >= 0 {
+			continue
+		}
+		if !filter.AfterCreatedAt.IsZero() && compareLoaderEventKey(event, filter.AfterCreatedAt, filter.AfterLoaderID, filter.AfterEventID) <= 0 {
+			continue
+		}
+		if !filter.FromCreatedAt.IsZero() && compareLoaderEventKey(event, filter.FromCreatedAt, filter.FromLoaderID, filter.FromEventID) < 0 {
+			continue
+		}
+		if !filter.ThroughCreatedAt.IsZero() && compareLoaderEventKey(event, filter.ThroughCreatedAt, filter.ThroughLoaderID, filter.ThroughEventID) > 0 {
+			continue
+		}
+		items = append(items, event)
 	}
-	end := min(start+filter.Limit, len(s.events))
-	return append([]domain.LoaderEvent(nil), s.events[start:end]...), nil
+	sort.Slice(items, func(i, j int) bool {
+		comparison := compareLoaderEventKey(items[i], items[j].CreatedAt, items[j].LoaderID, items[j].ID)
+		if filter.Ascending {
+			return comparison < 0
+		}
+		return comparison > 0
+	})
+	start := min(max(filter.Offset, 0), len(items))
+	end := min(start+filter.Limit, len(items))
+	return append([]domain.LoaderEvent(nil), items[start:end]...), nil
+}
+
+func compareLoaderEventKey(event domain.LoaderEvent, createdAt time.Time, loaderID, eventID string) int {
+	if !event.CreatedAt.Equal(createdAt) {
+		if event.CreatedAt.Before(createdAt) {
+			return -1
+		}
+		return 1
+	}
+	if comparison := strings.Compare(event.LoaderID, loaderID); comparison != 0 {
+		return comparison
+	}
+	return strings.Compare(event.ID, eventID)
 }
 
 func (s *schedulerRunProjectStoreFake) GetProject(context.Context, string) (domain.ProjectRecord, error) {

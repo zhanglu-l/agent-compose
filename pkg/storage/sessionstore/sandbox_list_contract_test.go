@@ -126,7 +126,7 @@ func TestListSandboxesClampsOffsetBeyondEndAfterGhostPruning(t *testing.T) {
 		sandbox := seedSandboxDir(t, store, id, time.Unix(int64(100+index), 0).UTC())
 		store.recordIndex(sandbox)
 	}
-	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(102, 0).UTC())); err != nil {
+	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(102, 0).UTC()), ""); err != nil {
 		t.Fatalf("seed ghost: %v", err)
 	}
 

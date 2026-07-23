@@ -70,22 +70,22 @@ func runComposeSchedulerRunsCommand(cmd *cobra.Command, cli cliOptions, options 
 		}
 		agentRef = args[0]
 	}
-	runs, err := listComposeSchedulerRuns(cmd.Context(), clients, normalized, projectID, agentRef, options.Trigger, options.Status, options.Limit)
-	if err != nil {
-		return err
-	}
-	output := composeSchedulerRunsOutput{
-		Project: composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name},
-		Runs:    runs,
-	}
+	project := composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name}
 	if cli.JSON {
-		data, err := json.MarshalIndent(output, "", "  ")
+		writer, err := newSchedulerJSONStreamWriter[composeSchedulerRunItem](cmd.OutOrStdout(), schedulerRunsJSONPrefix{Project: project}, "runs")
 		if err != nil {
 			return err
 		}
-		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+		if err := streamComposeSchedulerRuns(cmd.Context(), clients, normalized, projectID, agentRef, options.Trigger, options.Status, options.Limit, writer.Write); err != nil {
+			return err
+		}
+		return writer.Finish()
 	}
-	return writeSchedulerRunsText(cmd.OutOrStdout(), output)
+	writer := newSchedulerRunsTextStreamWriter(cmd.OutOrStdout())
+	if err := streamComposeSchedulerRuns(cmd.Context(), clients, normalized, projectID, agentRef, options.Trigger, options.Status, options.Limit, writer.Write); err != nil {
+		return err
+	}
+	return writer.Finish()
 }
 
 func runComposeSchedulerLogsCommand(cmd *cobra.Command, cli cliOptions, options composeSchedulerLogsOptions, args []string) error {
@@ -151,23 +151,23 @@ func runComposeSchedulerLogsCommand(cmd *cobra.Command, cli cliOptions, options 
 		}
 		triggerID = resolvedTriggerID
 	}
-	events, err := listProjectSchedulerLogEvents(cmd.Context(), clients.project, projectID, agentName, triggerID, runRef, options.Tail)
-	if err != nil {
-		return err
-	}
-	output := composeSchedulerLogsOutput{
-		Project: composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name},
-		Run:     selected,
-		Events:  events,
-	}
+	project := composeUpProjectOutput{ID: displayOpaqueID(projectID), Name: normalized.Name}
 	if cli.JSON {
-		data, err := json.MarshalIndent(output, "", "  ")
+		writer, err := newSchedulerJSONStreamWriter[composeSchedulerLogEvent](cmd.OutOrStdout(), schedulerLogsJSONPrefix{Project: project, Run: selected}, "events")
 		if err != nil {
 			return err
 		}
-		return writeCommandOutput(cmd.OutOrStdout(), append(data, '\n'))
+		if err := streamProjectSchedulerLogEvents(cmd.Context(), clients, projectID, agentName, triggerID, runRef, options.Tail, writer.Write); err != nil {
+			return err
+		}
+		return writer.Finish()
 	}
-	return writeSchedulerLogsText(cmd.OutOrStdout(), output)
+	if err := streamProjectSchedulerLogEvents(cmd.Context(), clients, projectID, agentName, triggerID, runRef, options.Tail, func(events []composeSchedulerLogEvent) error {
+		return writeSchedulerLogsText(cmd.OutOrStdout(), composeSchedulerLogsOutput{Events: events})
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeDeprecatedSchedulerAgentFlagWarning(cmd *cobra.Command, guidance string) error {

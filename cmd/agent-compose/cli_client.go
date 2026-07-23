@@ -16,14 +16,18 @@ type cliClientConfig struct {
 }
 
 type cliServiceClients struct {
-	project  agentcomposev2connect.ProjectServiceClient
-	run      agentcomposev2connect.RunServiceClient
-	exec     agentcomposev2connect.ExecServiceClient
-	resource agentcomposev2connect.ResourceServiceClient
-	image    agentcomposev2connect.ImageServiceClient
-	cache    agentcomposev2connect.CacheServiceClient
-	volume   agentcomposev2connect.VolumeServiceClient
-	sandbox  agentcomposev2connect.SandboxServiceClient
+	project       agentcomposev2connect.ProjectServiceClient
+	projectStream agentcomposev2connect.ProjectServiceClient
+	run           agentcomposev2connect.RunServiceClient
+	runStream     agentcomposev2connect.RunServiceClient
+	exec          agentcomposev2connect.ExecServiceClient
+	execStream    agentcomposev2connect.ExecServiceClient
+	resource      agentcomposev2connect.ResourceServiceClient
+	image         agentcomposev2connect.ImageServiceClient
+	imageStream   agentcomposev2connect.ImageServiceClient
+	cache         agentcomposev2connect.CacheServiceClient
+	volume        agentcomposev2connect.VolumeServiceClient
+	sandbox       agentcomposev2connect.SandboxServiceClient
 }
 
 func newCLIServiceClients(cli cliOptions) (cliServiceClients, error) {
@@ -32,15 +36,20 @@ func newCLIServiceClients(cli cliOptions) (cliServiceClients, error) {
 		return cliServiceClients{}, err
 	}
 	httpClient := newDaemonHTTPClient(clientConfig)
+	streamingHTTPClient := newDaemonStreamingHTTPClient(clientConfig)
 	return cliServiceClients{
-		project:  agentcomposev2connect.NewProjectServiceClient(httpClient, clientConfig.BaseURL),
-		run:      agentcomposev2connect.NewRunServiceClient(httpClient, clientConfig.BaseURL),
-		exec:     agentcomposev2connect.NewExecServiceClient(httpClient, clientConfig.BaseURL),
-		resource: agentcomposev2connect.NewResourceServiceClient(httpClient, clientConfig.BaseURL),
-		image:    agentcomposev2connect.NewImageServiceClient(httpClient, clientConfig.BaseURL),
-		cache:    agentcomposev2connect.NewCacheServiceClient(httpClient, clientConfig.BaseURL),
-		volume:   agentcomposev2connect.NewVolumeServiceClient(httpClient, clientConfig.BaseURL),
-		sandbox:  agentcomposev2connect.NewSandboxServiceClient(httpClient, clientConfig.BaseURL),
+		project:       agentcomposev2connect.NewProjectServiceClient(httpClient, clientConfig.BaseURL),
+		projectStream: agentcomposev2connect.NewProjectServiceClient(streamingHTTPClient, clientConfig.BaseURL),
+		run:           agentcomposev2connect.NewRunServiceClient(httpClient, clientConfig.BaseURL),
+		runStream:     agentcomposev2connect.NewRunServiceClient(streamingHTTPClient, clientConfig.BaseURL),
+		exec:          agentcomposev2connect.NewExecServiceClient(httpClient, clientConfig.BaseURL),
+		execStream:    agentcomposev2connect.NewExecServiceClient(streamingHTTPClient, clientConfig.BaseURL),
+		resource:      agentcomposev2connect.NewResourceServiceClient(httpClient, clientConfig.BaseURL),
+		image:         agentcomposev2connect.NewImageServiceClient(httpClient, clientConfig.BaseURL),
+		imageStream:   agentcomposev2connect.NewImageServiceClient(streamingHTTPClient, clientConfig.BaseURL),
+		cache:         agentcomposev2connect.NewCacheServiceClient(httpClient, clientConfig.BaseURL),
+		volume:        agentcomposev2connect.NewVolumeServiceClient(httpClient, clientConfig.BaseURL),
+		sandbox:       agentcomposev2connect.NewSandboxServiceClient(httpClient, clientConfig.BaseURL),
 	}, nil
 }
 

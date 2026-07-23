@@ -66,6 +66,7 @@ type Store struct {
 	index                 *sandboxCache
 	indexRepairMu         sync.Mutex
 	indexDirty            atomic.Bool
+	projectResolver       SandboxProjectResolver
 }
 
 type CacheDependencyLocker interface {
@@ -85,10 +86,10 @@ func NewWithConfig(config *appconfig.Config) (*Store, error) {
 	}
 	database, err := storagesqlite.Open(dbPath, config.DbTimeout)
 	if err != nil {
-		return newStoreWithIndex(config, nil, dbPath, err)
+		return newStoreWithIndex(config, nil, dbPath, err, nil)
 	}
 	index, _, indexErr := openSandboxCacheDB(context.Background(), database.DB())
-	store, err := newStoreWithIndex(config, index, dbPath, indexErr)
+	store, err := newStoreWithIndex(config, index, dbPath, indexErr, nil)
 	if err != nil {
 		return nil, errors.Join(err, database.Close())
 	}
@@ -104,17 +105,23 @@ func NewWithConfig(config *appconfig.Config) (*Store, error) {
 
 // NewWithDatabase constructs a Store using the application's shared data.db
 // connection. The caller owns db; closing the Store only releases index-owned
-// resources and never closes the shared database.
-func NewWithDatabase(config *appconfig.Config, db *sql.DB) (*Store, error) {
+// resources and never closes the shared database. The database must have been
+// opened with storage/sqlite.Open or successfully passed through
+// storage/sqlite.Migrate before this function is called.
+func NewWithDatabase(config *appconfig.Config, db *sql.DB, projectResolvers ...SandboxProjectResolver) (*Store, error) {
 	index, _, err := openSandboxCacheDB(context.Background(), db)
-	return newStoreWithIndex(config, index, config.DbAddr, err)
+	var projectResolver SandboxProjectResolver
+	if len(projectResolvers) > 0 {
+		projectResolver = projectResolvers[0]
+	}
+	return newStoreWithIndex(config, index, config.DbAddr, err, projectResolver)
 }
 
-func newStoreWithIndex(config *appconfig.Config, index *sandboxCache, dbPath string, indexErr error) (*Store, error) {
+func newStoreWithIndex(config *appconfig.Config, index *sandboxCache, dbPath string, indexErr error, projectResolver SandboxProjectResolver) (*Store, error) {
 	if err := os.MkdirAll(config.SandboxRoot, 0o755); err != nil {
 		return nil, closeSandboxCacheAfterStoreInitFailure(index, fmt.Errorf("create sandbox root: %w", err))
 	}
-	store := &Store{config: config}
+	store := &Store{config: config, projectResolver: projectResolver}
 	if err := store.backfillOwnershipRecords(); err != nil {
 		return nil, closeSandboxCacheAfterStoreInitFailure(index, err)
 	}
@@ -133,8 +140,9 @@ func newStoreWithIndex(config *appconfig.Config, index *sandboxCache, dbPath str
 			}
 			return nil, fmt.Errorf("reconcile sandbox listing cache: %w", err)
 		}
-		if err := store.recreateSandboxCache(context.Background(), err); err != nil {
+		if err := store.retrySandboxCacheRebuild(context.Background(), err); err != nil {
 			slog.Warn("sandbox listing cache recovery failed; using filesystem listing", "database", dbPath, "error", err)
+			store.index = nil
 			return store, nil
 		}
 	}
@@ -151,17 +159,17 @@ func closeSandboxCacheAfterStoreInitFailure(index *sandboxCache, operationErr er
 	return operationErr
 }
 
-func (s *Store) recreateSandboxCache(ctx context.Context, cause error) error {
-	slog.Warn("sandbox listing cache reconciliation failed; rebuilding cache table", "error", cause)
+func (s *Store) retrySandboxCacheRebuild(ctx context.Context, cause error) error {
+	slog.Warn("sandbox listing cache reconciliation failed; clearing projection before retry", "error", cause)
 	index := s.index
 	if index == nil || index.db == nil {
-		return fmt.Errorf("recreate sandbox listing cache: database is unavailable")
+		return fmt.Errorf("retry sandbox listing cache rebuild: database is unavailable")
 	}
-	if err := resetSandboxCacheSchema(ctx, index.db); err != nil {
+	if err := index.invalidate(ctx); err != nil {
 		return err
 	}
 	if err := s.completeIndexRebuild(ctx); err != nil {
-		return fmt.Errorf("reconcile recreated sandbox listing cache: %w", err)
+		return fmt.Errorf("retry sandbox listing cache rebuild: %w", err)
 	}
 	return nil
 }
@@ -236,6 +244,7 @@ func (s *Store) runIndexRebuild(ctx context.Context) error {
 		return fmt.Errorf("read sandbox root: %w", err)
 	}
 	validIDs := make(map[string]struct{}, len(entries))
+	var sandboxes []*Sandbox
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -248,10 +257,17 @@ func (s *Store) runIndexRebuild(ctx context.Context) error {
 			// Not a loadable sandbox (corrupt/foreign dir): skip, not a failure.
 			continue
 		}
-		if upsertErr := s.index.Reconcile(ctx, sandbox); upsertErr != nil {
+		sandboxes = append(sandboxes, sandbox)
+		validIDs[sandbox.Summary.ID] = struct{}{}
+	}
+	projectIDs, err := s.resolveSandboxProjectIDs(ctx, sandboxes)
+	if err != nil {
+		return fmt.Errorf("resolve sandbox project projection: %w", err)
+	}
+	for _, sandbox := range sandboxes {
+		if upsertErr := s.index.Reconcile(ctx, sandbox, projectIDs[sandbox.Summary.ID]); upsertErr != nil {
 			return fmt.Errorf("upsert %s: %w", sandbox.Summary.ID, upsertErr)
 		}
-		validIDs[sandbox.Summary.ID] = struct{}{}
 	}
 
 	// Rows are retained only for metadata that was successfully loaded. A
@@ -476,11 +492,17 @@ func (s *Store) recordIndex(session *Sandbox) {
 		slog.Warn("load committed sandbox for index failed", "sandbox_id", session.Summary.ID, "error", err)
 		return
 	}
-	s.indexRepairMu.Lock()
-	defer s.indexRepairMu.Unlock()
 	indexCtx, cancel := context.WithTimeout(context.Background(), sandboxCacheWriteTimeout)
 	defer cancel()
-	if err := s.index.Upsert(indexCtx, indexed); err != nil {
+	projectIDs, err := s.resolveSandboxProjectIDs(indexCtx, []*Sandbox{indexed})
+	if err != nil {
+		s.indexDirty.Store(true)
+		slog.Warn("resolve committed sandbox project for index failed", "sandbox_id", session.Summary.ID, "error", err)
+		return
+	}
+	s.indexRepairMu.Lock()
+	defer s.indexRepairMu.Unlock()
+	if err := s.index.Upsert(indexCtx, indexed, projectIDs[indexed.Summary.ID]); err != nil {
 		s.indexDirty.Store(true)
 		slog.Warn("sandbox listing cache upsert failed", "sandbox_id", session.Summary.ID, "error", err)
 	}

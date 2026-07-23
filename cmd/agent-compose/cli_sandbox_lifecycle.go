@@ -157,13 +157,19 @@ type composeSandboxOutput struct {
 }
 
 func listAllSandboxes(ctx context.Context, client agentcomposev2connect.SandboxServiceClient) ([]*agentcomposev2.Sandbox, error) {
+	return listFilteredSandboxes(ctx, client, "", nil)
+}
+
+func listFilteredSandboxes(ctx context.Context, client agentcomposev2connect.SandboxServiceClient, projectID string, statuses []string) ([]*agentcomposev2.Sandbox, error) {
 	var result []*agentcomposev2.Sandbox
 	var cursor string
 	const limit uint32 = 100
 	for {
 		resp, err := client.ListSandboxes(ctx, connect.NewRequest(&agentcomposev2.ListSandboxesRequest{
-			Cursor: cursor,
-			Limit:  limit,
+			Cursor:    cursor,
+			Limit:     limit,
+			ProjectId: strings.TrimSpace(projectID),
+			Status:    append([]string(nil), statuses...),
 		}))
 		if err != nil {
 			return nil, err

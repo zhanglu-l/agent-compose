@@ -91,35 +91,6 @@ func writeSchedulerInspectText(out io.Writer, output composeSchedulerInspectOutp
 	return writeCommandOutput(out, data)
 }
 
-func writeSchedulerRunsText(out io.Writer, output composeSchedulerRunsOutput) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "RUN ID\tAGENT\tTRIGGER\tSTATUS\tSANDBOXES\tSTARTED\tDURATION"); err != nil {
-		return err
-	}
-	for _, run := range output.Runs {
-		sandboxes := "-"
-		if len(run.SandboxIDs) > 0 {
-			shortIDs := make([]string, 0, len(run.SandboxIDs))
-			for _, sandboxID := range run.SandboxIDs {
-				shortIDs = append(shortIDs, shortOpaqueID(sandboxID))
-			}
-			sandboxes = strings.Join(shortIDs, ",")
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			run.RunShortID,
-			run.AgentName,
-			firstNonEmptyString(run.TriggerID, "-"),
-			run.Status,
-			sandboxes,
-			firstNonEmptyString(run.StartedAt, "-"),
-			formatDurationMs(run.DurationMs),
-		); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
-}
-
 func writeSchedulerLogsText(out io.Writer, output composeSchedulerLogsOutput) error {
 	for _, event := range output.Events {
 		line := fmt.Sprintf("%s %s %s", event.CreatedAt, strings.ToUpper(firstNonEmptyString(event.Level, "info")), event.Type)

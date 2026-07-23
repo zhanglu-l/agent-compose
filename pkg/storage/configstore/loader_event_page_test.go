@@ -55,3 +55,35 @@ func TestLoaderEventPageOnlyReturnsEventsJoinedToTriggerRuns(t *testing.T) {
 		t.Fatalf("run filter=%#v err=%v", byRun, err)
 	}
 }
+
+func TestLoaderEventPageSupportsTailBoundaryAndAscendingRange(t *testing.T) {
+	ctx := context.Background()
+	store := FromDB(newMemoryDB(t))
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("init schema: %v", err)
+	}
+	if _, err := store.UpsertManagedLoader(ctx, domain.Loader{Summary: domain.LoaderSummary{ID: "loader-a", Runtime: domain.LoaderRuntimeScheduler, ManagedProjectID: "project-1", ManagedAgentName: "agent-1", ManagedSchedulerID: "scheduler-1"}, Script: "function main() {}"}); err != nil {
+		t.Fatalf("upsert loader: %v", err)
+	}
+	startedAt := time.UnixMilli(1_730_000_000_000).UTC()
+	if err := store.CreateLoaderRun(ctx, domain.LoaderRunSummary{ID: "run-a", LoaderID: "loader-a", TriggerID: "trigger-a", Status: domain.LoaderRunStatusSucceeded, StartedAt: startedAt}); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	for index, id := range []string{"event-1", "event-2", "event-3", "event-4"} {
+		if err := store.AddLoaderEvent(ctx, domain.LoaderEvent{LoaderID: "loader-a", ID: id, RunID: "run-a", TriggerID: "trigger-a", Type: "loader.log", CreatedAt: startedAt.Add(time.Duration(index) * time.Second)}); err != nil {
+			t.Fatalf("add event %s: %v", id, err)
+		}
+	}
+	boundary, err := store.ListLoaderEventsPage(ctx, loaders.LoaderEventPageFilter{LoaderIDs: []string{"loader-a"}, RequireTrigger: true, Limit: 1, Offset: 1})
+	if err != nil || len(boundary) != 1 || boundary[0].ID != "event-3" {
+		t.Fatalf("tail boundary = %#v, err=%v", boundary, err)
+	}
+	page, err := store.ListLoaderEventsPage(ctx, loaders.LoaderEventPageFilter{
+		LoaderIDs: []string{"loader-a"}, RequireTrigger: true, Ascending: true, Limit: 10,
+		AfterCreatedAt: boundary[0].CreatedAt, AfterLoaderID: boundary[0].LoaderID, AfterEventID: boundary[0].ID,
+		ThroughCreatedAt: startedAt.Add(3 * time.Second), ThroughLoaderID: "loader-a", ThroughEventID: "event-4",
+	})
+	if err != nil || len(page) != 1 || page[0].ID != "event-4" {
+		t.Fatalf("ascending bounded page = %#v, err=%v", page, err)
+	}
+}

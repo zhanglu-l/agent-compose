@@ -11,6 +11,7 @@ import (
 
 	appconfig "agent-compose/pkg/config"
 	domain "agent-compose/pkg/model"
+	storagesqlite "agent-compose/pkg/storage/sqlite"
 )
 
 func cleanupSandboxStore(t *testing.T, store *Store) {
@@ -84,6 +85,9 @@ func TestNewWithDatabaseDoesNotCloseSharedDatabase(t *testing.T) {
 			t.Errorf("close shared database: %v", err)
 		}
 	})
+	if err := storagesqlite.Migrate(t.Context(), db); err != nil {
+		t.Fatalf("migrate shared database: %v", err)
+	}
 	store, err := NewWithDatabase(&appconfig.Config{SandboxRoot: filepath.Join(root, "sandboxes")}, db)
 	if err != nil {
 		t.Fatalf("NewWithDatabase: %v", err)
@@ -96,7 +100,53 @@ func TestNewWithDatabaseDoesNotCloseSharedDatabase(t *testing.T) {
 	}
 }
 
-func TestNewWithConfigRecoversFromCurrentVersionIndexWithMissingColumns(t *testing.T) {
+type staticSandboxProjectResolver map[string]string
+
+func (r staticSandboxProjectResolver) ResolveSandboxProjectIDs(_ context.Context, sandboxes []*domain.Sandbox) (map[string]string, error) {
+	resolved := make(map[string]string, len(sandboxes))
+	for _, sandbox := range sandboxes {
+		resolved[sandbox.Summary.ID] = r[sandbox.Summary.ID]
+	}
+	return resolved, nil
+}
+
+func TestNewWithDatabaseRebuildsProjectProjectionFromResolver(t *testing.T) {
+	root := t.TempDir()
+	sandboxRoot := filepath.Join(root, "sandboxes")
+	first := writePersistedSandboxForIndexRecovery(t, sandboxRoot, "legacy-project-a")
+	writePersistedSandboxForIndexRecovery(t, sandboxRoot, "project-b")
+	db, err := sql.Open("sqlite", filepath.Join(root, "data.db"))
+	if err != nil {
+		t.Fatalf("open shared database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := storagesqlite.Migrate(t.Context(), db); err != nil {
+		t.Fatalf("migrate shared database: %v", err)
+	}
+
+	store, err := NewWithDatabase(&appconfig.Config{SandboxRoot: sandboxRoot}, db, staticSandboxProjectResolver{
+		"legacy-project-a": "project-a",
+		"project-b":        "project-b",
+	})
+	if err != nil {
+		t.Fatalf("NewWithDatabase: %v", err)
+	}
+	cleanupSandboxStore(t, store)
+
+	result, err := store.ListSandboxes(context.Background(), domain.SandboxListOptions{ProjectID: "PROJECT-A"})
+	if err != nil {
+		t.Fatalf("list project sandboxes: %v", err)
+	}
+	if got := ids(result.Sandboxes); len(got) != 1 || got[0] != first.Summary.ID {
+		t.Fatalf("project sandboxes = %v, want [%s]", got, first.Summary.ID)
+	}
+	var projected string
+	if err := db.QueryRow(`SELECT project_id FROM sandboxes WHERE id = ?`, first.Summary.ID).Scan(&projected); err != nil || projected != "project-a" {
+		t.Fatalf("project projection = %q, err=%v", projected, err)
+	}
+}
+
+func TestNewWithConfigFallsBackFromCurrentVersionIndexWithMissingColumns(t *testing.T) {
 	root := t.TempDir()
 	persisted := writePersistedSandboxForIndexRecovery(t, root, "missing-columns")
 	path := filepath.Join(root, "data.db")
@@ -126,13 +176,13 @@ INSERT INTO sandbox_projection_meta(id, version) VALUES(1, 4)
 		t.Fatalf("NewWithConfig: %v", err)
 	}
 	cleanupSandboxStore(t, store)
-	if store.index == nil {
-		t.Fatal("store degraded instead of rebuilding malformed sandboxes projection table")
+	if store.index != nil {
+		t.Fatal("store retained malformed sandboxes projection instead of using filesystem fallback")
 	}
 	assertSandboxListed(t, store, persisted.Summary.ID)
 }
 
-func TestNewWithConfigRecoversWhenReconciliationHitsIndexFailure(t *testing.T) {
+func TestNewWithConfigFallsBackWhenReconciliationHitsIndexFailure(t *testing.T) {
 	root := t.TempDir()
 	persisted := writePersistedSandboxForIndexRecovery(t, root, "reconcile-failure")
 	path := filepath.Join(root, "data.db")
@@ -161,13 +211,16 @@ END;
 		t.Fatalf("NewWithConfig: %v", err)
 	}
 	cleanupSandboxStore(t, store)
+	if store.index != nil {
+		t.Fatal("store retained failing sandbox projection instead of using filesystem fallback")
+	}
 	assertSandboxListed(t, store, persisted.Summary.ID)
 	var triggerCount int
-	if err := store.index.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'fail_sandbox_reconcile'`).Scan(&triggerCount); err != nil {
-		t.Fatalf("query recovered index trigger: %v", err)
+	if err := store.database.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'fail_sandbox_reconcile'`).Scan(&triggerCount); err != nil {
+		t.Fatalf("query failing index trigger: %v", err)
 	}
-	if triggerCount != 0 {
-		t.Fatalf("recovered index retained failing trigger")
+	if triggerCount != 1 {
+		t.Fatalf("store changed migration-owned schema while falling back: trigger count = %d", triggerCount)
 	}
 }
 
@@ -207,7 +260,7 @@ func TestNewWithConfigReconcilesCurrentIndexWithFilesystem(t *testing.T) {
 	}
 	persisted := seedSandboxDir(t, store, "persisted", time.Unix(100, 0).UTC())
 	missing := seedSandboxDir(t, store, "missing", time.Unix(99, 0).UTC())
-	if err := store.index.Upsert(context.Background(), persisted); err != nil {
+	if err := store.index.Upsert(context.Background(), persisted, ""); err != nil {
 		t.Fatalf("seed index: %v", err)
 	}
 	if err := store.index.Delete(context.Background(), persisted.Summary.ID); err != nil {
@@ -217,7 +270,7 @@ func TestNewWithConfigReconcilesCurrentIndexWithFilesystem(t *testing.T) {
 	stale.Summary = persisted.Summary
 	stale.Summary.Driver = "stale-index-driver"
 	stale.Summary.UpdatedAt = persisted.Summary.UpdatedAt.Add(time.Hour)
-	if err := store.index.Upsert(context.Background(), &stale); err != nil {
+	if err := store.index.Upsert(context.Background(), &stale, ""); err != nil {
 		t.Fatalf("seed inconsistent index row: %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -470,7 +523,7 @@ func TestListSandboxesRefillsPageAfterPruningGhosts(t *testing.T) {
 
 	valid := seedSandboxDir(t, store, "valid", time.Unix(100, 0).UTC())
 	store.recordIndex(valid)
-	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(101, 0).UTC())); err != nil {
+	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(101, 0).UTC()), ""); err != nil {
 		t.Fatalf("seed ghost: %v", err)
 	}
 
@@ -493,7 +546,7 @@ func TestListSandboxesIgnoresGhostsBeforeOffset(t *testing.T) {
 	older := seedSandboxDir(t, store, "older", time.Unix(100, 0).UTC())
 	store.recordIndex(newer)
 	store.recordIndex(older)
-	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(102, 0).UTC())); err != nil {
+	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(102, 0).UTC()), ""); err != nil {
 		t.Fatalf("seed ghost: %v", err)
 	}
 
@@ -758,7 +811,7 @@ func TestRebuildIndexBackfillsAndPrunesOrphans(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed an orphan index row whose directory does not exist.
-	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(1, 0).UTC())); err != nil {
+	if err := store.index.Upsert(ctx, sb("ghost", time.Unix(1, 0).UTC()), ""); err != nil {
 		t.Fatalf("seed ghost: %v", err)
 	}
 	// Create two real sandbox dirs with metadata.json.
