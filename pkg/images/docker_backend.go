@@ -573,10 +573,10 @@ func (b *DockerBackend) client() (DockerClient, string, error) {
 	return dockerClient, endpoint, nil
 }
 
-func (b *DockerBackend) inspectedAt() string {
+func (b *DockerBackend) inspectedAt() time.Time {
 	now := time.Now
 	if b != nil && b.now != nil {
 		now = b.now
 	}
-	return now().UTC().Format(time.RFC3339Nano)
+	return now()
 }

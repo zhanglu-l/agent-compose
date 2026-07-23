@@ -154,12 +154,12 @@ func (b *OCIBackend) storeStatus() *agentcomposev2.ImageStoreStatus {
 	}
 }
 
-func (b *OCIBackend) inspectedAt() string {
+func (b *OCIBackend) inspectedAt() time.Time {
 	now := time.Now
 	if b != nil && b.now != nil {
 		now = b.now
 	}
-	return now().UTC().Format(time.RFC3339Nano)
+	return now()
 }
 
 func (b *OCIBackend) wrapError(op, imageRef string, err error) error {

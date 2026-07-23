@@ -42,8 +42,8 @@ agents:
 			AgentName: "reviewer",
 			Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
 			SandboxId: "session-running",
-			CreatedAt: "2026-06-11T00:00:00Z",
-			UpdatedAt: "2026-06-11T00:00:01Z",
+			CreatedAt: mustProtoTimestamp("2026-06-11T00:00:00Z"),
+			UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:01Z"),
 		},
 		{
 			RunId:     "run-error",
@@ -51,8 +51,8 @@ agents:
 			AgentName: "worker",
 			Status:    agentcomposev2.RunStatus_RUN_STATUS_FAILED,
 			SandboxId: "session-error",
-			CreatedAt: "2026-06-11T00:00:02Z",
-			UpdatedAt: "2026-06-11T00:00:03Z",
+			CreatedAt: mustProtoTimestamp("2026-06-11T00:00:02Z"),
+			UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:03Z"),
 		},
 	}
 	server := newComposeServiceStubServer(t, composeServiceStubs{

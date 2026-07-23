@@ -3,6 +3,8 @@ package api
 import (
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"agent-compose/pkg/identity"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/runs"
@@ -141,9 +143,9 @@ func TranscriptEventFromExecChunk(chunk domain.ExecChunk, createdAt time.Time) *
 	}
 }
 
-func FormatProjectTime(value time.Time) string {
+func FormatProjectTime(value time.Time) *timestamppb.Timestamp {
 	if value.IsZero() {
-		return ""
+		return nil
 	}
-	return value.UTC().Format(time.RFC3339Nano)
+	return timestamppb.New(value)
 }

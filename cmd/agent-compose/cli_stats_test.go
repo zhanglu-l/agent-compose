@@ -23,7 +23,7 @@ func TestIntegrationCLIStatsTableAndJSON(t *testing.T) {
 				return connect.NewResponse(&agentcomposev2.GetSandboxStatsResponse{Stats: &agentcomposev2.SandboxStats{
 					SandboxId:        req.Msg.GetSandboxId(),
 					Driver:           "docker",
-					SampledAt:        "2026-07-04T08:00:00Z",
+					SampledAt:        mustProtoTimestamp("2026-07-04T08:00:00Z"),
 					CpuPercent:       testStatsMetric(12.5, "percent"),
 					MemoryUsageBytes: testStatsMetric(512, "bytes"),
 					MemoryLimitBytes: &agentcomposev2.MetricValue{Unit: "bytes", Status: agentcomposev2.MetricStatus_METRIC_STATUS_UNKNOWN, Message: "missing"},

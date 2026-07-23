@@ -639,7 +639,7 @@ func listProjectRuns(ctx context.Context, client agentcomposev2connect.RunServic
 }
 
 func runSortTime(run *agentcomposev2.RunSummary) string {
-	return firstNonEmptyString(run.GetUpdatedAt(), run.GetCreatedAt(), run.GetStartedAt(), run.GetCompletedAt())
+	return firstNonEmptyString(formatProtoTimestamp(run.GetUpdatedAt()), formatProtoTimestamp(run.GetCreatedAt()), formatProtoTimestamp(run.GetStartedAt()), formatProtoTimestamp(run.GetCompletedAt()))
 }
 
 func resolveComposeRunIDRef(ctx context.Context, client agentcomposev2connect.RunServiceClient, projectID, agentName, ref string) (string, error) {

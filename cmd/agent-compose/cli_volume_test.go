@@ -161,7 +161,7 @@ func testCLIVolume(name string) *agentcomposev2.Volume {
 		Path:      "/tmp/agent-compose/volumes/local/11111111-1111-4111-8111-111111111111/data",
 		Labels:    map[string]string{"purpose": "cache"},
 		ProjectId: "project-1",
-		CreatedAt: "2026-07-07T12:00:00Z",
-		UpdatedAt: "2026-07-07T12:00:00Z",
+		CreatedAt: mustProtoTimestamp("2026-07-07T12:00:00Z"),
+		UpdatedAt: mustProtoTimestamp("2026-07-07T12:00:00Z"),
 	}
 }

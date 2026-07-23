@@ -14,6 +14,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	appconfig "agent-compose/pkg/config"
 	driverpkg "agent-compose/pkg/driver"
@@ -495,7 +496,7 @@ func (s *execAttachState) responseFromRuntimeFrame(frame driverpkg.RuntimeOutput
 func newExecAttachResponse() *agentcomposev2.ExecAttachResponse {
 	return &agentcomposev2.ExecAttachResponse{
 		ServerFrameId: uuid.NewString(),
-		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		CreatedAt:     timestamppb.Now(),
 	}
 }
 

@@ -221,9 +221,9 @@ func composeProjectListItemFromSummary(summary *agentcomposev2.ProjectSummary) c
 		ServiceCount:    nil,
 		RunningRunCount: summary.GetRunningRunCount(),
 		LatestRunID:     displayOpaqueID(summary.GetLatestRunId()),
-		CreatedAt:       summary.GetCreatedAt(),
-		UpdatedAt:       summary.GetUpdatedAt(),
-		RemovedAt:       summary.GetRemovedAt(),
+		CreatedAt:       formatProtoTimestamp(summary.GetCreatedAt()),
+		UpdatedAt:       formatProtoTimestamp(summary.GetUpdatedAt()),
+		RemovedAt:       formatProtoTimestamp(summary.GetRemovedAt()),
 	}
 }
 
@@ -367,7 +367,7 @@ func composeDownDisplayChanges(resp *agentcomposev2.RemoveProjectResponse, spec 
 		}
 		builder.addProjectChange(change, spec)
 	}
-	if summary.GetRemovedAt() != "" {
+	if summary.GetRemovedAt() != nil {
 		removed = true
 	}
 	if len(builder.items) == 0 && summary.GetProjectId() != "" {

@@ -757,8 +757,8 @@ func testCLIImage(imageID, imageRef string) *agentcomposev2.Image {
 		},
 		SizeBytes:        1024,
 		VirtualSizeBytes: 1024,
-		CreatedAt:        "2026-06-11T00:00:00Z",
-		InspectedAt:      "2026-06-11T01:00:00Z",
+		CreatedAt:        mustProtoTimestamp("2026-06-11T00:00:00Z"),
+		InspectedAt:      mustProtoTimestamp("2026-06-11T01:00:00Z"),
 		Docker:           &agentcomposev2.DockerImageStatus{Local: true},
 		Labels:           map[string]string{"role": "test"},
 	}

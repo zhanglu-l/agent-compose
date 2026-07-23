@@ -31,7 +31,7 @@ func TestRunAgentStreamStartedProjectionPreservesResponseFields(t *testing.T) {
 	if resp.GetEventType() != agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_STARTED {
 		t.Fatalf("event type = %s", resp.GetEventType())
 	}
-	if resp.GetRunId() != "run-1" || resp.GetCreatedAt() != "2026-07-10T00:09:10.123456789Z" {
+	if resp.GetRunId() != "run-1" || !resp.GetCreatedAt().AsTime().Equal(createdAt) {
 		t.Fatalf("response identity/time = %#v", resp)
 	}
 	if resp.GetRun().GetRunId() != "run-1" || resp.GetRun().GetSandboxId() != "session-1" || resp.GetRun().GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_RUNNING {
@@ -56,13 +56,13 @@ func TestRunAgentStreamChunkProjectionPreservesOutputFields(t *testing.T) {
 	if resp.GetEventType() != agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_OUTPUT {
 		t.Fatalf("event type = %s", resp.GetEventType())
 	}
-	if resp.GetRunId() != "run-1" || resp.GetChunk() != "stderr text\n" || resp.GetCreatedAt() != "2026-07-10T01:02:03.000000004Z" {
+	if resp.GetRunId() != "run-1" || resp.GetChunk() != "stderr text\n" || !resp.GetCreatedAt().AsTime().Equal(createdAt) {
 		t.Fatalf("response output fields = %#v", resp)
 	}
 	if resp.GetStream() != agentcomposev2.StdioStream_STDIO_STREAM_STDERR {
 		t.Fatalf("stream = %s", resp.GetStream())
 	}
-	if transcript := resp.GetTranscript(); transcript.GetText() != "stderr text\n" || transcript.GetStream() != agentcomposev2.StdioStream_STDIO_STREAM_STDERR || transcript.GetCreatedAt() != resp.GetCreatedAt() {
+	if transcript := resp.GetTranscript(); transcript.GetText() != "stderr text\n" || transcript.GetStream() != agentcomposev2.StdioStream_STDIO_STREAM_STDERR || !transcript.GetCreatedAt().AsTime().Equal(resp.GetCreatedAt().AsTime()) {
 		t.Fatalf("transcript = %#v", transcript)
 	}
 }
@@ -83,7 +83,7 @@ func TestRunAgentStreamCompletedProjectionPreservesResponseFields(t *testing.T) 
 	if resp.GetEventType() != agentcomposev2.RunAgentStreamEventType_RUN_AGENT_STREAM_EVENT_TYPE_COMPLETED {
 		t.Fatalf("event type = %s", resp.GetEventType())
 	}
-	if resp.GetRunId() != "run-1" || resp.GetCreatedAt() != "2026-07-10T11:12:13Z" {
+	if resp.GetRunId() != "run-1" || !resp.GetCreatedAt().AsTime().Equal(createdAt) {
 		t.Fatalf("response identity/time = %#v", resp)
 	}
 	if resp.GetRun().GetRunId() != "run-1" || resp.GetRun().GetStatus() != agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED {

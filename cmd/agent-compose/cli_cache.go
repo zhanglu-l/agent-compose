@@ -344,7 +344,7 @@ func composeCacheOutputFromProto(cache *agentcomposev2.CacheItem) composeCacheOu
 		Status:         cacheStatusText(cache.GetStatus()),
 		Removable:      cache.GetRemovable(),
 		BlockedReasons: append([]string(nil), cache.GetBlockedReasons()...),
-		LastUsedAt:     cache.GetLastUsedAt(),
+		LastUsedAt:     formatProtoTimestamp(cache.GetLastUsedAt()),
 		LastUsedSource: cache.GetLastUsedSource(),
 		References:     refs,
 		Warnings:       append([]string(nil), cache.GetWarnings()...),

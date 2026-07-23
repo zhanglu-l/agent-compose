@@ -43,7 +43,7 @@ func TestTranscriptEventFromExecChunkMapsStdioStream(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			event := TranscriptEventFromExecChunk(domain.ExecChunk{Text: "chunk", Stream: tc.stream}, createdAt)
-			if event.GetStream() != tc.want || event.GetText() != "chunk" || event.GetCreatedAt() == "" {
+			if event.GetStream() != tc.want || event.GetText() != "chunk" || event.GetCreatedAt() == nil {
 				t.Fatalf("event = %#v, want stream %s", event, tc.want)
 			}
 		})

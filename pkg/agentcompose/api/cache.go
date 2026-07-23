@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"agent-compose/pkg/cache"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
@@ -245,7 +246,7 @@ func RuntimeCacheItemToProto(item cache.Item) *agentcomposev2.CacheItem {
 		Warnings:       item.Warnings,
 	}
 	if !item.LastUsedAt.IsZero() {
-		out.LastUsedAt = item.LastUsedAt.UTC().Format(time.RFC3339Nano)
+		out.LastUsedAt = timestamppb.New(item.LastUsedAt)
 	}
 	return out
 }

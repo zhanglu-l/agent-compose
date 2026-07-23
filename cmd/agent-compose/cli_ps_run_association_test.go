@@ -27,13 +27,13 @@ func TestSchedulerRunIsNewer(t *testing.T) {
 		{
 			name:         "scheduler run is newer",
 			schedulerRun: composeSchedulerRunItem{RunID: "scheduler-run", CompletedAt: "2026-07-15T12:00:00.1Z"},
-			projectRun:   &agentcomposev2.RunSummary{RunId: "project-run", CompletedAt: "2026-07-15T12:00:00Z"},
+			projectRun:   &agentcomposev2.RunSummary{RunId: "project-run", CompletedAt: mustProtoTimestamp("2026-07-15T12:00:00Z")},
 			want:         true,
 		},
 		{
 			name:         "project run is newer",
 			schedulerRun: composeSchedulerRunItem{RunID: "scheduler-run", CompletedAt: "2026-07-15T11:00:00Z"},
-			projectRun:   &agentcomposev2.RunSummary{RunId: "project-run", CreatedAt: "2026-07-15T10:00:00Z", CompletedAt: "2026-07-15T12:00:00Z"},
+			projectRun:   &agentcomposev2.RunSummary{RunId: "project-run", CreatedAt: mustProtoTimestamp("2026-07-15T10:00:00Z"), CompletedAt: mustProtoTimestamp("2026-07-15T12:00:00Z")},
 		},
 	}
 	for _, tt := range tests {
@@ -114,7 +114,7 @@ agents:
 		},
 		run: runServiceStub{listRuns: func(context.Context, *connect.Request[agentcomposev2.ListRunsRequest]) (*connect.Response[agentcomposev2.ListRunsResponse], error) {
 			return connect.NewResponse(&agentcomposev2.ListRunsResponse{Runs: []*agentcomposev2.RunSummary{{
-				RunId: projectRunID, ProjectId: projectID, AgentName: "reviewer", SandboxId: sandboxID, CompletedAt: "2026-07-15T11:00:00Z",
+				RunId: projectRunID, ProjectId: projectID, AgentName: "reviewer", SandboxId: sandboxID, CompletedAt: mustProtoTimestamp("2026-07-15T11:00:00Z"),
 			}}}), nil
 		}},
 		sandbox: sandboxServiceStub{listSandboxes: func(context.Context, *connect.Request[agentcomposev2.ListSandboxesRequest]) (*connect.Response[agentcomposev2.ListSandboxesResponse], error) {

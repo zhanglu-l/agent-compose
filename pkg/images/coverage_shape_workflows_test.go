@@ -44,7 +44,7 @@ func TestImageBackendAndMappingCoverageWorkflows(t *testing.T) {
 		t.Fatalf("expected nil auto backend error")
 	}
 
-	summary := DockerSummaryToProtoImage(typesimage.Summary{ID: "sha256:1", RepoTags: []string{"guest:latest", "<none>:<none>"}, RepoDigests: []string{"guest@sha256:1"}, Size: 42, Created: 100, Containers: -1, Labels: map[string]string{"k": "v"}}, "now", "")
+	summary := DockerSummaryToProtoImage(typesimage.Summary{ID: "sha256:1", RepoTags: []string{"guest:latest", "<none>:<none>"}, RepoDigests: []string{"guest@sha256:1"}, Size: 42, Created: 100, Containers: -1, Labels: map[string]string{"k": "v"}}, time.Now(), "")
 	if summary.GetImageId() != "sha256:1" || summary.GetContainerCount() != 0 || summary.GetLabels()["k"] != "v" {
 		t.Fatalf("docker summary = %#v", summary)
 	}
@@ -52,7 +52,7 @@ func TestImageBackendAndMappingCoverageWorkflows(t *testing.T) {
 	if err != nil || len(progress) != 1 {
 		t.Fatalf("progress=%#v err=%v", progress, err)
 	}
-	ociImage := OCIMetadataToProtoImage(imagecache.ImageMetadata{RequestedRef: "guest:latest", NormalizedRef: "docker.io/library/guest:latest", ManifestDigest: "sha256:manifest", ConfigDigest: "sha256:config", RepoTags: []string{"guest:latest"}, SizeBytes: 100, CreatedAt: time.Now(), PulledAt: time.Now(), Labels: map[string]string{"a": "b"}}, "")
+	ociImage := OCIMetadataToProtoImage(imagecache.ImageMetadata{RequestedRef: "guest:latest", NormalizedRef: "docker.io/library/guest:latest", ManifestDigest: "sha256:manifest", ConfigDigest: "sha256:config", RepoTags: []string{"guest:latest"}, SizeBytes: 100, CreatedAt: time.Now(), PulledAt: time.Now(), Labels: map[string]string{"a": "b"}}, time.Time{})
 	if ociImage.GetImageId() != "sha256:config" || ociImage.GetOci().GetManifestDigest() == "" {
 		t.Fatalf("oci image = %#v", ociImage)
 	}
@@ -92,8 +92,8 @@ func TestImageBackendAndMappingCoverageWorkflows(t *testing.T) {
 	}
 	now := time.Date(2026, 7, 4, 8, 0, 0, 0, time.UTC)
 	ociBackend := NewOCIBackend(cache, WithOCIClock(func() time.Time { return now }))
-	if !ociBackend.HasCache() || ociBackend.CacheRoot() != cache.Root() || ociBackend.inspectedAt() != now.Format(time.RFC3339Nano) {
-		t.Fatalf("OCI backend metadata root=%q inspected=%q", ociBackend.CacheRoot(), ociBackend.inspectedAt())
+	if !ociBackend.HasCache() || ociBackend.CacheRoot() != cache.Root() || !ociBackend.inspectedAt().Equal(now) {
+		t.Fatalf("OCI backend metadata root=%q inspected=%v", ociBackend.CacheRoot(), ociBackend.inspectedAt())
 	}
 	ociList, err := ociBackend.ListImages(ctx, ListRequest{All: true})
 	if err != nil || len(ociList.Images) != 0 || ociList.StoreStatus.GetStore() != agentcomposev2.ImageStoreKind_IMAGE_STORE_KIND_OCI_CACHE {

@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -141,8 +142,8 @@ func (x *MemoryUsage) GetStackSys() uint64 {
 type HealthStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	CurrentTime   string                 `protobuf:"bytes,2,opt,name=current_time,json=currentTime,proto3" json:"current_time,omitempty"`
-	StartedAt     string                 `protobuf:"bytes,3,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CurrentTime   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=current_time,json=currentTime,proto3" json:"current_time,omitempty"`
+	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	UptimeSeconds uint64                 `protobuf:"varint,4,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
 	GoVersion     string                 `protobuf:"bytes,5,opt,name=go_version,json=goVersion,proto3" json:"go_version,omitempty"`
 	NumGoroutines uint64                 `protobuf:"varint,6,opt,name=num_goroutines,json=numGoroutines,proto3" json:"num_goroutines,omitempty"`
@@ -190,18 +191,18 @@ func (x *HealthStatusResponse) GetVersion() string {
 	return ""
 }
 
-func (x *HealthStatusResponse) GetCurrentTime() string {
+func (x *HealthStatusResponse) GetCurrentTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CurrentTime
 	}
-	return ""
+	return nil
 }
 
-func (x *HealthStatusResponse) GetStartedAt() string {
+func (x *HealthStatusResponse) GetStartedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.StartedAt
 	}
-	return ""
+	return nil
 }
 
 func (x *HealthStatusResponse) GetUptimeSeconds() uint64 {
@@ -350,7 +351,7 @@ var File_health_v1_health_proto protoreflect.FileDescriptor
 
 const file_health_v1_health_proto_rawDesc = "" +
 	"\n" +
-	"\x16health/v1/health.proto\x12\thealth.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xa1\x02\n" +
+	"\x16health/v1/health.proto\x12\thealth.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xa1\x02\n" +
 	"\vMemoryUsage\x12\x14\n" +
 	"\x05alloc\x18\x01 \x01(\x04R\x05alloc\x12\x1f\n" +
 	"\vtotal_alloc\x18\x02 \x01(\x04R\n" +
@@ -366,12 +367,12 @@ const file_health_v1_health_proto_rawDesc = "" +
 	"\vstack_inuse\x18\t \x01(\x04R\n" +
 	"stackInuse\x12\x1b\n" +
 	"\tstack_sys\x18\n" +
-	" \x01(\x04R\bstackSys\"\xe7\x02\n" +
+	" \x01(\x04R\bstackSys\"\x9f\x03\n" +
 	"\x14HealthStatusResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\tR\aversion\x12!\n" +
-	"\fcurrent_time\x18\x02 \x01(\tR\vcurrentTime\x12\x1d\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12=\n" +
+	"\fcurrent_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vcurrentTime\x129\n" +
 	"\n" +
-	"started_at\x18\x03 \x01(\tR\tstartedAt\x12%\n" +
+	"started_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12%\n" +
 	"\x0euptime_seconds\x18\x04 \x01(\x04R\ruptimeSeconds\x12\x1d\n" +
 	"\n" +
 	"go_version\x18\x05 \x01(\tR\tgoVersion\x12%\n" +
@@ -409,23 +410,26 @@ func file_health_v1_health_proto_rawDescGZIP() []byte {
 
 var file_health_v1_health_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_health_v1_health_proto_goTypes = []any{
-	(*MemoryUsage)(nil),          // 0: health.v1.MemoryUsage
-	(*HealthStatusResponse)(nil), // 1: health.v1.HealthStatusResponse
-	(*ProcessUsage)(nil),         // 2: health.v1.ProcessUsage
-	(*emptypb.Empty)(nil),        // 3: google.protobuf.Empty
+	(*MemoryUsage)(nil),           // 0: health.v1.MemoryUsage
+	(*HealthStatusResponse)(nil),  // 1: health.v1.HealthStatusResponse
+	(*ProcessUsage)(nil),          // 2: health.v1.ProcessUsage
+	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),         // 4: google.protobuf.Empty
 }
 var file_health_v1_health_proto_depIdxs = []int32{
-	0, // 0: health.v1.HealthStatusResponse.memory:type_name -> health.v1.MemoryUsage
-	2, // 1: health.v1.HealthStatusResponse.process:type_name -> health.v1.ProcessUsage
-	3, // 2: health.v1.HealthService.Status:input_type -> google.protobuf.Empty
-	3, // 3: health.v1.HealthService.WatchStatus:input_type -> google.protobuf.Empty
-	1, // 4: health.v1.HealthService.Status:output_type -> health.v1.HealthStatusResponse
-	1, // 5: health.v1.HealthService.WatchStatus:output_type -> health.v1.HealthStatusResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 0: health.v1.HealthStatusResponse.current_time:type_name -> google.protobuf.Timestamp
+	3, // 1: health.v1.HealthStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	0, // 2: health.v1.HealthStatusResponse.memory:type_name -> health.v1.MemoryUsage
+	2, // 3: health.v1.HealthStatusResponse.process:type_name -> health.v1.ProcessUsage
+	4, // 4: health.v1.HealthService.Status:input_type -> google.protobuf.Empty
+	4, // 5: health.v1.HealthService.WatchStatus:input_type -> google.protobuf.Empty
+	1, // 6: health.v1.HealthService.Status:output_type -> health.v1.HealthStatusResponse
+	1, // 7: health.v1.HealthService.WatchStatus:output_type -> health.v1.HealthStatusResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_health_v1_health_proto_init() }

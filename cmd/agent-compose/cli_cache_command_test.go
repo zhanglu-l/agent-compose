@@ -144,7 +144,7 @@ func testCLICache(cacheID string) *agentcomposev2.CacheItem {
 		Status:         agentcomposev2.CacheStatus_CACHE_STATUS_ORPHANED,
 		Removable:      true,
 		BlockedReasons: []string{"dry-run only"},
-		LastUsedAt:     "2026-06-11T00:00:00Z",
+		LastUsedAt:     mustProtoTimestamp("2026-06-11T00:00:00Z"),
 		LastUsedSource: "mtime",
 		References: []*agentcomposev2.CacheReference{{
 			Type:        "image-metadata",

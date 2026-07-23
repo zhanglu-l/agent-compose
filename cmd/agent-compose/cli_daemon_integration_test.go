@@ -35,7 +35,7 @@ agents:
 		AgentName: "reviewer",
 		Status:    agentcomposev2.RunStatus_RUN_STATUS_RUNNING,
 		SandboxId: sandboxID,
-		UpdatedAt: "2026-06-11T00:00:01Z",
+		UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:01Z"),
 	}
 	var stopped []string
 	var resumed []string

@@ -444,7 +444,7 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 							SpecHash:        "sha256:reviewer",
 							AgentCount:      2,
 							SchedulerCount:  1,
-							UpdatedAt:       "2026-07-03T10:00:00Z",
+							UpdatedAt:       mustProtoTimestamp("2026-07-03T10:00:00Z"),
 						}},
 						TotalCount: 2,
 						HasMore:    true,
@@ -460,7 +460,7 @@ func TestIntegrationCLIListProjectsTextVerboseAndJSON(t *testing.T) {
 							SpecHash:        "sha256:builder",
 							AgentCount:      1,
 							SchedulerCount:  0,
-							UpdatedAt:       "2026-07-03T11:00:00Z",
+							UpdatedAt:       mustProtoTimestamp("2026-07-03T11:00:00Z"),
 						}},
 						TotalCount: 2,
 					}), nil

@@ -285,8 +285,8 @@ func composeVolumeOutputFromProto(volume *agentcomposev2.Volume) composeVolumeOu
 		Labels:    cloneStringMapForCLI(volume.GetLabels()),
 		Options:   cloneStringMapForCLI(volume.GetOptions()),
 		ProjectID: volume.GetProjectId(),
-		CreatedAt: volume.GetCreatedAt(),
-		UpdatedAt: volume.GetUpdatedAt(),
+		CreatedAt: formatProtoTimestamp(volume.GetCreatedAt()),
+		UpdatedAt: formatProtoTimestamp(volume.GetUpdatedAt()),
 	}
 }
 

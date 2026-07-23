@@ -112,7 +112,7 @@ func TestCLIOutputHelpersCoverEdgeBranches(t *testing.T) {
 	stats := composeStatsOutputFromProto(&agentcomposev2.SandboxStats{
 		SandboxId:        "sandbox-1",
 		Driver:           "boxlite",
-		SampledAt:        "2026-07-06T00:00:00Z",
+		SampledAt:        mustProtoTimestamp("2026-07-06T00:00:00Z"),
 		CpuPercent:       &agentcomposev2.MetricValue{Value: &value, Unit: "percent", Status: agentcomposev2.MetricStatus_METRIC_STATUS_OK},
 		MemoryUsageBytes: &agentcomposev2.MetricValue{Value: &value, Unit: "bytes", Status: agentcomposev2.MetricStatus_METRIC_STATUS_UNAVAILABLE, Message: "n/a"},
 		UptimeSeconds:    &agentcomposev2.MetricValue{Value: &value, Unit: "seconds", Status: agentcomposev2.MetricStatus_METRIC_STATUS_OK},

@@ -44,7 +44,7 @@ func composeStatsOutputFromProto(stats *agentcomposev2.SandboxStats) composeStat
 		SandboxID:        displayOpaqueID(stats.GetSandboxId()),
 		SandboxShortID:   shortOpaqueID(stats.GetSandboxId()),
 		Driver:           stats.GetDriver(),
-		SampledAt:        stats.GetSampledAt(),
+		SampledAt:        formatProtoTimestamp(stats.GetSampledAt()),
 		CPUPercent:       composeMetricOutputFromProto(stats.GetCpuPercent()),
 		MemoryUsageBytes: composeMetricOutputFromProto(stats.GetMemoryUsageBytes()),
 		MemoryLimitBytes: composeMetricOutputFromProto(stats.GetMemoryLimitBytes()),

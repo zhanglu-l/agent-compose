@@ -50,14 +50,14 @@ agents:
 				if err := stream.Send(&agentcomposev2.RunLogChunk{
 					Data:      "history output\n",
 					Offset:    uint64(len("history output\n")),
-					CreatedAt: "2026-07-04T08:00:00Z",
+					CreatedAt: mustProtoTimestamp("2026-07-04T08:00:00Z"),
 				}); err != nil {
 					return err
 				}
 				if err := stream.Send(&agentcomposev2.RunLogChunk{
 					Data:      "live output\n",
 					Offset:    uint64(len("history output\nlive output\n")),
-					CreatedAt: "2026-07-04T08:00:01Z",
+					CreatedAt: mustProtoTimestamp("2026-07-04T08:00:01Z"),
 				}); err != nil {
 					return err
 				}
@@ -65,7 +65,7 @@ agents:
 					Offset:    uint64(len("history output\nlive output\n")),
 					IsFinal:   true,
 					RunStatus: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED,
-					CreatedAt: "2026-07-04T08:00:02Z",
+					CreatedAt: mustProtoTimestamp("2026-07-04T08:00:02Z"),
 				})
 			},
 		},
@@ -186,13 +186,13 @@ agents:
 			switch req.Msg.GetRunId() {
 			case "run-reviewer":
 				run := testRunDetail(req.Msg.GetProjectId(), "run-reviewer", "reviewer", "session-reviewer", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "review one\n")
-				run.Summary.StartedAt = "2026-06-11T00:00:02Z"
-				run.Summary.CompletedAt = "2026-06-11T00:00:03Z"
+				run.Summary.StartedAt = mustProtoTimestamp("2026-06-11T00:00:02Z")
+				run.Summary.CompletedAt = mustProtoTimestamp("2026-06-11T00:00:03Z")
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: run}), nil
 			case "run-writer":
 				run := testRunDetail(req.Msg.GetProjectId(), "run-writer", "writer", "session-writer", agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, 0, "write one\nwrite two\n")
-				run.Summary.StartedAt = "2026-06-11T00:00:01Z"
-				run.Summary.CompletedAt = "2026-06-11T00:00:04Z"
+				run.Summary.StartedAt = mustProtoTimestamp("2026-06-11T00:00:01Z")
+				run.Summary.CompletedAt = mustProtoTimestamp("2026-06-11T00:00:04Z")
 				return connect.NewResponse(&agentcomposev2.GetRunResponse{Run: run}), nil
 			default:
 				t.Fatalf("unexpected run id %q", req.Msg.GetRunId())
@@ -259,12 +259,12 @@ func TestRunLogLinePrefixWidthUsesDisplayWidth(t *testing.T) {
 	summary := &agentcomposev2.RunSummary{
 		RunId:       "run-123456789abc",
 		AgentName:   "审查",
-		CompletedAt: "2026-06-11T00:00:03Z",
+		CompletedAt: mustProtoTimestamp("2026-06-11T00:00:03Z"),
 	}
 	if got, want := runLogLinePrefixWidth(summary, "", false), 24; got != want {
 		t.Fatalf("runLogLinePrefixWidth without timestamp = %d, want %d", got, want)
 	}
-	if got, want := runLogLinePrefixWidth(summary, summary.GetCompletedAt(), true), 50; got != want {
+	if got, want := runLogLinePrefixWidth(summary, formatProtoTimestamp(summary.GetCompletedAt()), true), 50; got != want {
 		t.Fatalf("runLogLinePrefixWidth with timestamp = %d, want %d", got, want)
 	}
 }
@@ -338,10 +338,10 @@ agents:
 			if req.Msg.GetRunId() != "run-follow" || !req.Msg.GetFollow() || req.Msg.GetTailLines() != 2 || !req.Msg.GetTailSet() {
 				t.Fatalf("FollowRunLogs request = %#v", req.Msg)
 			}
-			if err := stream.Send(&agentcomposev2.RunLogChunk{Data: "first\n", Offset: 6, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, CreatedAt: "2026-07-06T08:01:36.372Z"}); err != nil {
+			if err := stream.Send(&agentcomposev2.RunLogChunk{Data: "first\n", Offset: 6, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, CreatedAt: mustProtoTimestamp("2026-07-06T08:01:36.372Z")}); err != nil {
 				return err
 			}
-			return stream.Send(&agentcomposev2.RunLogChunk{Data: "second\n", Offset: 13, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, CreatedAt: "2026-07-06T08:01:36.875Z", IsFinal: true})
+			return stream.Send(&agentcomposev2.RunLogChunk{Data: "second\n", Offset: 13, RunStatus: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, CreatedAt: mustProtoTimestamp("2026-07-06T08:01:36.875Z"), IsFinal: true})
 		},
 	})
 	defer server.Close()

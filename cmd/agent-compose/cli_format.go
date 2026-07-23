@@ -12,6 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type composePSOptions struct {
@@ -178,7 +180,7 @@ func writeStringMapSection(out io.Writer, title string, values map[string]string
 	return nil
 }
 
-func formatProtoTimestamp(value interface{ AsTime() time.Time }) string {
+func formatProtoTimestamp(value *timestamppb.Timestamp) string {
 	if value == nil {
 		return ""
 	}

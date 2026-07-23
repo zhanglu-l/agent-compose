@@ -99,7 +99,7 @@ func schedulerRunSortTime(run composeSchedulerRunItem) string {
 }
 
 func projectRunAssociationSortTime(run *agentcomposev2.RunSummary) string {
-	return firstNonEmptyString(run.GetUpdatedAt(), run.GetCompletedAt(), run.GetStartedAt(), run.GetCreatedAt())
+	return firstNonEmptyString(formatProtoTimestamp(run.GetUpdatedAt()), formatProtoTimestamp(run.GetCompletedAt()), formatProtoTimestamp(run.GetStartedAt()), formatProtoTimestamp(run.GetCreatedAt()))
 }
 
 func runTimestampAfter(candidate, current string) bool {

@@ -45,7 +45,7 @@ func TestCacheHandlerListCachesMapsFilterAndResponse(t *testing.T) {
 	if got.GetCacheId() != item.CacheID ||
 		got.GetDomain() != agentcomposev2.CacheDomain_CACHE_DOMAIN_SKILL_ARTIFACT_CACHE ||
 		got.GetStatus() != agentcomposev2.CacheStatus_CACHE_STATUS_ORPHANED ||
-		got.GetLastUsedAt() == "" ||
+		got.GetLastUsedAt() == nil ||
 		len(got.GetReferences()) != 1 ||
 		len(resp.Msg.GetWarnings()) != 1 {
 		t.Fatalf("mapped response cache = %#v warnings=%#v", got, resp.Msg.GetWarnings())

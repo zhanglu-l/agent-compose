@@ -17,7 +17,7 @@ func TestWritePrefixedRunOutputHonorsTimestampFlag(t *testing.T) {
 	summary := &agentcomposev2.RunSummary{
 		RunId:       "run-123456789abc",
 		AgentName:   "reviewer",
-		CompletedAt: "2026-06-11T00:00:03Z",
+		CompletedAt: mustProtoTimestamp("2026-06-11T00:00:03Z"),
 	}
 	var out strings.Builder
 	if err := writePrefixedRunOutput(&out, summary, "line\n", false); err != nil {

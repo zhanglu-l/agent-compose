@@ -15,7 +15,7 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-func DockerSummaryToProtoImage(image typesimage.Summary, inspectedAt, imageRef string) *agentcomposev2.Image {
+func DockerSummaryToProtoImage(image typesimage.Summary, inspectedAt time.Time, imageRef string) *agentcomposev2.Image {
 	repoTags := CleanDockerRefs(image.RepoTags)
 	repoDigests := CleanDockerRefs(image.RepoDigests)
 	ref := FirstNonEmpty(strings.TrimSpace(imageRef), FirstString(repoTags), FirstString(repoDigests), strings.TrimSpace(image.ID))
@@ -29,8 +29,8 @@ func DockerSummaryToProtoImage(image typesimage.Summary, inspectedAt, imageRef s
 		AvailabilityStatus: agentcomposev2.ImageAvailabilityStatus_IMAGE_AVAILABILITY_STATUS_AVAILABLE,
 		SizeBytes:          NonNegativeUint64(image.Size),
 		VirtualSizeBytes:   NonNegativeUint64(image.Size),
-		CreatedAt:          UnixSecondsString(image.Created),
-		InspectedAt:        inspectedAt,
+		CreatedAt:          unixSecondsToProto(image.Created),
+		InspectedAt:        timeToProto(inspectedAt),
 		Dangling:           DockerImageDangling(repoTags, repoDigests),
 		ContainerCount:     NonNegativeUint64(image.Containers),
 		Docker: &agentcomposev2.DockerImageStatus{
@@ -42,7 +42,7 @@ func DockerSummaryToProtoImage(image typesimage.Summary, inspectedAt, imageRef s
 	}
 }
 
-func DockerInspectToProtoImage(image typesimage.InspectResponse, inspectedAt, imageRef string) *agentcomposev2.Image {
+func DockerInspectToProtoImage(image typesimage.InspectResponse, inspectedAt time.Time, imageRef string) *agentcomposev2.Image {
 	repoTags := CleanDockerRefs(image.RepoTags)
 	repoDigests := CleanDockerRefs(image.RepoDigests)
 	labels := map[string]string(nil)
@@ -65,8 +65,8 @@ func DockerInspectToProtoImage(image typesimage.InspectResponse, inspectedAt, im
 		},
 		SizeBytes:        NonNegativeUint64(image.Size),
 		VirtualSizeBytes: NonNegativeUint64(image.Size),
-		CreatedAt:        image.Created,
-		InspectedAt:      inspectedAt,
+		CreatedAt:        rfc3339ToProto(image.Created),
+		InspectedAt:      timeToProto(inspectedAt),
 		Dangling:         DockerImageDangling(repoTags, repoDigests),
 		Docker: &agentcomposev2.DockerImageStatus{
 			Local:    true,
@@ -148,13 +148,6 @@ func CleanDockerRefs(refs []string) []string {
 
 func DockerImageDangling(tags, digests []string) bool {
 	return len(tags) == 0 && len(digests) == 0
-}
-
-func UnixSecondsString(value int64) string {
-	if value <= 0 {
-		return ""
-	}
-	return time.Unix(value, 0).UTC().Format(time.RFC3339Nano)
 }
 
 func DockerPlatformString(platform *agentcomposev2.ImagePlatform) string {

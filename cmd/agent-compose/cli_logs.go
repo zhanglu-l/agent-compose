@@ -588,11 +588,11 @@ func tailLogOutput(output string, lines int) string {
 }
 
 func runLogTimestamp(summary *agentcomposev2.RunSummary) string {
-	return firstNonEmptyString(summary.GetCompletedAt(), summary.GetUpdatedAt(), summary.GetStartedAt())
+	return firstNonEmptyString(formatProtoTimestamp(summary.GetCompletedAt()), formatProtoTimestamp(summary.GetUpdatedAt()), formatProtoTimestamp(summary.GetStartedAt()))
 }
 
 func runLogSortTimestamp(summary *agentcomposev2.RunSummary) string {
-	return firstNonEmptyString(summary.GetStartedAt(), summary.GetCreatedAt(), summary.GetUpdatedAt(), summary.GetCompletedAt())
+	return firstNonEmptyString(formatProtoTimestamp(summary.GetStartedAt()), formatProtoTimestamp(summary.GetCreatedAt()), formatProtoTimestamp(summary.GetUpdatedAt()), formatProtoTimestamp(summary.GetCompletedAt()))
 }
 
 func sortLogRunDetails(details []*agentcomposev2.RunDetail) {

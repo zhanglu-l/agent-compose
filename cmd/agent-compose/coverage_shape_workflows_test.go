@@ -181,8 +181,8 @@ func testComposeProjectPureHelpers(t *testing.T) {
 		SchedulerCount:  1,
 		RunningRunCount: 4,
 		LatestRunId:     "run-1",
-		UpdatedAt:       "2026-07-04T00:00:00Z",
-		RemovedAt:       "2026-07-05T00:00:00Z",
+		UpdatedAt:       mustProtoTimestamp("2026-07-04T00:00:00Z"),
+		RemovedAt:       mustProtoTimestamp("2026-07-05T00:00:00Z"),
 	})
 	if item.ProjectDir != "/tmp/project" || projectListStatus(item) != "removed" {
 		t.Fatalf("project list item = %#v", item)
@@ -213,8 +213,8 @@ func testComposeProjectPureHelpers(t *testing.T) {
 	if issues != "agents[0].image: required; top-level error" {
 		t.Fatalf("formatProjectValidationIssues = %q", issues)
 	}
-	run := &agentcomposev2.RunSummary{CreatedAt: "created", UpdatedAt: "updated", StartedAt: "started", CompletedAt: "completed"}
-	if runSortTime(run) != "updated" {
+	run := &agentcomposev2.RunSummary{CreatedAt: mustProtoTimestamp("2026-07-01T00:00:00Z"), UpdatedAt: mustProtoTimestamp("2026-07-04T00:00:00Z"), StartedAt: mustProtoTimestamp("2026-07-02T00:00:00Z"), CompletedAt: mustProtoTimestamp("2026-07-03T00:00:00Z")}
+	if runSortTime(run) != "2026-07-04T00:00:00Z" {
 		t.Fatalf("runSortTime = %q", runSortTime(run))
 	}
 	if execResultExitCode(&agentcomposev2.ExecResult{ExitCode: 7}) != 7 || execResultExitCode(&agentcomposev2.ExecResult{ExitCode: 126}) != exitCodeGeneral {
@@ -352,9 +352,8 @@ func testComposeProjectOutputHelpers(t *testing.T) {
 			SchedulerCount:  1,
 			RunningRunCount: 1,
 			LatestRunId:     "run-latest",
-			CreatedAt:       "created",
-			UpdatedAt:       "updated",
-			RemovedAt:       "",
+			CreatedAt:       mustProtoTimestamp("2026-07-01T00:00:00Z"),
+			UpdatedAt:       mustProtoTimestamp("2026-07-02T00:00:00Z"),
 		},
 		Agents: []*agentcomposev2.ProjectAgent{
 			{AgentName: "reviewer", ManagedAgentId: "agent-1", Provider: "codex", Model: "gpt", Image: "guest:latest", Driver: "docker", SchedulerEnabled: true},
@@ -391,8 +390,8 @@ func testComposeProjectOutputHelpers(t *testing.T) {
 		t.Fatalf("composePSStatusFilter default filter=%#v err=%v", filter, err)
 	}
 
-	newerRun := &agentcomposev2.RunSummary{RunId: "run-new", ProjectId: "project-1", SandboxId: "sandbox-1", UpdatedAt: "2026-07-02T00:00:00Z"}
-	olderRun := &agentcomposev2.RunSummary{RunId: "run-old", ProjectId: "project-1", SandboxId: "sandbox-1", CreatedAt: "2026-07-01T00:00:00Z"}
+	newerRun := &agentcomposev2.RunSummary{RunId: "run-new", ProjectId: "project-1", SandboxId: "sandbox-1", UpdatedAt: mustProtoTimestamp("2026-07-02T00:00:00Z")}
+	olderRun := &agentcomposev2.RunSummary{RunId: "run-old", ProjectId: "project-1", SandboxId: "sandbox-1", CreatedAt: mustProtoTimestamp("2026-07-01T00:00:00Z")}
 	bySandbox := latestRunsBySandbox([]*agentcomposev2.RunSummary{
 		olderRun,
 		{RunId: "missing-sandbox"},
@@ -468,9 +467,9 @@ func testComposeRunLogAndExecHelpers(t *testing.T) {
 		SandboxId:   "session-1",
 		ExitCode:    7,
 		Error:       "failed",
-		StartedAt:   "started",
-		UpdatedAt:   "updated",
-		CompletedAt: "completed",
+		StartedAt:   mustProtoTimestamp("2026-07-01T00:00:00Z"),
+		UpdatedAt:   mustProtoTimestamp("2026-07-02T00:00:00Z"),
+		CompletedAt: mustProtoTimestamp("2026-07-03T00:00:00Z"),
 		DurationMs:  12,
 		Warnings:    []string{"first", "duplicate"},
 	}
@@ -512,7 +511,7 @@ func testComposeRunLogAndExecHelpers(t *testing.T) {
 	if got := tailLogOutput("a\nb\nc", 2); got != "b\nc" {
 		t.Fatalf("tailLogOutput = %q", got)
 	}
-	if got := runLogTimestamp(summary); got != "completed" {
+	if got := runLogTimestamp(summary); got != "2026-07-03T00:00:00Z" {
 		t.Fatalf("runLogTimestamp = %q", got)
 	}
 
@@ -520,11 +519,11 @@ func testComposeRunLogAndExecHelpers(t *testing.T) {
 	if err := writeLogDetails(&out, []*agentcomposev2.RunDetail{detail}, map[string]runLogPrintState{}, composeLogsOptions{TailLines: 1, Timestamp: true}); err != nil {
 		t.Fatalf("writeLogDetails returned error: %v", err)
 	}
-	logPrefix := "reviewer-run-1 [completed]| "
+	logPrefix := "reviewer-run-1 [2026-07-03T00:00:00.000Z]| "
 	if !strings.Contains(out.String(), expectedLogSeparator(logPrefix, ">")) ||
-		!strings.Contains(out.String(), "reviewer-run-1 [completed]| prompt\n") ||
+		!strings.Contains(out.String(), "reviewer-run-1 [2026-07-03T00:00:00.000Z]| prompt\n") ||
 		!strings.Contains(out.String(), expectedLogSeparator(logPrefix, "<")) ||
-		!strings.Contains(out.String(), "reviewer-run-1 [completed]| line3") {
+		!strings.Contains(out.String(), "reviewer-run-1 [2026-07-03T00:00:00.000Z]| line3") {
 		t.Fatalf("log details = %q", out.String())
 	}
 	out.Reset()
@@ -756,7 +755,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 	stats := composeStatsOutputFromProto(&agentcomposev2.SandboxStats{
 		SandboxId:        "session-1",
 		Driver:           "docker",
-		SampledAt:        "sampled",
+		SampledAt:        mustProtoTimestamp("2026-07-01T00:00:00Z"),
 		CpuPercent:       metric("percent", agentcomposev2.MetricStatus_METRIC_STATUS_OK),
 		MemoryUsageBytes: metric("bytes", agentcomposev2.MetricStatus_METRIC_STATUS_OK),
 		MemoryLimitBytes: metric("bytes", agentcomposev2.MetricStatus_METRIC_STATUS_UNAVAILABLE),
@@ -802,8 +801,8 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		Platform:           &agentcomposev2.ImagePlatform{Os: "linux", Architecture: "amd64"},
 		SizeBytes:          123,
 		VirtualSizeBytes:   456,
-		CreatedAt:          "created",
-		InspectedAt:        "inspected",
+		CreatedAt:          mustProtoTimestamp("2026-07-01T00:00:00Z"),
+		InspectedAt:        mustProtoTimestamp("2026-07-02T00:00:00Z"),
 		Dangling:           true,
 		ContainerCount:     2,
 		Labels:             map[string]string{"a": "b"},
@@ -849,7 +848,7 @@ func testComposeImageStatsAndSessionHelpers(t *testing.T) {
 		Status:         agentcomposev2.CacheStatus_CACHE_STATUS_REFERENCED,
 		Removable:      false,
 		BlockedReasons: []string{"cache is referenced"},
-		LastUsedAt:     "used",
+		LastUsedAt:     mustProtoTimestamp("2026-07-03T00:00:00Z"),
 		LastUsedSource: "metadata",
 		References: []*agentcomposev2.CacheReference{{
 			Policy:      agentcomposev2.CacheReferencePolicy_CACHE_REFERENCE_POLICY_REQUIRED,

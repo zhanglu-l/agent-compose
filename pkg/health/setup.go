@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/samber/do/v2"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"agent-compose/pkg/config"
 	healthv1 "agent-compose/proto/health/v1"
@@ -88,8 +89,8 @@ func (s *Service) snapshot() *healthv1.HealthStatusResponse {
 
 	return &healthv1.HealthStatusResponse{
 		Version:       s.config.Version,
-		CurrentTime:   now.Format(time.RFC3339Nano),
-		StartedAt:     s.startedAt.Format(time.RFC3339Nano),
+		CurrentTime:   timestamppb.New(now),
+		StartedAt:     timestamppb.New(s.startedAt),
 		UptimeSeconds: uint64(uptime / time.Second),
 		GoVersion:     runtime.Version(),
 		NumGoroutines: uint64(runtime.NumGoroutine()),

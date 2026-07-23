@@ -35,14 +35,14 @@ func testServiceSnapshotIncludesRuntimeDetails(t *testing.T) {
 	if status.GetGoVersion() != runtime.Version() {
 		t.Fatalf("go version = %q, want %q", status.GetGoVersion(), runtime.Version())
 	}
-	if status.GetCurrentTime() == "" || status.GetStartedAt() == "" {
+	if status.GetCurrentTime() == nil || status.GetStartedAt() == nil {
 		t.Fatalf("expected current and start timestamps, got %#v", status)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, status.GetCurrentTime()); err != nil {
-		t.Fatalf("current time is not RFC3339Nano: %v", err)
+	if err := status.GetCurrentTime().CheckValid(); err != nil {
+		t.Fatalf("current time is not a valid protobuf timestamp: %v", err)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, status.GetStartedAt()); err != nil {
-		t.Fatalf("started at is not RFC3339Nano: %v", err)
+	if err := status.GetStartedAt().CheckValid(); err != nil {
+		t.Fatalf("started at is not a valid protobuf timestamp: %v", err)
 	}
 	if status.GetMemory() == nil {
 		t.Fatal("expected memory details")

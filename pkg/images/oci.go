@@ -9,7 +9,7 @@ import (
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
 )
 
-func OCIMetadataToProtoImage(image imagecache.ImageMetadata, inspectedAt string) *agentcomposev2.Image {
+func OCIMetadataToProtoImage(image imagecache.ImageMetadata, inspectedAt time.Time) *agentcomposev2.Image {
 	repoTags := CleanOCIRefs(image.RepoTags)
 	repoDigests := CleanOCIRefs(image.RepoDigests)
 	imageID := FirstNonEmpty(image.ConfigDigest, image.ManifestDigest)
@@ -30,8 +30,8 @@ func OCIMetadataToProtoImage(image imagecache.ImageMetadata, inspectedAt string)
 		},
 		SizeBytes:        NonNegativeUint64(image.SizeBytes),
 		VirtualSizeBytes: NonNegativeUint64(image.SizeBytes),
-		CreatedAt:        TimeString(image.CreatedAt),
-		InspectedAt:      FirstNonEmpty(inspectedAt, TimeString(image.PulledAt)),
+		CreatedAt:        timeToProto(image.CreatedAt),
+		InspectedAt:      timeToProto(firstNonZeroTime(inspectedAt, image.PulledAt)),
 		Dangling:         len(repoTags) == 0 && len(repoDigests) == 0,
 		Oci: &agentcomposev2.OCIImageStatus{
 			LayoutCached:   image.LayoutCachePath != "",
@@ -58,11 +58,13 @@ func CleanOCIRefs(refs []string) []string {
 	return result
 }
 
-func TimeString(value time.Time) string {
-	if value.IsZero() {
-		return ""
+func firstNonZeroTime(values ...time.Time) time.Time {
+	for _, value := range values {
+		if !value.IsZero() {
+			return value
+		}
 	}
-	return value.UTC().Format(time.RFC3339Nano)
+	return time.Time{}
 }
 
 func FirstNonEmpty(values ...string) string {

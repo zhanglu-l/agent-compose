@@ -400,9 +400,9 @@ message ProjectSummary {
   uint32 scheduler_count = 7;
   uint32 running_run_count = 8;
   string latest_run_id = 9;
-  string created_at = 10;
-  string updated_at = 11;
-  string removed_at = 12;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp removed_at = 12;
 }
 
 message ProjectRevision {
@@ -410,7 +410,7 @@ message ProjectRevision {
   uint64 revision = 2;
   string spec_hash = 3;
   ProjectSpec spec = 4;
-  string created_at = 5;
+  google.protobuf.Timestamp created_at = 5;
 }
 
 message ProjectAgent {
@@ -882,7 +882,7 @@ message RunAgentStreamResponse {
   string run_id = 3;
   string chunk = 4;
   StdioStream stream = 5;
-  string created_at = 6;
+  google.protobuf.Timestamp created_at = 6;
   repeated string warnings = 7;
   TranscriptEvent transcript = 8;
 }
@@ -903,7 +903,7 @@ message RunAttachRequest {
 
 message RunAttachResponse {
   string server_frame_id = 15;
-  string created_at = 16;
+  google.protobuf.Timestamp created_at = 16;
 
   oneof frame {
     AttachStarted started = 1;
@@ -928,7 +928,7 @@ message TranscriptEvent {
   string text = 2;
   string name = 4;
   string payload_json = 5;
-  string created_at = 6;
+  google.protobuf.Timestamp created_at = 6;
 }
 
 message GetRunRequest {
@@ -976,7 +976,7 @@ message RunLogChunk {
   uint64 offset = 2;
   bool is_final = 3;
   RunStatus run_status = 4;
-  string created_at = 5;
+  google.protobuf.Timestamp created_at = 5;
   RunSummary run = 6;
   string prompt = 7;
 }
@@ -1154,7 +1154,7 @@ message MetricValue {
 message SandboxStats {
   string sandbox_id = 1;
   string driver = 2;
-  string sampled_at = 3;
+  google.protobuf.Timestamp sampled_at = 3;
   MetricValue cpu_percent = 4;
   MetricValue memory_usage_bytes = 5;
   MetricValue memory_limit_bytes = 6;
@@ -1182,11 +1182,11 @@ message RunSummary {
   RunStatus status = 10;
   int32 exit_code = 12;
   string error = 13;
-  string started_at = 14;
-  string completed_at = 15;
+  google.protobuf.Timestamp started_at = 14;
+  google.protobuf.Timestamp completed_at = 15;
   int64 duration_ms = 16;
-  string created_at = 17;
-  string updated_at = 18;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
   repeated string warnings = 19;
   string sandbox_id = 20;
   string run_short_id = 21;
@@ -1265,7 +1265,7 @@ message ExecAttachRequest {
 
 message ExecAttachResponse {
   string server_frame_id = 15;
-  string created_at = 16;
+  google.protobuf.Timestamp created_at = 16;
 
   oneof frame {
     AttachStarted started = 1;
@@ -1335,7 +1335,7 @@ message AttachAgentEvent {
   string name = 1;
   string text = 2;
   string payload_json = 3;
-  string created_at = 4;
+  google.protobuf.Timestamp created_at = 4;
 }
 
 message AttachAgentTurnCompleted {
@@ -1527,7 +1527,7 @@ message CacheItem {
   CacheStatus status = 12;
   bool removable = 13;
   repeated string blocked_reasons = 14;
-  string last_used_at = 15;
+  google.protobuf.Timestamp last_used_at = 15;
   string last_used_source = 16;
   repeated CacheReference references = 17;
   repeated string warnings = 18;
@@ -1604,8 +1604,8 @@ message Volume {
   map<string, string> labels = 4;
   map<string, string> options = 5;
   string project_id = 6;
-  string created_at = 7;
-  string updated_at = 8;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
 }
 
 message Image {
@@ -1619,8 +1619,8 @@ message Image {
   ImagePlatform platform = 8;
   uint64 size_bytes = 9;
   uint64 virtual_size_bytes = 10;
-  string created_at = 11;
-  string inspected_at = 12;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp inspected_at = 12;
   bool dangling = 13;
   uint64 container_count = 14;
   DockerImageStatus docker = 15;

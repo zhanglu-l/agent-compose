@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/volumes"
@@ -134,11 +135,11 @@ func VolumeToProto(item domain.VolumeRecord) *agentcomposev2.Volume {
 	}
 }
 
-func formatVolumeTime(value time.Time) string {
+func formatVolumeTime(value time.Time) *timestamppb.Timestamp {
 	if value.IsZero() {
-		return ""
+		return nil
 	}
-	return value.UTC().Format(time.RFC3339Nano)
+	return timestamppb.New(value)
 }
 
 func cloneVolumeStringMap(values map[string]string) map[string]string {

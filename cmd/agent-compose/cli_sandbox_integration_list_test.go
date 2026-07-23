@@ -139,9 +139,9 @@ agents:
 		testCLISessionSummary("session-foreign", "RUNNING", "foreign-project", "reviewer", "run-foreign"),
 	}
 	runs := []*agentcomposev2.RunSummary{
-		{RunId: "run-one", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SandboxId: "session-one", UpdatedAt: "2026-06-11T00:00:01Z"},
-		{RunId: "run-two", ProjectId: project.GetSummary().GetProjectId(), AgentName: "worker", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SandboxId: "session-two", UpdatedAt: "2026-06-11T00:00:02Z"},
-		{RunId: "run-stopped", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SandboxId: "session-stopped", UpdatedAt: "2026-06-11T00:00:03Z"},
+		{RunId: "run-one", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SandboxId: "session-one", UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:01Z")},
+		{RunId: "run-two", ProjectId: project.GetSummary().GetProjectId(), AgentName: "worker", Status: agentcomposev2.RunStatus_RUN_STATUS_RUNNING, SandboxId: "session-two", UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:02Z")},
+		{RunId: "run-stopped", ProjectId: project.GetSummary().GetProjectId(), AgentName: "reviewer", Status: agentcomposev2.RunStatus_RUN_STATUS_SUCCEEDED, SandboxId: "session-stopped", UpdatedAt: mustProtoTimestamp("2026-06-11T00:00:03Z")},
 	}
 	var statsCalls []string
 	server := newComposeServiceStubServer(t, composeServiceStubs{
@@ -173,7 +173,7 @@ agents:
 				return connect.NewResponse(&agentcomposev2.GetSandboxStatsResponse{Stats: &agentcomposev2.SandboxStats{
 					SandboxId:        req.Msg.GetSandboxId(),
 					Driver:           "boxlite",
-					SampledAt:        "2026-07-04T08:00:00Z",
+					SampledAt:        mustProtoTimestamp("2026-07-04T08:00:00Z"),
 					CpuPercent:       testStatsMetric(value, "percent"),
 					MemoryUsageBytes: testStatsMetric(value*100, "bytes"),
 					UptimeSeconds:    testStatsMetric(value, "seconds"),
