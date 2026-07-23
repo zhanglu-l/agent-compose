@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,21 +146,74 @@ func TestMicrosandboxExecStreamStopsWhenProcessIsGoneWithoutExit(t *testing.T) {
 // is how a real stream behaves. A receiver that keeps re-delivering the same
 // event instead would hold the drain window open forever.
 type scriptedExecStream struct {
-	pending []*microsandbox.ExecEvent
+	mu       sync.Mutex
+	pending  []*microsandbox.ExecEvent
+	ready    chan struct{}
+	active   int
+	max      int
+	canceled int
 }
 
 func (s *scriptedExecStream) push(event *microsandbox.ExecEvent) {
+	s.mu.Lock()
 	s.pending = append(s.pending, event)
+	if s.ready == nil {
+		s.ready = make(chan struct{}, 1)
+	}
+	s.mu.Unlock()
+	select {
+	case s.ready <- struct{}{}:
+	default:
+	}
 }
 
 func (s *scriptedExecStream) recv(ctx context.Context) (*microsandbox.ExecEvent, error) {
-	if len(s.pending) > 0 {
-		event := s.pending[0]
-		s.pending = s.pending[1:]
-		return event, nil
+	s.mu.Lock()
+	if s.ready == nil {
+		s.ready = make(chan struct{}, 1)
 	}
-	<-ctx.Done()
-	return nil, ctx.Err()
+	s.active++
+	if s.active > s.max {
+		s.max = s.active
+	}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.active--
+		s.mu.Unlock()
+	}()
+
+	for {
+		s.mu.Lock()
+		if len(s.pending) > 0 {
+			event := s.pending[0]
+			s.pending = s.pending[1:]
+			s.mu.Unlock()
+			return event, nil
+		}
+		ready := s.ready
+		s.mu.Unlock()
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			s.mu.Lock()
+			s.canceled++
+			s.mu.Unlock()
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func (s *scriptedExecStream) maxConcurrentReceivers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.max
+}
+
+func (s *scriptedExecStream) canceledReceivers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.canceled
 }
 
 // Silence on its own means nothing: a command can be quiet for a long time.
@@ -188,6 +243,12 @@ func TestMicrosandboxExecStreamKeepsWaitingWhileProcessLives(t *testing.T) {
 	}
 	if !result.Success || result.ExitCode != 0 {
 		t.Fatalf("result = %#v, want the reported exit to win", result)
+	}
+	if got := stream.maxConcurrentReceivers(); got != 1 {
+		t.Fatalf("concurrent receivers = %d, want exactly one", got)
+	}
+	if got := stream.canceledReceivers(); got != 1 {
+		t.Fatalf("canceled receivers = %d, want only the terminal drain cancellation", got)
 	}
 }
 
@@ -244,6 +305,32 @@ func TestMicrosandboxExecStreamRejectsDoneWithoutExit(t *testing.T) {
 	}
 	if result.Output != "partial" {
 		t.Fatalf("output = %q", result.Output)
+	}
+}
+
+func TestMicrosandboxExecLivenessProbeTreatsZombieAsGone(t *testing.T) {
+	if err := exec.Command("sh", "-c", microsandboxExecLivenessProbeCommand(uint32(os.Getpid()))).Run(); err != nil {
+		t.Fatalf("probe reported current process gone: %v", err)
+	}
+	if err := exec.Command("sh", "-c", microsandboxExecLivenessProbeCommand(^uint32(0))).Run(); err == nil {
+		t.Fatal("probe reported nonexistent process alive")
+	}
+
+	child := exec.Command("sh", "-c", "exit 0")
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	t.Cleanup(func() { _ = child.Wait() })
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := exec.Command("sh", "-c", microsandboxExecLivenessProbeCommand(uint32(child.Process.Pid))).Run()
+		if err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("probe still reported exited child %d alive", child.Process.Pid)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
