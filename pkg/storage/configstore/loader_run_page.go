@@ -158,6 +158,68 @@ func (s *loaderStore) ListLoaderRunSandboxIDs(ctx context.Context, keys []loader
 	return result, nil
 }
 
+func (s *loaderStore) BatchGetLatestLoaderRunsBySandboxIDs(ctx context.Context, loaderIDs, sandboxIDs []string) (map[string]domain.LoaderRunSummary, error) {
+	loaderIDs = normalizedLoaderRunPageIDs(loaderIDs)
+	sandboxIDs = normalizedLoaderRunPageIDs(sandboxIDs)
+	result := make(map[string]domain.LoaderRunSummary)
+	if len(loaderIDs) == 0 || len(sandboxIDs) == 0 {
+		return result, nil
+	}
+
+	args := make([]any, 0, len(loaderIDs)+len(sandboxIDs))
+	for _, sandboxID := range sandboxIDs {
+		args = append(args, sandboxID)
+	}
+	for _, loaderID := range loaderIDs {
+		args = append(args, loaderID)
+	}
+	query := `WITH associations AS (
+		SELECT DISTINCT linked_sandbox_id AS sandbox_id, loader_id, run_id
+		FROM loader_event
+		WHERE linked_sandbox_id <> ''
+			AND linked_sandbox_id IN (` + placeholders(len(sandboxIDs)) + `)
+			AND loader_id IN (` + placeholders(len(loaderIDs)) + `)
+	), ranked AS (
+		SELECT a.sandbox_id,
+			r.loader_id, r.run_id, r.trigger_id, r.trigger_kind, r.trigger_source, r.status,
+			r.started_at, r.completed_at, r.duration_ms, r.error, r.result_json, r.payload_json,
+			r.source_script_sha256, r.artifacts_dir,
+			ROW_NUMBER() OVER (
+				PARTITION BY a.sandbox_id
+				ORDER BY CASE WHEN r.completed_at > 0 THEN r.completed_at ELSE r.started_at END DESC,
+					r.started_at DESC, r.loader_id DESC, r.run_id DESC
+			) AS association_rank
+		FROM associations a
+		JOIN loader_run r ON r.loader_id = a.loader_id AND r.run_id = a.run_id
+		WHERE r.trigger_id <> ''
+	)
+	SELECT sandbox_id, loader_id, run_id, trigger_id, trigger_kind, trigger_source, status,
+		started_at, completed_at, duration_ms, error, result_json, payload_json,
+		source_script_sha256, artifacts_dir
+	FROM ranked
+	WHERE association_rank = 1
+	ORDER BY sandbox_id ASC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query latest loader runs by sandbox ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var sandboxID string
+		run, scanErr := loaders.ScanLoaderRun(func(dest ...any) error {
+			return rows.Scan(append([]any{&sandboxID}, dest...)...)
+		})
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result[sandboxID] = run
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate latest loader runs by sandbox ids: %w", err)
+	}
+	return result, nil
+}
+
 func normalizedLoaderRunPageIDs(loaderIDs []string) []string {
 	seen := make(map[string]struct{}, len(loaderIDs))
 	result := make([]string, 0, len(loaderIDs))

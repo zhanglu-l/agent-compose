@@ -29,6 +29,12 @@ type ProjectSchedulerRunSandboxStore interface {
 	ListLoaderRunSandboxIDs(context.Context, []loaders.LoaderRunKey) (map[loaders.LoaderRunKey][]string, error)
 }
 
+type ProjectSchedulerRunSandboxLookupStore interface {
+	BatchGetLatestLoaderRunsBySandboxIDs(context.Context, []string, []string) (map[string]domain.LoaderRunSummary, error)
+}
+
+const maxSchedulerRunBatchSandboxIDs = 500
+
 func (h *ProjectHandler) InvokeScheduler(ctx context.Context, req *connect.Request[agentcomposev2.InvokeSchedulerRequest]) (*connect.Response[agentcomposev2.InvokeSchedulerResponse], error) {
 	_, scheduler, err := h.resolveProjectScheduler(ctx, req.Msg.GetProject(), req.Msg.GetAgentName())
 	if err != nil {
@@ -188,6 +194,60 @@ func (h *ProjectHandler) ListSchedulerRuns(ctx context.Context, req *connect.Req
 		response.NextCursor = encodeSchedulerRunCursor(project.ID, project.CurrentRevision, req.Msg.GetAgentName(), triggerID, status, runs[limit-1])
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (h *ProjectHandler) BatchGetLatestSchedulerRuns(ctx context.Context, req *connect.Request[agentcomposev2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[agentcomposev2.BatchGetLatestSchedulerRunsResponse], error) {
+	if len(req.Msg.GetSandboxIds()) > maxSchedulerRunBatchSandboxIDs {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("at most %d sandbox ids may be queried", maxSchedulerRunBatchSandboxIDs))
+	}
+	_, schedulers, err := h.resolveProjectSchedulerRunTargets(ctx, req.Msg.GetProject(), "")
+	if err != nil {
+		return nil, ConnectErrorForDomain(err)
+	}
+	sandboxIDs := normalizeSchedulerRunBatchSandboxIDs(req.Msg.GetSandboxIds())
+	response := &agentcomposev2.BatchGetLatestSchedulerRunsResponse{Results: make([]*agentcomposev2.SandboxSchedulerRun, 0, len(sandboxIDs))}
+	if len(sandboxIDs) == 0 {
+		return connect.NewResponse(response), nil
+	}
+	store, ok := h.store.(ProjectSchedulerRunSandboxLookupStore)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler run sandbox lookup store is required"))
+	}
+	loaderIDs, schedulersByLoaderID := schedulerLoaderIndex(schedulers)
+	runsBySandboxID, err := store.BatchGetLatestLoaderRunsBySandboxIDs(ctx, loaderIDs, sandboxIDs)
+	if err != nil {
+		return nil, ConnectErrorForDomain(err)
+	}
+	for _, sandboxID := range sandboxIDs {
+		run, found := runsBySandboxID[sandboxID]
+		if !found {
+			response.Results = append(response.Results, &agentcomposev2.SandboxSchedulerRun{SandboxId: sandboxID})
+			continue
+		}
+		scheduler, found := schedulersByLoaderID[run.LoaderID]
+		if !found {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scheduler run sandbox lookup references an unknown project scheduler"))
+		}
+		response.Results = append(response.Results, &agentcomposev2.SandboxSchedulerRun{SandboxId: sandboxID, Run: schedulerRunToProto(run, scheduler)})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func normalizeSchedulerRunBatchSandboxIDs(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (h *ProjectHandler) StopSchedulerRun(ctx context.Context, req *connect.Request[agentcomposev2.StopSchedulerRunRequest]) (*connect.Response[agentcomposev2.StopSchedulerRunResponse], error) {

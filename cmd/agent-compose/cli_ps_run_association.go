@@ -5,48 +5,61 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
 	domain "agent-compose/pkg/model"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
-	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
 
-func latestSchedulerRunsBySandbox(ctx context.Context, client agentcomposev2connect.ProjectServiceClient, project *agentcomposev2.Project, sessions []*agentcomposev2.Sandbox) (map[string]composeSchedulerRunItem, error) {
+const schedulerRunLookupBatchSize = 500
+
+func latestSchedulerRunsBySandbox(ctx context.Context, clients cliServiceClients, project *agentcomposev2.Project, sessions []*agentcomposev2.Sandbox) (map[string]composeSchedulerRunItem, error) {
 	projectID := strings.TrimSpace(project.GetSummary().GetProjectId())
-	schedulerAgents := make(map[string]bool)
+	targetSandboxIDs := make([]string, 0, len(sessions))
 	for _, session := range sessions {
 		tags := sessionTagsMap(session.GetTags())
 		if tags["origin"] == "scheduler" && tags["project_id"] == projectID && tags["agent"] != "" {
-			schedulerAgents[tags["agent"]] = true
+			targetSandboxIDs = appendSchedulerSandboxID(targetSandboxIDs, session.GetSandboxId())
 			continue
 		}
-		if agentName := legacySchedulerAgentForProject(tags, project); agentName != "" {
-			schedulerAgents[agentName] = true
+		if legacySchedulerAgentForProject(tags, project) != "" {
+			targetSandboxIDs = appendSchedulerSandboxID(targetSandboxIDs, session.GetSandboxId())
 		}
 	}
 	result := make(map[string]composeSchedulerRunItem)
-	for _, scheduler := range project.GetSchedulers() {
-		agentName := strings.TrimSpace(scheduler.GetAgentName())
-		if !schedulerAgents[agentName] {
-			continue
-		}
-		loaderID, err := domain.StableManagedLoaderID(projectID, agentName, "")
+	for start := 0; start < len(targetSandboxIDs); start += schedulerRunLookupBatchSize {
+		end := min(start+schedulerRunLookupBatchSize, len(targetSandboxIDs))
+		response, err := clients.project.BatchGetLatestSchedulerRuns(ctx, connect.NewRequest(&agentcomposev2.BatchGetLatestSchedulerRunsRequest{
+			Project: &agentcomposev2.ProjectRef{ProjectId: projectID}, SandboxIds: targetSandboxIDs[start:end],
+		}))
 		if err != nil {
-			return nil, err
+			return nil, commandExitErrorForConnect(err)
 		}
-		runs, err := listSchedulerRuntimeRuns(ctx, client, projectID, agentName, scheduler.GetSchedulerId(), loaderID, 500)
-		if err != nil {
-			return nil, err
-		}
-		for _, run := range runs {
-			for _, sandboxID := range run.SandboxIDs {
-				current, ok := result[sandboxID]
-				if !ok || runTimestampAfter(schedulerRunSortTime(run), schedulerRunSortTime(current)) {
-					result[sandboxID] = run
-				}
+		for _, lookup := range response.Msg.GetResults() {
+			sandboxID := strings.TrimSpace(lookup.GetSandboxId())
+			run := lookup.GetRun()
+			if sandboxID == "" || run == nil {
+				continue
 			}
+			result[sandboxID] = schedulerRunPSItem(run)
 		}
 	}
 	return result, nil
+}
+
+func appendSchedulerSandboxID(values []string, sandboxID string) []string {
+	sandboxID = strings.TrimSpace(sandboxID)
+	if sandboxID == "" {
+		return values
+	}
+	return append(values, sandboxID)
+}
+
+func schedulerRunPSItem(run *agentcomposev2.SchedulerRun) composeSchedulerRunItem {
+	return composeSchedulerRunItem{
+		RunID: run.GetRunId(), AgentName: run.GetAgentName(),
+		StartedAt: formatProtoTimestamp(run.GetStartedAt()), CompletedAt: formatProtoTimestamp(run.GetCompletedAt()),
+	}
 }
 
 func legacySchedulerSandboxBelongsToProject(tags map[string]string, project *agentcomposev2.Project) bool {

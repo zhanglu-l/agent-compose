@@ -66,7 +66,7 @@ func TestMigrationBaseline(t *testing.T) {
 		"idx_event_dispatch", "idx_event_dispatch_attempt", "idx_event_idempotency", "idx_event_parent",
 		"idx_event_sandbox_link_loader_run", "idx_event_sandbox_link_run", "idx_event_sandbox_link_sandbox",
 		"idx_event_topic_sequence", "idx_llm_facade_token_sandbox", "idx_loader_event_created",
-		"idx_loader_event_run_created", "idx_loader_managed_project", "idx_loader_run_prune",
+		"idx_loader_event_run_created", "idx_loader_event_sandbox_run", "idx_loader_managed_project", "idx_loader_run_prune",
 		"idx_loader_run_started", "idx_loader_run_status_started", "idx_loader_run_trigger_started",
 		"idx_loader_trigger_schedule", "idx_project_agent_id", "idx_project_agent_managed_agent",
 		"idx_project_name", "idx_project_revision_hash", "idx_project_run_agent",
@@ -235,6 +235,7 @@ func TestBaselineIncludesPreviouslyOmittedSchema(t *testing.T) {
 		{name: "idx_loader_run_status_started", columns: []string{"loader_id", "status", "started_at", "run_id"}, descending: []bool{false, false, true, true}},
 		{name: "idx_loader_run_prune", columns: []string{"loader_id", "status", "completed_at", "started_at", "run_id"}, descending: []bool{false, false, false, false, false}},
 		{name: "idx_loader_event_run_created", columns: []string{"loader_id", "run_id", "created_at", "event_id"}, descending: []bool{false, false, true, true}},
+		{name: "idx_loader_event_sandbox_run", columns: []string{"linked_sandbox_id", "loader_id", "run_id"}, descending: []bool{false, false, false}},
 		{name: "idx_event_sandbox_link_loader_run", columns: []string{"loader_id", "run_id"}, descending: []bool{false, false}},
 		{name: "idx_event_delivery_loader_run", columns: []string{"loader_id", "run_id"}, descending: []bool{false, false}},
 	}
@@ -540,7 +541,7 @@ func TestMigratesEveryLegacyAddedColumn(t *testing.T) {
 		"idx_project_short_id", "idx_project_agent_id", "idx_project_scheduler_id",
 		"idx_project_run_sandbox", "idx_event_dispatch_attempt", "idx_event_parent",
 		"idx_loader_run_trigger_started", "idx_loader_run_status_started", "idx_loader_run_prune",
-		"idx_loader_event_run_created", "idx_event_sandbox_link_loader_run", "idx_event_delivery_loader_run",
+		"idx_loader_event_run_created", "idx_loader_event_sandbox_run", "idx_event_sandbox_link_loader_run", "idx_event_delivery_loader_run",
 		"idx_sandboxes_updated", "idx_sandboxes_vm_status_updated", "idx_sandboxes_project_updated", "idx_sandboxes_type_updated",
 	} {
 		assertSQLiteIndexExists(t, db, index)

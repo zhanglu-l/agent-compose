@@ -103,6 +103,9 @@ const (
 	// ProjectServiceListSchedulerRunsProcedure is the fully-qualified name of the ProjectService's
 	// ListSchedulerRuns RPC.
 	ProjectServiceListSchedulerRunsProcedure = "/agentcompose.v2.ProjectService/ListSchedulerRuns"
+	// ProjectServiceBatchGetLatestSchedulerRunsProcedure is the fully-qualified name of the
+	// ProjectService's BatchGetLatestSchedulerRuns RPC.
+	ProjectServiceBatchGetLatestSchedulerRunsProcedure = "/agentcompose.v2.ProjectService/BatchGetLatestSchedulerRuns"
 	// ProjectServiceStreamSchedulerRunsProcedure is the fully-qualified name of the ProjectService's
 	// StreamSchedulerRuns RPC.
 	ProjectServiceStreamSchedulerRunsProcedure = "/agentcompose.v2.ProjectService/StreamSchedulerRuns"
@@ -277,6 +280,7 @@ type ProjectServiceClient interface {
 	StartSchedulerRun(context.Context, *connect.Request[v2.StartSchedulerRunRequest]) (*connect.Response[v2.StartSchedulerRunResponse], error)
 	GetSchedulerRun(context.Context, *connect.Request[v2.GetSchedulerRunRequest]) (*connect.Response[v2.GetSchedulerRunResponse], error)
 	ListSchedulerRuns(context.Context, *connect.Request[v2.ListSchedulerRunsRequest]) (*connect.Response[v2.ListSchedulerRunsResponse], error)
+	BatchGetLatestSchedulerRuns(context.Context, *connect.Request[v2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[v2.BatchGetLatestSchedulerRunsResponse], error)
 	StreamSchedulerRuns(context.Context, *connect.Request[v2.StreamSchedulerRunsRequest]) (*connect.ServerStreamForClient[v2.StreamSchedulerRunsResponse], error)
 	PruneSchedulerRuns(context.Context, *connect.Request[v2.PruneSchedulerRunsRequest]) (*connect.Response[v2.PruneSchedulerRunsResponse], error)
 	StopSchedulerRun(context.Context, *connect.Request[v2.StopSchedulerRunRequest]) (*connect.Response[v2.StopSchedulerRunResponse], error)
@@ -391,6 +395,12 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("ListSchedulerRuns")),
 			connect.WithClientOptions(opts...),
 		),
+		batchGetLatestSchedulerRuns: connect.NewClient[v2.BatchGetLatestSchedulerRunsRequest, v2.BatchGetLatestSchedulerRunsResponse](
+			httpClient,
+			baseURL+ProjectServiceBatchGetLatestSchedulerRunsProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("BatchGetLatestSchedulerRuns")),
+			connect.WithClientOptions(opts...),
+		),
 		streamSchedulerRuns: connect.NewClient[v2.StreamSchedulerRunsRequest, v2.StreamSchedulerRunsResponse](
 			httpClient,
 			baseURL+ProjectServiceStreamSchedulerRunsProcedure,
@@ -442,6 +452,7 @@ type projectServiceClient struct {
 	startSchedulerRun            *connect.Client[v2.StartSchedulerRunRequest, v2.StartSchedulerRunResponse]
 	getSchedulerRun              *connect.Client[v2.GetSchedulerRunRequest, v2.GetSchedulerRunResponse]
 	listSchedulerRuns            *connect.Client[v2.ListSchedulerRunsRequest, v2.ListSchedulerRunsResponse]
+	batchGetLatestSchedulerRuns  *connect.Client[v2.BatchGetLatestSchedulerRunsRequest, v2.BatchGetLatestSchedulerRunsResponse]
 	streamSchedulerRuns          *connect.Client[v2.StreamSchedulerRunsRequest, v2.StreamSchedulerRunsResponse]
 	pruneSchedulerRuns           *connect.Client[v2.PruneSchedulerRunsRequest, v2.PruneSchedulerRunsResponse]
 	stopSchedulerRun             *connect.Client[v2.StopSchedulerRunRequest, v2.StopSchedulerRunResponse]
@@ -529,6 +540,11 @@ func (c *projectServiceClient) ListSchedulerRuns(ctx context.Context, req *conne
 	return c.listSchedulerRuns.CallUnary(ctx, req)
 }
 
+// BatchGetLatestSchedulerRuns calls agentcompose.v2.ProjectService.BatchGetLatestSchedulerRuns.
+func (c *projectServiceClient) BatchGetLatestSchedulerRuns(ctx context.Context, req *connect.Request[v2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[v2.BatchGetLatestSchedulerRunsResponse], error) {
+	return c.batchGetLatestSchedulerRuns.CallUnary(ctx, req)
+}
+
 // StreamSchedulerRuns calls agentcompose.v2.ProjectService.StreamSchedulerRuns.
 func (c *projectServiceClient) StreamSchedulerRuns(ctx context.Context, req *connect.Request[v2.StreamSchedulerRunsRequest]) (*connect.ServerStreamForClient[v2.StreamSchedulerRunsResponse], error) {
 	return c.streamSchedulerRuns.CallServerStream(ctx, req)
@@ -572,6 +588,7 @@ type ProjectServiceHandler interface {
 	StartSchedulerRun(context.Context, *connect.Request[v2.StartSchedulerRunRequest]) (*connect.Response[v2.StartSchedulerRunResponse], error)
 	GetSchedulerRun(context.Context, *connect.Request[v2.GetSchedulerRunRequest]) (*connect.Response[v2.GetSchedulerRunResponse], error)
 	ListSchedulerRuns(context.Context, *connect.Request[v2.ListSchedulerRunsRequest]) (*connect.Response[v2.ListSchedulerRunsResponse], error)
+	BatchGetLatestSchedulerRuns(context.Context, *connect.Request[v2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[v2.BatchGetLatestSchedulerRunsResponse], error)
 	StreamSchedulerRuns(context.Context, *connect.Request[v2.StreamSchedulerRunsRequest], *connect.ServerStream[v2.StreamSchedulerRunsResponse]) error
 	PruneSchedulerRuns(context.Context, *connect.Request[v2.PruneSchedulerRunsRequest]) (*connect.Response[v2.PruneSchedulerRunsResponse], error)
 	StopSchedulerRun(context.Context, *connect.Request[v2.StopSchedulerRunRequest]) (*connect.Response[v2.StopSchedulerRunResponse], error)
@@ -682,6 +699,12 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("ListSchedulerRuns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServiceBatchGetLatestSchedulerRunsHandler := connect.NewUnaryHandler(
+		ProjectServiceBatchGetLatestSchedulerRunsProcedure,
+		svc.BatchGetLatestSchedulerRuns,
+		connect.WithSchema(projectServiceMethods.ByName("BatchGetLatestSchedulerRuns")),
+		connect.WithHandlerOptions(opts...),
+	)
 	projectServiceStreamSchedulerRunsHandler := connect.NewServerStreamHandler(
 		ProjectServiceStreamSchedulerRunsProcedure,
 		svc.StreamSchedulerRuns,
@@ -746,6 +769,8 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServiceGetSchedulerRunHandler.ServeHTTP(w, r)
 		case ProjectServiceListSchedulerRunsProcedure:
 			projectServiceListSchedulerRunsHandler.ServeHTTP(w, r)
+		case ProjectServiceBatchGetLatestSchedulerRunsProcedure:
+			projectServiceBatchGetLatestSchedulerRunsHandler.ServeHTTP(w, r)
 		case ProjectServiceStreamSchedulerRunsProcedure:
 			projectServiceStreamSchedulerRunsHandler.ServeHTTP(w, r)
 		case ProjectServicePruneSchedulerRunsProcedure:
@@ -827,6 +852,10 @@ func (UnimplementedProjectServiceHandler) GetSchedulerRun(context.Context, *conn
 
 func (UnimplementedProjectServiceHandler) ListSchedulerRuns(context.Context, *connect.Request[v2.ListSchedulerRunsRequest]) (*connect.Response[v2.ListSchedulerRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ProjectService.ListSchedulerRuns is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) BatchGetLatestSchedulerRuns(context.Context, *connect.Request[v2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[v2.BatchGetLatestSchedulerRunsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentcompose.v2.ProjectService.BatchGetLatestSchedulerRuns is not implemented"))
 }
 
 func (UnimplementedProjectServiceHandler) StreamSchedulerRuns(context.Context, *connect.Request[v2.StreamSchedulerRunsRequest], *connect.ServerStream[v2.StreamSchedulerRunsResponse]) error {

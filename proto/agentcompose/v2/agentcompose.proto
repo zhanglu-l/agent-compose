@@ -23,6 +23,7 @@ service ProjectService {
   rpc StartSchedulerRun(StartSchedulerRunRequest) returns (StartSchedulerRunResponse);
   rpc GetSchedulerRun(GetSchedulerRunRequest) returns (GetSchedulerRunResponse);
   rpc ListSchedulerRuns(ListSchedulerRunsRequest) returns (ListSchedulerRunsResponse);
+  rpc BatchGetLatestSchedulerRuns(BatchGetLatestSchedulerRunsRequest) returns (BatchGetLatestSchedulerRunsResponse);
   rpc StreamSchedulerRuns(StreamSchedulerRunsRequest) returns (stream StreamSchedulerRunsResponse);
   rpc PruneSchedulerRuns(PruneSchedulerRunsRequest) returns (PruneSchedulerRunsResponse);
   rpc StopSchedulerRun(StopSchedulerRunRequest) returns (StopSchedulerRunResponse);
@@ -1935,4 +1936,24 @@ message StreamSchedulerRunsResponse {
   bool complete = 3;
   uint64 emitted_count = 4;
   bool truncated = 5;
+}
+
+// BatchGetLatestSchedulerRunsRequest selects scheduler runs by sandbox. A
+// request accepts at most 500 sandbox IDs.
+message BatchGetLatestSchedulerRunsRequest {
+  ProjectRef project = 1;
+  repeated string sandbox_ids = 2;
+}
+
+// SandboxSchedulerRun is the latest scheduler run linked to one sandbox. Run
+// is absent when the sandbox has no scheduler run in the selected project.
+message SandboxSchedulerRun {
+  string sandbox_id = 1;
+  SchedulerRun run = 2;
+}
+
+// BatchGetLatestSchedulerRunsResponse contains one result for each distinct,
+// non-empty requested sandbox ID, ordered by its first request occurrence.
+message BatchGetLatestSchedulerRunsResponse {
+  repeated SandboxSchedulerRun results = 1;
 }

@@ -570,22 +570,23 @@ func assertComposeUpChange(t *testing.T, changes []composeUpChangeOutput, action
 }
 
 type projectServiceStub struct {
-	applyProject               func(context.Context, *connect.Request[agentcomposev2.ApplyProjectRequest]) (*connect.Response[agentcomposev2.ApplyProjectResponse], error)
-	getProject                 func(context.Context, *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error)
-	listProjects               func(context.Context, *connect.Request[agentcomposev2.ListProjectsRequest]) (*connect.Response[agentcomposev2.ListProjectsResponse], error)
-	removeProject              func(context.Context, *connect.Request[agentcomposev2.RemoveProjectRequest]) (*connect.Response[agentcomposev2.RemoveProjectResponse], error)
-	getScheduler               func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRequest]) (*connect.Response[agentcomposev2.GetSchedulerResponse], error)
-	listSchedulerEvents        func(context.Context, *connect.Request[agentcomposev2.ListSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListSchedulerEventsResponse], error)
-	listProjectSchedulerEvents func(context.Context, *connect.Request[agentcomposev2.ListProjectSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListProjectSchedulerEventsResponse], error)
-	streamSchedulerEvents      func(context.Context, *connect.Request[agentcomposev2.StreamProjectSchedulerEventsRequest], *connect.ServerStream[agentcomposev2.StreamProjectSchedulerEventsResponse]) error
-	invokeScheduler            func(context.Context, *connect.Request[agentcomposev2.InvokeSchedulerRequest]) (*connect.Response[agentcomposev2.InvokeSchedulerResponse], error)
-	runScheduler               func(context.Context, *connect.Request[agentcomposev2.RunSchedulerRequest]) (*connect.Response[agentcomposev2.RunSchedulerResponse], error)
-	startSchedulerRun          func(context.Context, *connect.Request[agentcomposev2.StartSchedulerRunRequest]) (*connect.Response[agentcomposev2.StartSchedulerRunResponse], error)
-	getSchedulerRun            func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRunRequest]) (*connect.Response[agentcomposev2.GetSchedulerRunResponse], error)
-	listSchedulerRuns          func(context.Context, *connect.Request[agentcomposev2.ListSchedulerRunsRequest]) (*connect.Response[agentcomposev2.ListSchedulerRunsResponse], error)
-	streamSchedulerRuns        func(context.Context, *connect.Request[agentcomposev2.StreamSchedulerRunsRequest], *connect.ServerStream[agentcomposev2.StreamSchedulerRunsResponse]) error
-	stopSchedulerRun           func(context.Context, *connect.Request[agentcomposev2.StopSchedulerRunRequest]) (*connect.Response[agentcomposev2.StopSchedulerRunResponse], error)
-	pruneSchedulerRuns         func(context.Context, *connect.Request[agentcomposev2.PruneSchedulerRunsRequest]) (*connect.Response[agentcomposev2.PruneSchedulerRunsResponse], error)
+	applyProject                func(context.Context, *connect.Request[agentcomposev2.ApplyProjectRequest]) (*connect.Response[agentcomposev2.ApplyProjectResponse], error)
+	getProject                  func(context.Context, *connect.Request[agentcomposev2.GetProjectRequest]) (*connect.Response[agentcomposev2.GetProjectResponse], error)
+	listProjects                func(context.Context, *connect.Request[agentcomposev2.ListProjectsRequest]) (*connect.Response[agentcomposev2.ListProjectsResponse], error)
+	removeProject               func(context.Context, *connect.Request[agentcomposev2.RemoveProjectRequest]) (*connect.Response[agentcomposev2.RemoveProjectResponse], error)
+	getScheduler                func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRequest]) (*connect.Response[agentcomposev2.GetSchedulerResponse], error)
+	listSchedulerEvents         func(context.Context, *connect.Request[agentcomposev2.ListSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListSchedulerEventsResponse], error)
+	listProjectSchedulerEvents  func(context.Context, *connect.Request[agentcomposev2.ListProjectSchedulerEventsRequest]) (*connect.Response[agentcomposev2.ListProjectSchedulerEventsResponse], error)
+	streamSchedulerEvents       func(context.Context, *connect.Request[agentcomposev2.StreamProjectSchedulerEventsRequest], *connect.ServerStream[agentcomposev2.StreamProjectSchedulerEventsResponse]) error
+	invokeScheduler             func(context.Context, *connect.Request[agentcomposev2.InvokeSchedulerRequest]) (*connect.Response[agentcomposev2.InvokeSchedulerResponse], error)
+	runScheduler                func(context.Context, *connect.Request[agentcomposev2.RunSchedulerRequest]) (*connect.Response[agentcomposev2.RunSchedulerResponse], error)
+	startSchedulerRun           func(context.Context, *connect.Request[agentcomposev2.StartSchedulerRunRequest]) (*connect.Response[agentcomposev2.StartSchedulerRunResponse], error)
+	getSchedulerRun             func(context.Context, *connect.Request[agentcomposev2.GetSchedulerRunRequest]) (*connect.Response[agentcomposev2.GetSchedulerRunResponse], error)
+	listSchedulerRuns           func(context.Context, *connect.Request[agentcomposev2.ListSchedulerRunsRequest]) (*connect.Response[agentcomposev2.ListSchedulerRunsResponse], error)
+	batchGetLatestSchedulerRuns func(context.Context, *connect.Request[agentcomposev2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[agentcomposev2.BatchGetLatestSchedulerRunsResponse], error)
+	streamSchedulerRuns         func(context.Context, *connect.Request[agentcomposev2.StreamSchedulerRunsRequest], *connect.ServerStream[agentcomposev2.StreamSchedulerRunsResponse]) error
+	stopSchedulerRun            func(context.Context, *connect.Request[agentcomposev2.StopSchedulerRunRequest]) (*connect.Response[agentcomposev2.StopSchedulerRunResponse], error)
+	pruneSchedulerRuns          func(context.Context, *connect.Request[agentcomposev2.PruneSchedulerRunsRequest]) (*connect.Response[agentcomposev2.PruneSchedulerRunsResponse], error)
 
 	agentcomposev2connect.UnimplementedProjectServiceHandler
 }

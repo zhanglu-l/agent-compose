@@ -151,4 +151,50 @@ func TestLoaderRunPageFiltersTriggerRunsBeforeLimitAndBatchesSandboxes(t *testin
 	if err != nil || !reflect.DeepEqual(sandboxes[loaders.LoaderRunKey{LoaderID: "loader-a", RunID: "run-success"}], []string{"sandbox-a", "sandbox-b"}) {
 		t.Fatalf("sandbox ids=%#v err=%v", sandboxes, err)
 	}
+
+	latest, err := store.BatchGetLatestLoaderRunsBySandboxIDs(ctx, []string{"loader-a"}, []string{"sandbox-a", "sandbox-b", "sandbox-missing"})
+	if err != nil {
+		t.Fatalf("list latest runs by sandbox ids: %v", err)
+	}
+	if len(latest) != 2 || latest["sandbox-a"].ID != "run-success" || latest["sandbox-b"].ID != "run-success" {
+		t.Fatalf("latest runs by sandbox ids=%#v", latest)
+	}
+}
+
+func TestBatchGetLatestLoaderRunsBySandboxIDsSelectsLatestTriggerRun(t *testing.T) {
+	ctx := context.Background()
+	store := FromDB(newMemoryDB(t))
+	if err := store.initSchema(ctx); err != nil {
+		t.Fatalf("init schema: %v", err)
+	}
+	for _, loader := range []domain.Loader{
+		{Summary: domain.LoaderSummary{ID: "loader-a", Runtime: domain.LoaderRuntimeScheduler, ManagedProjectID: "project-1", ManagedAgentName: "agent-a", ManagedSchedulerID: "scheduler-a"}, Script: "function main() {}"},
+		{Summary: domain.LoaderSummary{ID: "loader-other", Runtime: domain.LoaderRuntimeScheduler, ManagedProjectID: "project-2", ManagedAgentName: "agent-other", ManagedSchedulerID: "scheduler-other"}, Script: "function main() {}"},
+	} {
+		if _, err := store.UpsertManagedLoader(ctx, loader); err != nil {
+			t.Fatalf("upsert loader %s: %v", loader.Summary.ID, err)
+		}
+	}
+	startedAt := time.UnixMilli(1_720_000_000_000).UTC()
+	for _, run := range []domain.LoaderRunSummary{
+		{ID: "run-older", LoaderID: "loader-a", TriggerID: "trigger-a", StartedAt: startedAt},
+		{ID: "invoke-newer", LoaderID: "loader-a", StartedAt: startedAt.Add(time.Second)},
+		{ID: "run-newest", LoaderID: "loader-a", TriggerID: "trigger-a", StartedAt: startedAt.Add(2 * time.Second)},
+		{ID: "run-other-project", LoaderID: "loader-other", TriggerID: "trigger-a", StartedAt: startedAt.Add(3 * time.Second)},
+	} {
+		if err := store.CreateLoaderRun(ctx, run); err != nil {
+			t.Fatalf("create run %s: %v", run.ID, err)
+		}
+		if err := store.AddLoaderEvent(ctx, domain.LoaderEvent{LoaderID: run.LoaderID, ID: "event-" + run.ID, RunID: run.ID, TriggerID: run.TriggerID, Type: "loader.test", LinkedSandboxID: "sandbox-a", CreatedAt: run.StartedAt}); err != nil {
+			t.Fatalf("add event for run %s: %v", run.ID, err)
+		}
+	}
+
+	latest, err := store.BatchGetLatestLoaderRunsBySandboxIDs(ctx, []string{"loader-a"}, []string{"sandbox-a", "sandbox-a", ""})
+	if err != nil {
+		t.Fatalf("list latest runs by sandbox ids: %v", err)
+	}
+	if len(latest) != 1 || latest["sandbox-a"].ID != "run-newest" {
+		t.Fatalf("latest runs by sandbox ids=%#v, want run-newest", latest)
+	}
 }

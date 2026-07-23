@@ -267,57 +267,6 @@ func parseSchedulerRunStatusFilter(value string) (agentcomposev2.SchedulerRunSta
 	return status, value, nil
 }
 
-func listSchedulerRuntimeRuns(ctx context.Context, client agentcomposev2connect.ProjectServiceClient, projectID, agentName, schedulerID, loaderID string, limit uint32) ([]composeSchedulerRunItem, error) {
-	runs, err := listSchedulerRunsFromAPI(ctx, client, projectID, agentName, schedulerID, loaderID, limit)
-	if err != nil {
-		if connect.CodeOf(err) == connect.CodeUnimplemented {
-			return nil, commandExitError{Code: exitCodeUnsupported, Err: fmt.Errorf("daemon does not support scheduler run queries; upgrade the daemon")}
-		}
-		return nil, commandExitErrorForConnect(fmt.Errorf("list scheduler runs for agent %s: %w", agentName, err))
-	}
-	return runs, nil
-}
-
-func listSchedulerRunsFromAPI(ctx context.Context, client agentcomposev2connect.ProjectServiceClient, projectID, agentName, schedulerID, loaderID string, limit uint32) ([]composeSchedulerRunItem, error) {
-	if limit == 0 || limit > 500 {
-		limit = 500
-	}
-	runs := make([]composeSchedulerRunItem, 0, limit)
-	cursor := ""
-	seenCursors := make(map[string]struct{})
-	for uint32(len(runs)) < limit {
-		pageLimit := uint32(100)
-		if remaining := limit - uint32(len(runs)); remaining < pageLimit {
-			pageLimit = remaining
-		}
-		resp, err := client.ListSchedulerRuns(ctx, connect.NewRequest(&agentcomposev2.ListSchedulerRunsRequest{
-			Project: &agentcomposev2.ProjectRef{ProjectId: projectID}, AgentName: agentName, Limit: pageLimit, Cursor: cursor,
-		}))
-		if err != nil {
-			return nil, err
-		}
-		for _, run := range resp.Msg.GetRuns() {
-			if strings.TrimSpace(run.GetTriggerId()) == "" {
-				continue
-			}
-			runs = append(runs, schedulerRuntimeRunItem(schedulerID, loaderID, run))
-			if uint32(len(runs)) == limit {
-				return runs, nil
-			}
-		}
-		next := strings.TrimSpace(resp.Msg.GetNextCursor())
-		if next == "" {
-			return runs, nil
-		}
-		if _, ok := seenCursors[next]; ok {
-			return nil, fmt.Errorf("daemon returned a repeated scheduler run cursor")
-		}
-		seenCursors[next] = struct{}{}
-		cursor = next
-	}
-	return runs, nil
-}
-
 func schedulerRuntimeRunItem(schedulerID, loaderID string, run *agentcomposev2.SchedulerRun) composeSchedulerRunItem {
 	return composeSchedulerRunItem{
 		RunID:           run.GetRunId(),

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	domain "agent-compose/pkg/model"
 	agentcomposev2 "agent-compose/proto/agentcompose/v2"
+	"agent-compose/proto/agentcompose/v2/agentcomposev2connect"
 )
 
 func TestSchedulerRunIsNewer(t *testing.T) {
@@ -99,13 +101,14 @@ agents:
 				projectID = req.Msg.GetProject().GetProjectId()
 				return connect.NewResponse(&agentcomposev2.GetProjectResponse{Project: testCLIProject(projectID, "cli-ps-scheduler-run", composePath)}), nil
 			},
-			listSchedulerRuns: func(_ context.Context, req *connect.Request[agentcomposev2.ListSchedulerRunsRequest]) (*connect.Response[agentcomposev2.ListSchedulerRunsResponse], error) {
-				if req.Msg.GetAgentName() != "reviewer" {
-					t.Fatalf("ListSchedulerRuns agent = %q, want reviewer", req.Msg.GetAgentName())
+			batchGetLatestSchedulerRuns: func(_ context.Context, req *connect.Request[agentcomposev2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[agentcomposev2.BatchGetLatestSchedulerRunsResponse], error) {
+				if req.Msg.GetProject().GetProjectId() != projectID || len(req.Msg.GetSandboxIds()) != 1 || req.Msg.GetSandboxIds()[0] != sandboxID {
+					t.Fatalf("BatchGetLatestSchedulerRuns request = %#v", req.Msg)
 				}
-				return connect.NewResponse(&agentcomposev2.ListSchedulerRunsResponse{Runs: []*agentcomposev2.SchedulerRun{{
-					RunId: schedulerRunID, AgentName: "reviewer", TriggerId: "nightly", Status: agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_SUCCEEDED,
-					SandboxIds: []string{sandboxID}, CompletedAt: timestamppb.New(time.Date(2026, 7, 15, 12, 1, 0, 0, time.UTC)),
+				return connect.NewResponse(&agentcomposev2.BatchGetLatestSchedulerRunsResponse{Results: []*agentcomposev2.SandboxSchedulerRun{{
+					SandboxId: sandboxID,
+					Run: &agentcomposev2.SchedulerRun{RunId: schedulerRunID, AgentName: "reviewer", TriggerId: "nightly", Status: agentcomposev2.SchedulerRunStatus_SCHEDULER_RUN_STATUS_SUCCEEDED,
+						CompletedAt: timestamppb.New(time.Date(2026, 7, 15, 12, 1, 0, 0, time.UTC))},
 				}}}), nil
 			},
 		},
@@ -135,5 +138,48 @@ agents:
 	}
 	if !strings.Contains(stdout, schedulerRunID[:12]) || strings.Contains(stdout, projectRunID[:12]) || strings.Contains(stdout, staleTagRunID[:12]) {
 		t.Fatalf("ps output = %q, want latest scheduler run %s", stdout, schedulerRunID[:12])
+	}
+}
+
+func TestLatestSchedulerRunsBySandboxBatchesSandboxIDs(t *testing.T) {
+	project := testCLIProject("project-1", "project-one", "/work/agent-compose.yml")
+	sessions := make([]*agentcomposev2.Sandbox, schedulerRunLookupBatchSize+1)
+	for index := range sessions {
+		sessions[index] = &agentcomposev2.Sandbox{
+			SandboxId: fmt.Sprintf("sandbox-%03d", index),
+			Tags: []*agentcomposev2.SandboxTag{
+				{Name: "origin", Value: "scheduler"},
+				{Name: "project_id", Value: "project-1"},
+				{Name: "agent", Value: "reviewer"},
+			},
+		}
+	}
+	requests := 0
+	server := newComposeServiceStubServer(t, composeServiceStubs{project: projectServiceStub{
+		batchGetLatestSchedulerRuns: func(_ context.Context, req *connect.Request[agentcomposev2.BatchGetLatestSchedulerRunsRequest]) (*connect.Response[agentcomposev2.BatchGetLatestSchedulerRunsResponse], error) {
+			requests++
+			wantSize := schedulerRunLookupBatchSize
+			if requests == 2 {
+				wantSize = 1
+			}
+			if len(req.Msg.GetSandboxIds()) != wantSize {
+				t.Fatalf("batch request %d sandbox count=%d, want %d", requests, len(req.Msg.GetSandboxIds()), wantSize)
+			}
+			sandboxID := req.Msg.GetSandboxIds()[0]
+			return connect.NewResponse(&agentcomposev2.BatchGetLatestSchedulerRunsResponse{Results: []*agentcomposev2.SandboxSchedulerRun{{
+				SandboxId: sandboxID,
+				Run:       &agentcomposev2.SchedulerRun{RunId: fmt.Sprintf("run-%d", requests), AgentName: "reviewer", TriggerId: "nightly"},
+			}}}), nil
+		},
+	}})
+	t.Cleanup(server.Close)
+	client := agentcomposev2connect.NewProjectServiceClient(server.Client(), server.URL)
+
+	got, err := latestSchedulerRunsBySandbox(t.Context(), cliServiceClients{project: client}, project, sessions)
+	if err != nil {
+		t.Fatalf("latest scheduler runs by sandbox: %v", err)
+	}
+	if requests != 2 || len(got) != 2 || got["sandbox-000"].RunID != "run-1" || got["sandbox-500"].RunID != "run-2" {
+		t.Fatalf("requests/results=%d/%#v", requests, got)
 	}
 }

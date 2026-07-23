@@ -473,7 +473,7 @@ func composePSOutputFromProject(ctx context.Context, clients cliServiceClients, 
 	if err != nil {
 		return composePSOutput{}, err
 	}
-	schedulerRunBySandbox, err := latestSchedulerRunsBySandbox(ctx, clients.project, project, sessions)
+	schedulerRunBySandbox, err := latestSchedulerRunsBySandbox(ctx, clients, project, sessions)
 	if err != nil {
 		return composePSOutput{}, err
 	}
