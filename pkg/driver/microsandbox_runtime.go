@@ -36,11 +36,13 @@ type microsandboxRuntime struct {
 }
 
 type microsandboxExecCollector struct {
-	stream ExecStreamWriter
-	filter *execOutputFilter
-	stdout bytes.Buffer
-	stderr bytes.Buffer
-	output bytes.Buffer
+	stream        ExecStreamWriter
+	filter        *execOutputFilter
+	stdoutDecoder utf8StreamDecoder
+	stderrDecoder utf8StreamDecoder
+	stdout        bytes.Buffer
+	stderr        bytes.Buffer
+	output        bytes.Buffer
 }
 
 const microsandboxExecExitIdleGracePeriod = 2 * time.Second
@@ -196,14 +198,14 @@ func consumeMicrosandboxExecStream(
 					resetWaitTimer(silenceInterval)
 				}
 			case microsandbox.ExecEventStdout:
-				collector.writeChunk(ExecChunk{Text: string(event.Data)})
+				collector.writeBytes(event.Data, StdioStdout)
 				if sawExit {
 					resetWaitTimer(idleGrace)
 				} else if probeAlive != nil && silenceInterval > 0 && pid != 0 {
 					resetWaitTimer(silenceInterval)
 				}
 			case microsandbox.ExecEventStderr:
-				collector.writeChunk(ExecChunk{Text: string(event.Data), Stream: StdioStderr})
+				collector.writeBytes(event.Data, StdioStderr)
 				if sawExit {
 					resetWaitTimer(idleGrace)
 				} else if probeAlive != nil && silenceInterval > 0 && pid != 0 {
@@ -303,6 +305,9 @@ func newMicrosandboxRuntime(config *appconfig.Config) (SandboxRuntime, error) {
 }
 
 func (c *microsandboxExecCollector) writeChunk(chunk ExecChunk) {
+	if chunk.Text == "" {
+		return
+	}
 	if c.filter == nil {
 		c.appendChunk(chunk)
 		return
@@ -311,10 +316,20 @@ func (c *microsandboxExecCollector) writeChunk(chunk ExecChunk) {
 }
 
 func (c *microsandboxExecCollector) finish() {
+	c.writeChunk(ExecChunk{Text: c.stdoutDecoder.Finish(), Stream: StdioStdout})
+	c.writeChunk(ExecChunk{Text: c.stderrDecoder.Finish(), Stream: StdioStderr})
 	if c.filter == nil {
 		return
 	}
 	c.filter.Finish(c.appendChunk)
+}
+
+func (c *microsandboxExecCollector) writeBytes(data []byte, stream StdioStream) {
+	decoder := &c.stdoutDecoder
+	if NormalizeStdioStream(stream) == StdioStderr {
+		decoder = &c.stderrDecoder
+	}
+	c.writeChunk(ExecChunk{Text: decoder.Write(data), Stream: stream})
 }
 
 func (c *microsandboxExecCollector) appendChunk(chunk ExecChunk) {

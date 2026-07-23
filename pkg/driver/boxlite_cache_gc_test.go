@@ -57,7 +57,7 @@ func TestResolveRootfsPathDoesNotPruneMaterializedCache(t *testing.T) {
 		CacheTTL:      time.Nanosecond,
 	}}
 
-	rootfsPath, err := runtime.resolveRootfsPath(context.Background(), "guest:latest", "", defaultImagePullTimeout)
+	rootfsPath, _, err := runtime.resolveRootfsPath(context.Background(), "guest:latest", "", defaultImagePullTimeout)
 	if err != nil {
 		t.Fatalf("resolveRootfsPath: %v", err)
 	}

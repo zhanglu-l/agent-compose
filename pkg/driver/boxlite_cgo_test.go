@@ -4,6 +4,7 @@ package driver
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -55,6 +56,30 @@ func TestBoxliteExecCollectorMapsStdioStreams(t *testing.T) {
 		if streamed[i] != want[i] {
 			t.Fatalf("streamed[%d] = %#v, want %#v", i, streamed[i], want[i])
 		}
+	}
+}
+
+func TestBoxliteExecCollectorPreservesSplitUTF8(t *testing.T) {
+	var streamed []ExecChunk
+	collector := &cgoExecCollector{stream: func(chunk ExecChunk) {
+		streamed = append(streamed, chunk)
+	}}
+	runeBytes := []byte("中")
+
+	collector.writeBytes(runeBytes[:1], StdioStdout)
+	if len(streamed) != 0 {
+		t.Fatalf("first fragment emitted invalid UTF-8 chunk: %#v", streamed)
+	}
+	collector.writeBytes(runeBytes[1:], StdioStdout)
+	collector.writeBytes([]byte{0xff}, StdioStderr)
+	collector.finish()
+
+	want := []ExecChunk{
+		{Text: "中", Stream: StdioStdout},
+		{Text: "\uFFFD", Stream: StdioStderr},
+	}
+	if !reflect.DeepEqual(streamed, want) {
+		t.Fatalf("streamed chunks = %#v, want %#v", streamed, want)
 	}
 }
 

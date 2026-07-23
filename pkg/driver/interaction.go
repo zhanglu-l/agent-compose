@@ -115,12 +115,14 @@ type RuntimeError struct {
 }
 
 type RuntimeOutputFrame struct {
-	Type      RuntimeOutputFrameType `json:"type"`
-	Data      []byte                 `json:"data,omitempty"`
-	Event     *RuntimeAgentEvent     `json:"event,omitempty"`
-	Result    *RuntimeResult         `json:"result,omitempty"`
-	Error     *RuntimeError          `json:"error,omitempty"`
-	StartedAt time.Time              `json:"started_at,omitempty"`
+	Type RuntimeOutputFrameType `json:"type"`
+	// Data in stdout and stderr frames is valid UTF-8 text. Runtime byte
+	// streams must complete or replace invalid rune fragments before emitting.
+	Data      []byte             `json:"data,omitempty"`
+	Event     *RuntimeAgentEvent `json:"event,omitempty"`
+	Result    *RuntimeResult     `json:"result,omitempty"`
+	Error     *RuntimeError      `json:"error,omitempty"`
+	StartedAt time.Time          `json:"started_at,omitempty"`
 }
 
 type RuntimeResult struct {

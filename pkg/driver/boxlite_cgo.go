@@ -166,11 +166,13 @@ type cgoBoxInfo struct {
 }
 
 type cgoExecCollector struct {
-	stream ExecStreamWriter
-	filter *execOutputFilter
-	stdout bytes.Buffer
-	stderr bytes.Buffer
-	output bytes.Buffer
+	stream        ExecStreamWriter
+	filter        *execOutputFilter
+	stdoutDecoder utf8StreamDecoder
+	stderrDecoder utf8StreamDecoder
+	stdout        bytes.Buffer
+	stderr        bytes.Buffer
+	output        bytes.Buffer
 }
 
 type boxliteHandleResult struct {
@@ -264,6 +266,9 @@ func lookupExecAwaiter(handle uintptr) (*boxliteExecAwaiter, bool) {
 }
 
 func (c *cgoExecCollector) writeChunk(chunk ExecChunk) {
+	if chunk.Text == "" {
+		return
+	}
 	if c.filter == nil {
 		c.appendChunk(chunk)
 		return
@@ -272,10 +277,20 @@ func (c *cgoExecCollector) writeChunk(chunk ExecChunk) {
 }
 
 func (c *cgoExecCollector) finish() {
+	c.writeChunk(ExecChunk{Text: c.stdoutDecoder.Finish(), Stream: StdioStdout})
+	c.writeChunk(ExecChunk{Text: c.stderrDecoder.Finish(), Stream: StdioStderr})
 	if c.filter == nil {
 		return
 	}
 	c.filter.Finish(c.appendChunk)
+}
+
+func (c *cgoExecCollector) writeBytes(data []byte, stream StdioStream) {
+	decoder := &c.stdoutDecoder
+	if NormalizeStdioStream(stream) == StdioStderr {
+		decoder = &c.stderrDecoder
+	}
+	c.writeChunk(ExecChunk{Text: decoder.Write(data), Stream: stream})
 }
 
 func (c *cgoExecCollector) appendChunk(chunk ExecChunk) {
@@ -320,7 +335,7 @@ func agentcomposeBoxliteExecStdoutCallback(data *C.uint8_t, length C.size_t, han
 	if !ok || awaiter.collector == nil || data == nil || length == 0 {
 		return
 	}
-	awaiter.collector.writeChunk(ExecChunk{Text: string(C.GoBytes(unsafe.Pointer(data), C.int(length)))})
+	awaiter.collector.writeBytes(C.GoBytes(unsafe.Pointer(data), C.int(length)), StdioStdout)
 	notifyBoxliteExecOutput(awaiter)
 }
 
@@ -330,7 +345,7 @@ func agentcomposeBoxliteExecStderrCallback(data *C.uint8_t, length C.size_t, han
 	if !ok || awaiter.collector == nil || data == nil || length == 0 {
 		return
 	}
-	awaiter.collector.writeChunk(ExecChunk{Text: string(C.GoBytes(unsafe.Pointer(data), C.int(length))), Stream: StdioStderr})
+	awaiter.collector.writeBytes(C.GoBytes(unsafe.Pointer(data), C.int(length)), StdioStderr)
 	notifyBoxliteExecOutput(awaiter)
 }
 

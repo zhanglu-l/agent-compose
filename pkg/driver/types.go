@@ -83,6 +83,8 @@ func NormalizeStdioStream(stream StdioStream) StdioStream {
 }
 
 type ExecChunk struct {
+	// Text is valid UTF-8. Runtime byte streams must buffer incomplete rune
+	// suffixes and replace irrecoverably invalid input before emitting a chunk.
 	Text   string
 	Stream StdioStream
 }

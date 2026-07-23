@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +44,50 @@ func TestMicrosandboxExecCollectorMapsStdioStreams(t *testing.T) {
 		if streamed[i] != want[i] {
 			t.Fatalf("streamed[%d] = %#v, want %#v", i, streamed[i], want[i])
 		}
+	}
+}
+
+func TestMicrosandboxExecStreamPreservesSplitUTF8(t *testing.T) {
+	runeBytes := []byte("中")
+	events := []*microsandbox.ExecEvent{
+		{Kind: microsandbox.ExecEventStarted},
+		{Kind: microsandbox.ExecEventStdout, Data: runeBytes[:1]},
+		{Kind: microsandbox.ExecEventStdout, Data: runeBytes[1:]},
+		{Kind: microsandbox.ExecEventStderr, Data: []byte{0xff}},
+		{Kind: microsandbox.ExecEventExited},
+		{Kind: microsandbox.ExecEventDone},
+	}
+	recv := func(context.Context) (*microsandbox.ExecEvent, error) {
+		event := events[0]
+		events = events[1:]
+		return event, nil
+	}
+	var streamed []ExecChunk
+	collector := &microsandboxExecCollector{stream: func(chunk ExecChunk) {
+		streamed = append(streamed, chunk)
+	}}
+
+	result, err := consumeMicrosandboxExecStream(
+		context.Background(),
+		recv,
+		func() error { return nil },
+		collector,
+		25*time.Millisecond,
+		nil,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("consumeMicrosandboxExecStream() error = %v", err)
+	}
+	if result.Stdout != "中" || result.Stderr != "\uFFFD" || result.Output != "中\uFFFD" {
+		t.Fatalf("result = %#v", result)
+	}
+	want := []ExecChunk{
+		{Text: "中", Stream: StdioStdout},
+		{Text: "\uFFFD", Stream: StdioStderr},
+	}
+	if !reflect.DeepEqual(streamed, want) {
+		t.Fatalf("streamed chunks = %#v, want %#v", streamed, want)
 	}
 }
 

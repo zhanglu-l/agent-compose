@@ -48,11 +48,13 @@ type dockerDaemonTopology struct {
 }
 
 type dockerExecCollector struct {
-	stream ExecStreamWriter
-	filter *execOutputFilter
-	stdout bytes.Buffer
-	stderr bytes.Buffer
-	output bytes.Buffer
+	stream        ExecStreamWriter
+	filter        *execOutputFilter
+	stdoutDecoder utf8StreamDecoder
+	stderrDecoder utf8StreamDecoder
+	stdout        bytes.Buffer
+	stderr        bytes.Buffer
+	output        bytes.Buffer
 }
 
 type dockerExecWriter struct {
@@ -85,6 +87,7 @@ type dockerInteractionWriter struct {
 	interaction *dockerCommandInteraction
 	stream      StdioStream
 	filter      *execOutputFilter
+	decoder     utf8StreamDecoder
 }
 
 func newDockerRuntime(config *appconfig.Config) (SandboxRuntime, error) {
@@ -92,6 +95,9 @@ func newDockerRuntime(config *appconfig.Config) (SandboxRuntime, error) {
 }
 
 func (c *dockerExecCollector) writeChunk(chunk ExecChunk) {
+	if chunk.Text == "" {
+		return
+	}
 	if c.filter == nil {
 		c.appendChunk(chunk)
 		return
@@ -100,16 +106,23 @@ func (c *dockerExecCollector) writeChunk(chunk ExecChunk) {
 }
 
 func (c *dockerExecCollector) finish() {
+	c.writeChunk(ExecChunk{Text: c.stdoutDecoder.Finish(), Stream: StdioStdout})
+	c.writeChunk(ExecChunk{Text: c.stderrDecoder.Finish(), Stream: StdioStderr})
 	if c.filter == nil {
 		return
 	}
 	c.filter.Finish(c.appendChunk)
 }
 
-func (c *dockerExecCollector) appendChunk(chunk ExecChunk) {
-	if chunk.Text == "" {
-		return
+func (c *dockerExecCollector) writeBytes(data []byte, stream StdioStream) {
+	decoder := &c.stdoutDecoder
+	if NormalizeStdioStream(stream) == StdioStderr {
+		decoder = &c.stderrDecoder
 	}
+	c.writeChunk(ExecChunk{Text: decoder.Write(data), Stream: stream})
+}
+
+func (c *dockerExecCollector) appendChunk(chunk ExecChunk) {
 	c.output.WriteString(chunk.Text)
 	if c.stream != nil {
 		c.stream(chunk)
@@ -125,7 +138,7 @@ func (w *dockerExecWriter) Write(p []byte) (int, error) {
 	if w == nil || w.collector == nil {
 		return len(p), nil
 	}
-	w.collector.writeChunk(ExecChunk{Text: string(p), Stream: w.stream})
+	w.collector.writeBytes(p, w.stream)
 	return len(p), nil
 }
 
@@ -560,19 +573,23 @@ func (i *dockerCommandInteraction) run() {
 
 func (i *dockerCommandInteraction) copyOutput() error {
 	if i.tty {
-		_, err := io.Copy(&dockerInteractionWriter{interaction: i, stream: StdioStdout}, i.attachResp.Reader)
+		writer := &dockerInteractionWriter{interaction: i, stream: StdioStdout}
+		_, err := io.Copy(writer, i.attachResp.Reader)
+		writer.finish()
 		return err
 	}
+	stdoutWriter := &dockerInteractionWriter{interaction: i, stream: StdioStdout}
 	stderrWriter := &dockerInteractionWriter{
 		interaction: i,
 		stream:      StdioStderr,
 		filter:      newExecOutputFilter(),
 	}
 	_, err := stdcopy.StdCopy(
-		&dockerInteractionWriter{interaction: i, stream: StdioStdout},
+		stdoutWriter,
 		stderrWriter,
 		i.attachResp.Reader,
 	)
+	stdoutWriter.finish()
 	stderrWriter.finish()
 	return err
 }
@@ -588,17 +605,28 @@ func (w *dockerInteractionWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 || w == nil || w.interaction == nil {
 		return len(p), nil
 	}
-	chunk := ExecChunk{Text: string(p), Stream: w.stream}
-	if w.filter != nil {
-		w.filter.Write(chunk, w.emitChunk)
-		return len(p), nil
-	}
-	w.emitChunk(chunk)
+	w.writeText(w.decoder.Write(p))
 	return len(p), nil
 }
 
+func (w *dockerInteractionWriter) writeText(text string) {
+	if text == "" {
+		return
+	}
+	chunk := ExecChunk{Text: text, Stream: w.stream}
+	if w.filter != nil {
+		w.filter.Write(chunk, w.emitChunk)
+		return
+	}
+	w.emitChunk(chunk)
+}
+
 func (w *dockerInteractionWriter) finish() {
-	if w != nil && w.filter != nil {
+	if w == nil {
+		return
+	}
+	w.writeText(w.decoder.Finish())
+	if w.filter != nil {
 		w.filter.Finish(w.emitChunk)
 	}
 }

@@ -68,6 +68,31 @@ func TestDockerExecCollectorMapsStdioStreams(t *testing.T) {
 	}
 }
 
+func TestDockerExecWriterPreservesSplitUTF8(t *testing.T) {
+	var streamed []ExecChunk
+	collector := &dockerExecCollector{stream: func(chunk ExecChunk) {
+		streamed = append(streamed, chunk)
+	}}
+	writer := &dockerExecWriter{collector: collector, stream: StdioStdout}
+	runeBytes := []byte("中")
+
+	if _, err := writer.Write(runeBytes[:1]); err != nil {
+		t.Fatalf("Write() first fragment error = %v", err)
+	}
+	if len(streamed) != 0 {
+		t.Fatalf("first fragment emitted invalid UTF-8 chunk: %#v", streamed)
+	}
+	if _, err := writer.Write(runeBytes[1:]); err != nil {
+		t.Fatalf("Write() second fragment error = %v", err)
+	}
+	collector.finish()
+
+	want := []ExecChunk{{Text: "中", Stream: StdioStdout}}
+	if !reflect.DeepEqual(streamed, want) {
+		t.Fatalf("streamed chunks = %#v, want %#v", streamed, want)
+	}
+}
+
 func TestDockerRuntimeInteractionCapabilities(t *testing.T) {
 	runtime := &dockerRuntime{}
 	caps := runtime.InteractionCapabilities()
@@ -189,6 +214,35 @@ func TestDockerInteractionWriterProjectsFramesAndFiltersStderr(t *testing.T) {
 	case frame := <-interaction.output:
 		t.Fatalf("unexpected extra frame = %#v", frame)
 	default:
+	}
+}
+
+func TestDockerInteractionWriterPreservesSplitUTF8(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	interaction := &dockerCommandInteraction{
+		ctx:    ctx,
+		output: make(chan RuntimeOutputFrame, 2),
+	}
+	writer := &dockerInteractionWriter{interaction: interaction, stream: StdioStdout}
+	runeBytes := []byte("中")
+
+	if _, err := writer.Write(runeBytes[:1]); err != nil {
+		t.Fatalf("Write() first fragment error = %v", err)
+	}
+	select {
+	case frame := <-interaction.output:
+		t.Fatalf("first fragment emitted invalid UTF-8 frame: %#v", frame)
+	default:
+	}
+	if _, err := writer.Write(runeBytes[1:]); err != nil {
+		t.Fatalf("Write() second fragment error = %v", err)
+	}
+	writer.finish()
+
+	frame := mustRecvDockerInteractionFrame(t, interaction)
+	if frame.Type != RuntimeOutputStdout || string(frame.Data) != "中" {
+		t.Fatalf("stdout frame = %#v", frame)
 	}
 }
 
