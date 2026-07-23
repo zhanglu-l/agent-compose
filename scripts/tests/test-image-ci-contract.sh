@@ -294,6 +294,10 @@ if [[ -n $merge_job ]]; then
     'merge dependency on Arch Linux guest build'
   require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*image-smoke[[:space:]]*$' \
     'merge dependency on successful image smoke'
+  require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*image:[[:space:]]*agent-compose[[:space:]]*$' \
+    'daemon manifest matrix entry'
+  require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*image:[[:space:]]*agent-compose-guest[[:space:]]*$' \
+    'default guest manifest matrix entry'
   require_regex "$merge_job" 'image:[[:space:]]*agent-compose-guest-archlinux' \
     'Arch Linux guest manifest matrix entry'
   require_regex "$merge_job" 'platforms:[[:space:]]*linux/amd64,linux/arm64' \
