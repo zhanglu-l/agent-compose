@@ -153,9 +153,12 @@ export class PiRunner {
     if (type === "message_end") {
       const message = recordValue(event.message);
       if (String(message?.role || event.role || "") === "assistant") {
-        const stopReason = firstString(message, "stopReason", "stop_reason");
+        const stopReason = firstString(message, "stopReason", "stop_reason")
+          || firstString(event, "stopReason", "stop_reason");
         if (stopReason === "error") {
-          const detail = firstString(message, "errorMessage", "error_message") || "unknown Pi model error";
+          const detail = firstString(message, "errorMessage", "error_message")
+            || firstString(event, "errorMessage", "error_message")
+            || "unknown Pi model error";
           this.latestAssistantError = new Error(`pi model request failed: ${detail}`);
         } else {
           this.latestAssistantError = null;
@@ -253,7 +256,7 @@ function piFacadeModel(model: string): string {
 function waitForExit(child: ReturnType<typeof spawn>): Promise<{ exitCode: number; spawnError?: Error }> {
   return new Promise((resolve) => {
     child.once("error", (error) => resolve({ exitCode: 1, spawnError: new Error("failed to start pi", { cause: error }) }));
-    child.once("exit", (code) => resolve({ exitCode: code ?? 1 }));
+    child.once("close", (code) => resolve({ exitCode: code ?? 1 }));
   });
 }
 

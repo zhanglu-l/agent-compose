@@ -29,9 +29,15 @@ vi.mock("node:child_process", () => ({
         queueMicrotask(() => listener(processState.exitCode));
         return child;
       }
+      if (event === "close" && !processState.error) {
+        queueMicrotask(() => {
+          processState.stderr.forEach((chunk) => child.stderr.emit("data", chunk));
+          listener(processState.exitCode);
+        });
+        return child;
+      }
       return once(event, listener);
     }) as typeof child.once;
-    queueMicrotask(() => processState.stderr.forEach((chunk) => child.stderr.emit("data", chunk)));
     return child;
   }),
 }));
@@ -193,6 +199,36 @@ describe("PiRunner", () => {
       ];
       await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
         .rejects.toThrow("pi model request failed: OpenAI API error (401): Unauthorized");
+    });
+  });
+
+  it("accepts flattened Pi assistant error events", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
+      processState.lines = [
+        JSON.stringify({ type: "session", id: "pi-session" }),
+        JSON.stringify({
+          type: "message_end",
+          role: "assistant",
+          content: [],
+          stop_reason: "error",
+          error_message: "flattened failure",
+        }),
+        JSON.stringify({ type: "agent_end", stopReason: "completed" }),
+      ];
+      await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
+        .rejects.toThrow("pi model request failed: flattened failure");
+    });
+  });
+
+  it("collects stderr emitted before the child process closes", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
+      processState.lines = [JSON.stringify({ type: "session", id: "pi-session" })];
+      processState.stderr = ["late diagnostic"];
+      processState.exitCode = 2;
+      await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
+        .rejects.toThrow("pi exited with code 2: late diagnostic");
     });
   });
 
