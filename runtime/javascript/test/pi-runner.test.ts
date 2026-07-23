@@ -25,15 +25,13 @@ vi.mock("node:child_process", () => ({
         queueMicrotask(() => listener(processState.error));
         return child;
       }
-      if (event === "close" && !processState.error) {
-        queueMicrotask(() => {
-          processState.stderr.forEach((chunk) => child.stderr.emit("data", chunk));
-          listener(processState.exitCode);
-        });
+      if (event === "exit" && !processState.error) {
+        queueMicrotask(() => listener(processState.exitCode));
         return child;
       }
       return once(event, listener);
     }) as typeof child.once;
+    queueMicrotask(() => processState.stderr.forEach((chunk) => child.stderr.emit("data", chunk)));
     return child;
   }),
 }));
@@ -67,10 +65,6 @@ describe("PiRunner", () => {
         JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
         JSON.stringify({ type: "agent_end", stopReason: "end_turn" }),
       ];
-      processState.stderr = [
-        "Warning: No project session found with id 'generated-session'; creating a new sess",
-        "ion with that id.\n",
-      ];
       const stdio = captureStdio();
       try {
         const result = await new PiRunner({
@@ -88,7 +82,6 @@ describe("PiRunner", () => {
         expect(result.transcript).not.toContain("secret-tool");
         expect(result.transcript).not.toContain("secret tool output");
         expect(result.transcript).not.toContain("ignored partial");
-        expect(result.transcript).not.toContain("No project session found");
         expect(result.stderr).toBe("");
       } finally {
         stdio.restore();
@@ -97,12 +90,11 @@ describe("PiRunner", () => {
       const call = processState.calls[0];
       expect(call.command).toBe("pi");
       expect(call.args).toEqual(expect.arrayContaining([
-        "--mode", "json", "--session-id", expect.any(String), "--model", "agent-compose/gpt-5",
+        "--mode", "json", "--model", "agent-compose/gpt-5",
         "--no-extensions", "--no-skills", "--no-context-files", "--no-approve", "--offline",
         "--skill", path.join(skillDir, "SKILL.md"), "user prompt",
       ]));
-      const generatedSessionID = call.args[call.args.indexOf("--session-id") + 1];
-      expect(generatedSessionID).toMatch(/^[0-9a-f]{64}$/);
+      expect(call.args).not.toContain("--session-id");
       expect(call.options).toMatchObject({ cwd: path.join(root, "workspace") });
       expect(call.options.env).toMatchObject({
         HOME: path.join(root, "home"),
@@ -154,23 +146,6 @@ describe("PiRunner", () => {
       }
       expect(processState.calls[0].args).toEqual(expect.arrayContaining(["--session-id", "existing"]));
       expect(JSON.parse(await fs.readFile(statePath, "utf8")).threadId).toBe("existing");
-    });
-  });
-
-  it("streams and bounds stderr lines that cannot be session warnings", async () => {
-    const { PiRunner } = await import("../src/runners/pi.js");
-    await withTempSession(async (root) => {
-      processState.lines = [JSON.stringify({ type: "session", id: "pi-session" })];
-      processState.stderr = ["x".repeat(80 * 1024)];
-      processState.exitCode = 2;
-      const stdio = captureStdio();
-      try {
-        await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt")).rejects.toThrow(
-          `pi exited with code 2: ${"x".repeat(64 * 1024)}`,
-        );
-      } finally {
-        stdio.restore();
-      }
     });
   });
 

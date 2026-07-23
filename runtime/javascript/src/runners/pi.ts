@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
@@ -9,8 +9,6 @@ import { TranscriptWriter, type TranscriptTextWriter } from "../transcript.js";
 import type { AgentResult, RunnerOptions } from "../types.js";
 
 const maxDiagnosticBytes = 64 * 1024;
-const maxFilteredStderrLineBytes = 1024;
-const piSessionCreationWarning = /^Warning: No project session found with id '[A-Za-z0-9._-]+'; creating a new session with that id\.$/;
 
 export class PiRunner {
   private reportedError: Error | null = null;
@@ -32,7 +30,6 @@ export class PiRunner {
     }
 
     const stored = await readStoredThread(this.options.stateRoot, "pi");
-    const requestedSessionID = stored?.threadId || createHash("sha256").update(randomBytes(32)).digest("hex");
     const sessionDir = path.join(this.options.stateRoot, "agents", "providers", "pi", "sessions");
     const tempRoot = path.join(this.options.stateRoot, "agents", "providers", "pi", "tmp");
     await fs.mkdir(sessionDir, { recursive: true });
@@ -41,7 +38,10 @@ export class PiRunner {
 
     try {
       await ensureManagedPiModel(this.options.home, this.options.model);
-      const args = await this.buildArgs(promptText, requestedSessionID, sessionDir, invocationDir);
+      // Let Pi create the first session so its CLI follows the native creation
+      // path. Supplying a new --session-id is treated as a resume miss and
+      // intentionally produces a warning; only pass IDs Pi already emitted.
+      const args = await this.buildArgs(promptText, stored?.threadId, sessionDir, invocationDir);
       const child = spawn("pi", args, {
         cwd: this.options.workspace,
         env: {
@@ -60,32 +60,10 @@ export class PiRunner {
       const exit = waitForExit(child);
 
       let stderrBytes: Buffer = Buffer.alloc(0);
-      let pendingStderr = "";
-      let passthroughStderrLine = false;
-      const emitStderrLine = (line: string, terminated: boolean): void => {
-        if (piSessionCreationWarning.test(line.replace(/\r$/, ""))) return;
-        const text = terminated ? `${line}\n` : line;
+      child.stderr?.on("data", (chunk) => {
+        const text = String(chunk || "");
         stderrBytes = appendBounded(stderrBytes, Buffer.from(text), maxDiagnosticBytes);
         this.writer.write(text);
-      };
-      child.stderr?.on("data", (chunk) => {
-        pendingStderr += String(chunk || "");
-        for (;;) {
-          const newline = pendingStderr.indexOf("\n");
-          if (newline >= 0) {
-            emitStderrLine(pendingStderr.slice(0, newline), true);
-            pendingStderr = pendingStderr.slice(newline + 1);
-            passthroughStderrLine = false;
-            continue;
-          }
-          if (passthroughStderrLine || Buffer.byteLength(pendingStderr) > maxFilteredStderrLineBytes) {
-            stderrBytes = appendBounded(stderrBytes, Buffer.from(pendingStderr), maxDiagnosticBytes);
-            this.writer.write(pendingStderr);
-            pendingStderr = "";
-            passthroughStderrLine = true;
-          }
-          break;
-        }
       });
 
       const result: AgentResult = {
@@ -113,7 +91,6 @@ export class PiRunner {
       }
 
       const processResult = await exit;
-      if (pendingStderr) emitStderrLine(pendingStderr, false);
       const stderr = stderrBytes.toString("utf8");
       result.stderr = stderr;
       if (processResult.spawnError) throw processResult.spawnError;
@@ -134,11 +111,10 @@ export class PiRunner {
     }
   }
 
-  async buildArgs(promptText: string, sessionID: string, sessionDir: string, invocationDir: string): Promise<string[]> {
+  async buildArgs(promptText: string, sessionID: string | undefined, sessionDir: string, invocationDir: string): Promise<string[]> {
     const args = [
       "--mode", "json",
       "--session-dir", sessionDir,
-      "--session-id", sessionID,
       "--no-extensions",
       "--no-skills",
       "--no-prompt-templates",
@@ -147,6 +123,7 @@ export class PiRunner {
       "--no-approve",
       "--offline",
     ];
+    if (sessionID) args.push("--session-id", sessionID);
     if (this.options.model?.trim()) {
       args.push("--model", piFacadeModel(this.options.model));
     }
@@ -276,7 +253,7 @@ function piFacadeModel(model: string): string {
 function waitForExit(child: ReturnType<typeof spawn>): Promise<{ exitCode: number; spawnError?: Error }> {
   return new Promise((resolve) => {
     child.once("error", (error) => resolve({ exitCode: 1, spawnError: new Error("failed to start pi", { cause: error }) }));
-    child.once("close", (code) => resolve({ exitCode: code ?? 1 }));
+    child.once("exit", (code) => resolve({ exitCode: code ?? 1 }));
   });
 }
 
