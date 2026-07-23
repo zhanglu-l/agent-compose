@@ -9,6 +9,7 @@ import { TranscriptWriter, type TranscriptTextWriter } from "../transcript.js";
 import type { AgentResult, RunnerOptions } from "../types.js";
 
 const maxDiagnosticBytes = 64 * 1024;
+const piSessionCreationWarning = /^Warning: No project session found with id '[A-Za-z0-9._-]+'; creating a new session with that id\.$/;
 
 export class PiRunner {
   private reportedError: Error | null = null;
@@ -58,10 +59,18 @@ export class PiRunner {
       const exit = waitForExit(child);
 
       let stderrBytes: Buffer = Buffer.alloc(0);
-      child.stderr?.on("data", (chunk) => {
-        const text = String(chunk || "");
+      let pendingStderr = "";
+      const emitStderrLine = (line: string, terminated: boolean): void => {
+        if (piSessionCreationWarning.test(line.replace(/\r$/, ""))) return;
+        const text = terminated ? `${line}\n` : line;
         stderrBytes = appendBounded(stderrBytes, Buffer.from(text), maxDiagnosticBytes);
         this.writer.write(text);
+      };
+      child.stderr?.on("data", (chunk) => {
+        pendingStderr += String(chunk || "");
+        const lines = pendingStderr.split("\n");
+        pendingStderr = lines.pop() || "";
+        for (const line of lines) emitStderrLine(line, true);
       });
 
       const result: AgentResult = {
@@ -89,6 +98,7 @@ export class PiRunner {
       }
 
       const processResult = await exit;
+      if (pendingStderr) emitStderrLine(pendingStderr, false);
       const stderr = stderrBytes.toString("utf8");
       result.stderr = stderr;
       if (processResult.spawnError) throw processResult.spawnError;

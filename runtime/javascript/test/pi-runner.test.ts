@@ -65,6 +65,10 @@ describe("PiRunner", () => {
         JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "final answer" }] } }),
         JSON.stringify({ type: "agent_end", stopReason: "end_turn" }),
       ];
+      processState.stderr = [
+        "Warning: No project session found with id 'generated-session'; creating a new sess",
+        "ion with that id.\n",
+      ];
       const stdio = captureStdio();
       try {
         const result = await new PiRunner({
@@ -82,6 +86,8 @@ describe("PiRunner", () => {
         expect(result.transcript).not.toContain("secret-tool");
         expect(result.transcript).not.toContain("secret tool output");
         expect(result.transcript).not.toContain("ignored partial");
+        expect(result.transcript).not.toContain("No project session found");
+        expect(result.stderr).toBe("");
       } finally {
         stdio.restore();
       }
