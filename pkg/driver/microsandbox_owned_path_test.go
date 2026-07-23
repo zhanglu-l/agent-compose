@@ -9,14 +9,14 @@ import (
 	"testing"
 )
 
-func TestValidateMicrosandboxOwnedPathRejectsIntermediateSymlinkEscape(t *testing.T) {
+func TestValidateMicrosandboxRootfsOwnedPathRejectsIntermediateSymlinkEscape(t *testing.T) {
 	home := t.TempDir()
-	diskRoot := filepath.Join(home, "docker-disks")
+	diskRoot := filepath.Join(home, "rootfs-disks")
 	if err := os.MkdirAll(diskRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-	outsideDisk := filepath.Join(outside, "outside.raw")
+	outsideDisk := filepath.Join(outside, "outside.qcow2")
 	if err := os.WriteFile(outsideDisk, []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -25,16 +25,31 @@ func TestValidateMicrosandboxOwnedPathRejectsIntermediateSymlinkEscape(t *testin
 		t.Skipf("create symlink: %v", err)
 	}
 
-	err := validateMicrosandboxOwnedPath(home, filepath.Join(link, filepath.Base(outsideDisk)))
+	err := validateMicrosandboxRootfsOwnedPath(home, filepath.Join(link, filepath.Base(outsideDisk)))
 	if err == nil || !strings.Contains(err.Error(), "through a symlink") {
-		t.Fatalf("validateMicrosandboxOwnedPath error = %v, want symlink escape rejection", err)
+		t.Fatalf("validateMicrosandboxRootfsOwnedPath error = %v, want symlink escape rejection", err)
 	}
 	if data, readErr := os.ReadFile(outsideDisk); readErr != nil || string(data) != "outside" {
 		t.Fatalf("outside disk changed: data=%q err=%v", data, readErr)
 	}
 }
 
-func TestValidateMicrosandboxOwnedPathAcceptsRegularFile(t *testing.T) {
+func TestValidateMicrosandboxRootfsOwnedPathAcceptsRegularFile(t *testing.T) {
+	home := t.TempDir()
+	diskRoot := filepath.Join(home, "rootfs-disks")
+	if err := os.MkdirAll(diskRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	disk := filepath.Join(diskRoot, "sandbox.qcow2")
+	if err := os.WriteFile(disk, []byte("disk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMicrosandboxRootfsOwnedPath(home, disk); err != nil {
+		t.Fatalf("validateMicrosandboxRootfsOwnedPath: %v", err)
+	}
+}
+
+func TestValidateMicrosandboxAnyOwnedPathRejectsLegacyDockerDisk(t *testing.T) {
 	home := t.TempDir()
 	diskRoot := filepath.Join(home, "docker-disks")
 	if err := os.MkdirAll(diskRoot, 0o755); err != nil {
@@ -44,7 +59,7 @@ func TestValidateMicrosandboxOwnedPathAcceptsRegularFile(t *testing.T) {
 	if err := os.WriteFile(disk, []byte("disk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateMicrosandboxOwnedPath(home, disk); err != nil {
-		t.Fatalf("validateMicrosandboxOwnedPath: %v", err)
+	if err := validateMicrosandboxAnyOwnedPath(home, disk); err == nil || !strings.Contains(err.Error(), "outside rootfs-disks") {
+		t.Fatalf("validateMicrosandboxAnyOwnedPath error = %v, want legacy disk rejection", err)
 	}
 }

@@ -4,7 +4,6 @@ package driver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +67,6 @@ func appendMicrosandboxDiskResources(config *appconfig.Config, bySandbox map[str
 		suffix    string
 		read      func(string, string) (microsandboxDiskOwnership, error)
 	}{
-		{directory: "docker-disks", suffix: ".raw.owner.json", read: readMicrosandboxDiskOwnership},
 		{directory: "rootfs-disks", suffix: ".qcow2.owner.json", read: readMicrosandboxRootfsDiskOwnership},
 	} {
 		diskRoot := filepath.Join(config.MicrosandboxHome, disk.directory)
@@ -81,15 +79,13 @@ func appendMicrosandboxDiskResources(config *appconfig.Config, bySandbox map[str
 				continue
 			}
 			manifestPath := filepath.Join(diskRoot, entry.Name())
-			if disk.directory == "rootfs-disks" {
-				diskPath := strings.TrimSuffix(manifestPath, ".owner.json")
-				if _, statErr := os.Lstat(diskPath); os.IsNotExist(statErr) {
-					addIncompleteRootfs(entry.Name(), manifestPath)
-					continue
-				} else if statErr != nil {
-					warnings = append(warnings, fmt.Sprintf("inspect microsandbox rootfs disk %s: %v", diskPath, statErr))
-					continue
-				}
+			diskPath := strings.TrimSuffix(manifestPath, ".owner.json")
+			if _, statErr := os.Lstat(diskPath); os.IsNotExist(statErr) {
+				addIncompleteRootfs(entry.Name(), manifestPath)
+				continue
+			} else if statErr != nil {
+				warnings = append(warnings, fmt.Sprintf("inspect microsandbox rootfs disk %s: %v", diskPath, statErr))
+				continue
 			}
 			ownership, ownershipErr := disk.read(config.MicrosandboxHome, manifestPath)
 			if ownershipErr != nil {
@@ -114,18 +110,16 @@ func appendMicrosandboxDiskResources(config *appconfig.Config, bySandbox map[str
 			}
 			resource.OwnedPaths = append(resource.OwnedPaths, ownership.DiskPath, manifestPath)
 		}
-		if disk.directory == "rootfs-disks" {
-			for _, entry := range entries {
-				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".qcow2") {
-					continue
-				}
-				diskPath := filepath.Join(diskRoot, entry.Name())
-				manifestPath := diskPath + ".owner.json"
-				if _, statErr := os.Lstat(manifestPath); os.IsNotExist(statErr) {
-					addIncompleteRootfs(entry.Name(), diskPath)
-				} else if statErr != nil {
-					warnings = append(warnings, fmt.Sprintf("inspect microsandbox rootfs ownership %s: %v", manifestPath, statErr))
-				}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".qcow2") {
+				continue
+			}
+			diskPath := filepath.Join(diskRoot, entry.Name())
+			manifestPath := diskPath + ".owner.json"
+			if _, statErr := os.Lstat(manifestPath); os.IsNotExist(statErr) {
+				addIncompleteRootfs(entry.Name(), diskPath)
+			} else if statErr != nil {
+				warnings = append(warnings, fmt.Sprintf("inspect microsandbox rootfs ownership %s: %v", manifestPath, statErr))
 			}
 		}
 	}
@@ -155,39 +149,19 @@ func RemoveMicrosandboxManagedResource(ctx context.Context, config *appconfig.Co
 			return err
 		}
 	}
-	for _, path := range resource.OwnedPaths {
-		if err := validateMicrosandboxAnyOwnedPath(config.MicrosandboxHome, path); err != nil {
+	return removeMicrosandboxManagedPaths(config.MicrosandboxHome, resource.OwnedPaths)
+}
+
+func removeMicrosandboxManagedPaths(home string, paths []string) error {
+	for _, path := range paths {
+		if err := validateMicrosandboxAnyOwnedPath(home, path); err != nil {
 			return err
 		}
+	}
+	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
 	return nil
-}
-
-func readMicrosandboxDiskOwnership(home, manifestPath string) (microsandboxDiskOwnership, error) {
-	if err := validateMicrosandboxOwnedPath(home, manifestPath); err != nil {
-		return microsandboxDiskOwnership{}, err
-	}
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return microsandboxDiskOwnership{}, err
-	}
-	var ownership microsandboxDiskOwnership
-	if err := json.Unmarshal(data, &ownership); err != nil {
-		return microsandboxDiskOwnership{}, fmt.Errorf("decode microsandbox disk ownership %s: %w", manifestPath, err)
-	}
-	validVersion := ownership.Version == 1 || (ownership.Version == microsandboxDiskOwnershipVersion && ownership.ResourceKind == microsandboxDockerDiskKind)
-	if !validVersion || strings.TrimSpace(ownership.SandboxID) == "" || strings.TrimSpace(ownership.DiskPath) == "" || ownership.CreatedAt.IsZero() {
-		return microsandboxDiskOwnership{}, fmt.Errorf("microsandbox disk ownership %s is incomplete", manifestPath)
-	}
-	if err := validateMicrosandboxOwnedPath(home, ownership.DiskPath); err != nil {
-		return microsandboxDiskOwnership{}, err
-	}
-	wantManifest := filepath.Clean(ownership.DiskPath + ".owner.json")
-	if filepath.Clean(manifestPath) != wantManifest {
-		return microsandboxDiskOwnership{}, fmt.Errorf("microsandbox disk ownership sidecar does not match disk path")
-	}
-	return ownership, nil
 }
