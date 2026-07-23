@@ -312,12 +312,15 @@ ARCHLINUX_TAG=<pinned-tag> \
 task image:agent-compose-guest-archlinux
 ```
 
-This optional variant is not published by the release workflow and is not the
-deployment default. The upstream `library/archlinux` image used by the build is
-x86_64-only, so publish the resulting image for `linux/amd64`. A team
-that supplies its own compatible Arch Linux base for another architecture must
-build and validate that variant independently. Select the image explicitly in
-the agent spec and run the validation in Section 10 before using it.
+Image CI builds this variant on pull requests and publishes it as
+`ghcr.io/chaitin/agent-compose-guest-archlinux` on pushes to `main` and version
+tags. It follows the default images' branch, version, SHA, and release `latest`
+tagging policy, but its manifest contains only `linux/amd64`. The upstream
+`library/archlinux` image used by the build is x86_64-only; a team that supplies
+its own compatible Arch Linux base for another architecture must build and
+validate that variant independently. The Arch Linux guest is not the deployment
+default, so select it explicitly in the agent spec and run the validation in
+Section 10 before using it.
 
 ## 7. Recommended Build: Extend the Published Guest
 

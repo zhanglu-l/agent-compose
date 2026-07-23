@@ -96,6 +96,7 @@ require_regex "$header" '^[[:space:]]*-[[:space:]]*docker-compose\.kvm\.yml[[:sp
 
 load_job setup setup_job
 load_job build build_job
+load_job build-archlinux-guest archlinux_build_job
 load_job image-smoke image_smoke_job
 load_job merge merge_job
 load_job release release_job
@@ -198,34 +199,83 @@ if [[ -n $build_job ]]; then
   fi
 fi
 
+if [[ -n $archlinux_build_job ]]; then
+  require_regex "$archlinux_build_job" 'needs:[[:space:]]*setup' \
+    'Arch Linux guest build dependency on setup'
+  require_regex "$archlinux_build_job" 'runs-on:[[:space:]]*ubuntu-latest' \
+    'Arch Linux guest native amd64 runner'
+  require_regex "$archlinux_build_job" 'file:[[:space:]]*guest-images/Dockerfile\.agent-compose-guest-archlinux' \
+    'Arch Linux guest published Dockerfile'
+  require_regex "$archlinux_build_job" 'platforms:[[:space:]]*linux/amd64' \
+    'Arch Linux guest amd64 publication platform'
+  forbid_regex "$archlinux_build_job" 'linux/arm64' \
+    'Arch Linux guest arm64 publication platform'
+  require_regex "$archlinux_build_job" 'IMAGE_PREFIX[^[:space:]]*\}?/agent-compose-guest-archlinux|IMAGE_PREFIX.*agent-compose-guest-archlinux' \
+    'Arch Linux guest registry image name'
+  require_regex "$archlinux_build_job" 'push-by-digest=true' \
+    'Arch Linux guest push-by-digest output'
+  require_regex "$archlinux_build_job" 'name-canonical=true' \
+    'Arch Linux guest canonical digest output'
+  require_regex "$archlinux_build_job" "push=\\$\\{\\{[[:space:]]*github\\.event_name[[:space:]]*!=[[:space:]]*[\"']pull_request[\"']" \
+    'Arch Linux guest non-PR digest push condition'
+  require_regex "$archlinux_build_job" 'cache-from:[[:space:]]*type=gha,scope=agent-compose-guest-archlinux-amd64' \
+    'Arch Linux guest amd64 GHA cache read'
+  require_regex "$archlinux_build_job" 'cache-to:[[:space:]]*type=gha,mode=max,scope=agent-compose-guest-archlinux-amd64' \
+    'Arch Linux guest amd64 GHA cache write'
+
+  archlinux_upload_step=$(step_containing "$archlinux_build_job" 'actions/upload-artifact@')
+  if [[ -z $archlinux_upload_step ]]; then
+    fail 'Arch Linux guest digest artifact upload step'
+  else
+    require_regex "$archlinux_upload_step" "if:[[:space:]]*github\\.event_name[[:space:]]*!=[[:space:]]*[\"']pull_request[\"']" \
+      'Arch Linux guest non-PR digest artifact condition'
+    require_regex "$archlinux_upload_step" 'name:[[:space:]]*digests-agent-compose-guest-archlinux--amd64' \
+      'Arch Linux guest digest artifact identity'
+    require_regex "$archlinux_upload_step" 'retention-days:[[:space:]]*1' \
+      'Arch Linux guest one-day digest retention'
+  fi
+fi
+
 if [[ -n $image_smoke_job ]]; then
-  require_regex "$image_smoke_job" 'needs:[[:space:]]*build' 'image-smoke dependency on native builds'
+  require_regex "$image_smoke_job" '^[[:space:]]*-[[:space:]]*build[[:space:]]*$' \
+    'image-smoke dependency on native builds'
+  require_regex "$image_smoke_job" '^[[:space:]]*-[[:space:]]*build-archlinux-guest[[:space:]]*$' \
+    'image-smoke dependency on Arch Linux guest build'
   require_regex "$image_smoke_job" 'runs-on:[[:space:]]*ubuntu-latest' 'image-smoke amd64 runner'
   require_regex "$image_smoke_job" 'linux/amd64' 'image-smoke amd64 platform'
   require_regex "$image_smoke_job" 'docker/setup-buildx-action@v3' 'image-smoke Buildx setup'
   smoke_build_count=$(grep -Ec 'docker/build-push-action@v6' <<<"$image_smoke_job" || true)
-  [[ $smoke_build_count -eq 2 ]] \
-    || fail "image-smoke has $smoke_build_count loadable build steps, expected two"
+  [[ $smoke_build_count -eq 3 ]] \
+    || fail "image-smoke has $smoke_build_count loadable build steps, expected three"
   load_count=$(grep -Ec 'load:[[:space:]]*true' <<<"$image_smoke_job" || true)
-  [[ $load_count -eq 2 ]] || fail "image-smoke has $load_count load:true settings, expected two"
+  [[ $load_count -eq 3 ]] || fail "image-smoke has $load_count load:true settings, expected three"
   require_regex "$image_smoke_job" 'file:[[:space:]]*Dockerfile[[:space:]]*$' \
     'image-smoke published daemon Dockerfile'
   require_regex "$image_smoke_job" 'file:[[:space:]]*guest-images/Dockerfile\.agent-compose-guest' \
     'image-smoke published guest Dockerfile'
+  require_regex "$image_smoke_job" 'file:[[:space:]]*guest-images/Dockerfile\.agent-compose-guest-archlinux' \
+    'image-smoke published Arch Linux guest Dockerfile'
   require_regex "$image_smoke_job" 'cache-from:[[:space:]]*type=gha,scope=agent-compose-amd64' \
     'image-smoke daemon amd64 cache reuse'
   require_regex "$image_smoke_job" 'cache-from:[[:space:]]*type=gha,scope=agent-compose-guest-amd64' \
     'image-smoke guest amd64 cache reuse'
+  require_regex "$image_smoke_job" 'cache-from:[[:space:]]*type=gha,scope=agent-compose-guest-archlinux-amd64' \
+    'image-smoke Arch Linux guest amd64 cache reuse'
   require_regex "$image_smoke_job" 'agent-compose:[[:alnum:]_.${}{}/-]*smoke|smoke[[:alnum:]_.${}{}/-]*agent-compose' \
     'image-smoke explicit daemon reference'
   require_regex "$image_smoke_job" 'agent-compose-guest:[[:alnum:]_.${}{}/-]*smoke|smoke[[:alnum:]_.${}{}/-]*agent-compose-guest' \
     'image-smoke explicit guest reference'
+  require_regex "$image_smoke_job" 'agent-compose-guest-archlinux:[[:alnum:]_.${}{}/-]*smoke' \
+    'image-smoke explicit Arch Linux guest reference'
   require_regex "$image_smoke_job" '(\./)?scripts/verify-agent-compose-image\.sh' \
     'image-smoke daemon image verifier'
   require_regex "$image_smoke_job" '(expected[_-]?arch|--arch)[[:space:]=]+amd64' \
     'image-smoke verifier amd64 assertion'
   require_regex "$image_smoke_job" '(\./)?scripts/test-image-docker-e2e\.sh' \
     'image-smoke Docker lifecycle E2E'
+  lifecycle_smoke_count=$(grep -Ec '(\./)?scripts/test-image-docker-e2e\.sh' <<<"$image_smoke_job" || true)
+  [[ $lifecycle_smoke_count -eq 2 ]] \
+    || fail "image-smoke has $lifecycle_smoke_count lifecycle runs, expected two"
   for variable in AGENT_COMPOSE_E2E_DAEMON_IMAGE AGENT_COMPOSE_E2E_GUEST_IMAGE AGENT_COMPOSE_E2E_DOCKER_SOCKET; do
     require_regex "$image_smoke_job" "$variable[[:space:]]*[:=]" "image-smoke explicit $variable"
   done
@@ -240,18 +290,23 @@ if [[ -n $merge_job ]]; then
     'non-PR manifest merge condition'
   require_regex "$merge_job" 'needs:[[:space:]]*$' 'merge dependency list'
   require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*build[[:space:]]*$' 'merge dependency on build'
+  require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*build-archlinux-guest[[:space:]]*$' \
+    'merge dependency on Arch Linux guest build'
   require_regex "$merge_job" '^[[:space:]]*-[[:space:]]*image-smoke[[:space:]]*$' \
     'merge dependency on successful image smoke'
-  require_regex "$merge_job" 'image:[[:space:]]*\[agent-compose,[[:space:]]*agent-compose-guest\]' \
-    'daemon and guest manifest matrix'
+  require_regex "$merge_job" 'image:[[:space:]]*agent-compose-guest-archlinux' \
+    'Arch Linux guest manifest matrix entry'
+  require_regex "$merge_job" 'platforms:[[:space:]]*linux/amd64,linux/arm64' \
+    'default image multi-architecture manifest entries'
+  require_regex "$merge_job" 'platforms:[[:space:]]*linux/amd64[[:space:]]*$' \
+    'Arch Linux guest amd64-only manifest entry'
   require_regex "$merge_job" 'docker buildx imagetools create' 'multi-arch manifest creation'
 
   manifest_verify_step=$(step_containing "$merge_job" 'verify-image-manifest.sh')
   if [[ -z $manifest_verify_step ]]; then
     fail 'daemon multi-arch manifest verifier step'
   else
-    require_regex "$manifest_verify_step" 'linux/amd64' 'manifest linux/amd64 assertion'
-    require_regex "$manifest_verify_step" 'linux/arm64' 'manifest linux/arm64 assertion'
+    require_regex "$manifest_verify_step" 'matrix\.platforms' 'per-image manifest platform assertion'
     require_regex "$manifest_verify_step" 'IMAGE_PREFIX.*matrix\.image|matrix\.image.*IMAGE_PREFIX' \
       'manifest verification registry image reference'
     create_line=$(grep -n -m1 'docker buildx imagetools create' <<<"$merge_job" | cut -d: -f1)
