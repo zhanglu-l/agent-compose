@@ -11,13 +11,16 @@ describe("provider normalization", () => {
     ["gemini_cli", "gemini"],
     ["opencode", "opencode"],
     ["open-code", "opencode"],
-    ["open_code", "opencode"],
+  ["open_code", "opencode"],
+  ["pi", "pi"],
+  ["pi-agent", "pi"],
+  ["pi_agent", "pi"],
   ])("maps %j to %s", (input, expected) => {
     expect(normalizeProvider(input)).toBe(expected);
   });
 
   it("rejects unsupported providers", () => {
-    expect(() => normalizeProvider("qwen")).toThrow(/unsupported provider "qwen"; expected one of: codex, claude, gemini, opencode/);
+    expect(() => normalizeProvider("qwen")).toThrow(/unsupported provider "qwen"; expected one of: codex, claude, gemini, opencode, pi/);
   });
 
   it.each([
@@ -26,7 +29,7 @@ describe("provider normalization", () => {
     undefined,
     null,
   ])("rejects missing provider %j", (input) => {
-    expect(() => normalizeProvider(input)).toThrow(/provider is required; expected one of: codex, claude, gemini, opencode/);
+    expect(() => normalizeProvider(input)).toThrow(/provider is required; expected one of: codex, claude, gemini, opencode, pi/);
   });
 
   it("trims provider names before normalization", () => {

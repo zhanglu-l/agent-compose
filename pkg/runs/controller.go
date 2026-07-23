@@ -840,8 +840,8 @@ func (c *Controller) runPromptInteraction(ctx context.Context, coordinator *Coor
 		transition.Error = fmt.Sprintf("agent execution failed: %v", err)
 		return transition, err
 	}
-	if agentConfig.Provider != "codex" && agentConfig.Provider != "claude" && agentConfig.Provider != "opencode" {
-		err := fmt.Errorf("%w: prompt attach currently supports codex, claude, and opencode providers only", domain.ErrUnsupported)
+	if agentConfig.Provider != "codex" && agentConfig.Provider != "claude" && agentConfig.Provider != "opencode" && agentConfig.Provider != "pi" {
+		err := fmt.Errorf("%w: prompt attach currently supports codex, claude, opencode, and pi providers only", domain.ErrUnsupported)
 		transition.ExitCode = 1
 		transition.Error = err.Error()
 		return transition, err
@@ -1058,6 +1058,9 @@ func (c *Controller) ensurePromptAttachLLMFacadeEnv(ctx context.Context, sandbox
 	}
 	if domain.NormalizeAgentKind(agent.Provider) == "opencode" {
 		return llms.EnsureOpenCodeFacadeConfig(ctx, c.config, store, sandbox, agent.Model, "agent", runID)
+	}
+	if domain.NormalizeAgentKind(agent.Provider) == "pi" {
+		return llms.EnsurePiFacadeConfig(ctx, c.config, store, sandbox, agent.Model, "agent", runID)
 	}
 	if domain.NormalizeAgentKind(agent.Provider) != "codex" {
 		return nil, nil

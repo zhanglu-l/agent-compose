@@ -4,6 +4,7 @@ import { buildPromptRuntimeOptions } from "./prompt.js";
 import { ClaudeRunner } from "./runners/claude.js";
 import { CodexRunner } from "./runners/codex.js";
 import { OpenCodeRunner } from "./runners/opencode.js";
+import { PiRunner } from "./runners/pi.js";
 import { readStoredThread, writeStoredThread } from "./session-state.js";
 import type { TextWriter, TranscriptTextWriter } from "./transcript.js";
 import type { AgentResult, Provider, RunnerOptions } from "./types.js";
@@ -268,6 +269,14 @@ export async function createInteractiveSession(
         options,
         emit,
         (writer) => new OpenCodeRunner(options, writer),
+      );
+      break;
+    case "pi":
+      session = new PromptRunnerInteractiveSession(
+        "pi",
+        options,
+        emit,
+        (writer) => new PiRunner(options, writer),
       );
       break;
     default:

@@ -8,6 +8,7 @@ import { ClaudeRunner } from "./runners/claude.js";
 import { CodexRunner } from "./runners/codex.js";
 import { GeminiRunner } from "./runners/gemini.js";
 import { OpenCodeRunner } from "./runners/opencode.js";
+import { PiRunner } from "./runners/pi.js";
 import { readMCPConfig } from "./mcp-config.js";
 import { agentSystemPromptPath, buildSystemContext, readSystemPromptFile } from "./system-context.js";
 import type { AgentResult, RuntimeJsonSchema } from "./types.js";
@@ -72,6 +73,9 @@ export async function runPromptCommand(commandOptions: PromptCommandOptions): Pr
   }
   if (provider === "opencode") {
     return await new OpenCodeRunner(options).runPrompt(promptText);
+  }
+  if (provider === "pi") {
+    return await new PiRunner(options).runPrompt(promptText);
   }
   return await new GeminiRunner(options).runPrompt(promptText);
 }

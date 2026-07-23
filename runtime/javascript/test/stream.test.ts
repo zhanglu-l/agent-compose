@@ -4,6 +4,7 @@ import { Readable, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeBinary, decodeFrame, encodeBinary, encodeFrame, FRAME_VERSION, type StreamFrame } from "../src/frame.js";
 import { OpenCodeRunner } from "../src/runners/opencode.js";
+import { PiRunner } from "../src/runners/pi.js";
 import { runStreamCommand } from "../src/stream.js";
 import { withTempSession } from "./helpers.js";
 
@@ -240,6 +241,55 @@ describe("runStreamCommand", () => {
         stopReason: "eof",
         finalText: "opencode answer 2",
         transcript: "opencode answer 1\nopencode answer 2",
+      });
+      expect(stderr.text).toBe("");
+    });
+  });
+
+  it("runs multiple Pi human messages through the provider session", async () => {
+    await withTempSession(async (root) => {
+      const stdout = new MemoryWritable();
+      const stderr = new MemoryWritable();
+      const prompts: string[] = [];
+      vi.spyOn(PiRunner.prototype, "runPrompt").mockImplementation(async function (message) {
+        prompts.push(message);
+        const turn = prompts.length;
+        const writer = (this as unknown as { writer: { write(text: string): void; transcript(): string } }).writer;
+        writer.write(`pi answer ${turn}`);
+        return {
+          provider: "pi",
+          threadId: "pi-session-1",
+          stopReason: "completed",
+          finalText: `pi answer ${turn}`,
+          transcript: writer.transcript(),
+          stderr: "",
+        };
+      });
+
+      await runStreamCommand({
+        stdin: Readable.from([
+          frame({ seq: 0, type: "start", provider: "pi", stateRoot: `${root}/state`, workspace: `${root}/workspace`, home: `${root}/home` }),
+          frame({ seq: 1, type: "human_message", message: "first" }),
+          frame({ seq: 2, type: "human_message", message: "second" }),
+          frame({ seq: 3, type: "eof" }),
+        ]),
+        stdout,
+        stderr,
+      });
+
+      const frames = parseOutput(stdout.text);
+      expect(prompts).toEqual(["first", "second"]);
+      expect(frames.filter((entry) => entry.type === "agent_event")).toEqual([
+        expect.objectContaining({ event: expect.objectContaining({ provider: "pi", text: "pi answer 1" }) }),
+        expect.objectContaining({ event: expect.objectContaining({ provider: "pi", text: "pi answer 2" }) }),
+      ]);
+      expect(frames.at(-1)).toMatchObject({
+        type: "result",
+        provider: "pi",
+        threadId: "pi-session-1",
+        stopReason: "eof",
+        finalText: "pi answer 2",
+        transcript: "pi answer 1\npi answer 2",
       });
       expect(stderr.text).toBe("");
     });

@@ -139,7 +139,7 @@ see `$HOME` as `/root`, but related config and state are persisted by host
 sandbox home.
 
 The logical mount list also creates declared home directories used by current
-providers, including `.opencode`, `.gemini`, `.config/{claude,Claude,gemini,opencode}`,
+providers, including `.opencode`, `.pi`, `.gemini`, `.config/{claude,Claude,gemini,opencode}`,
 and `.local/share/gemini`.
 
 ## Driver Differences

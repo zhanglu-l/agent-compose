@@ -39,7 +39,7 @@ func EnsureOpenCodeFacadeConfig(ctx context.Context, config *appconfig.Config, s
 }
 
 func ensureOpenCodeAnthropicFacadeConfig(ctx context.Context, config *appconfig.Config, store OpenCodeFacadeStore, sandbox *domain.Sandbox, model, source, runID string) (map[string]string, error) {
-	target, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandbox.Summary.ID, ProviderFamilyAnthropic, model, "", openCodeProviderEnvItems(sandbox))
+	target, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandbox.Summary.ID, ProviderFamilyAnthropic, model, "", sandboxProviderEnvItems(sandbox))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func ensureOpenCodeAnthropicFacadeConfig(ctx context.Context, config *appconfig.
 }
 
 func ensureOpenCodeOpenAIFacadeConfig(ctx context.Context, config *appconfig.Config, store OpenCodeFacadeStore, sandbox *domain.Sandbox, model, source, runID string) (map[string]string, error) {
-	target, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandbox.Summary.ID, ProviderFamilyOpenAI, model, "", openCodeProviderEnvItems(sandbox))
+	target, err := ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandbox.Summary.ID, ProviderFamilyOpenAI, model, "", sandboxProviderEnvItems(sandbox))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func ensureOpenCodeOpenAIFacadeConfig(ctx context.Context, config *appconfig.Con
 }
 
 func ensureOpenCodeCustomFacadeConfig(ctx context.Context, config *appconfig.Config, store OpenCodeFacadeStore, sandbox *domain.Sandbox, providerID, model, source, runID string) (map[string]string, error) {
-	target, err := resolveOpenCodeCustomFacadeTarget(ctx, config, store, sandbox, providerID, model)
+	target, err := resolveCustomOpenAIFacadeTarget(ctx, config, store, sandbox, providerID, model)
 	if err != nil {
 		return nil, err
 	}
@@ -117,38 +117,4 @@ func openCodeOpenAIEnv(tokenValue, baseURL, protocol string, config *appconfig.C
 		"OPENAI_BASE_URL":             baseURL,
 		"OPENCODE_CONFIG":             GuestOpenCodeConfigPath(config),
 	}
-}
-
-func resolveOpenCodeCustomFacadeTarget(ctx context.Context, config *appconfig.Config, store OpenCodeFacadeStore, sandbox *domain.Sandbox, providerID, model string) (ResolvedTarget, error) {
-	envItems := openCodeProviderEnvItems(sandbox)
-	sandboxID := ""
-	if sandbox != nil {
-		sandboxID = sandbox.Summary.ID
-	}
-	if HasEnabledLLMProviderID(ctx, store, providerID) {
-		return ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandboxID, ProviderFamilyOpenAI, model, providerID, envItems)
-	}
-	if sandboxID != "" && HasOpenAIEnvProviderInput(envItems) {
-		sessionProviderID, err := EnsureSessionOpenAIEnvProvider(ctx, store, sandboxID, model, envItems)
-		if err != nil {
-			return ResolvedTarget{}, err
-		}
-		if strings.TrimSpace(sessionProviderID) != "" {
-			return ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandboxID, ProviderFamilyOpenAI, model, sessionProviderID, envItems)
-		}
-	}
-	if _, err := EnsureOpenAIEnvProvider(ctx, store, DefaultLLMEnvProviderLookup(ctx, config, store), providerID, providerID, ProviderScopeEnvDefault, model, false); err != nil {
-		return ResolvedTarget{}, err
-	}
-	return ResolveRuntimeLLMTargetWithEnv(ctx, config, store, sandboxID, ProviderFamilyOpenAI, model, providerID, envItems)
-}
-
-func openCodeProviderEnvItems(sandbox *domain.Sandbox) []domain.SandboxEnvVar {
-	if sandbox == nil {
-		return nil
-	}
-	if len(sandbox.ProviderEnvItems) > 0 {
-		return sandbox.ProviderEnvItems
-	}
-	return sandbox.EnvItems
 }

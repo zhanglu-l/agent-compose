@@ -171,3 +171,56 @@ func TestEnsurePromptAttachLLMFacadeEnvOpenCodeUsesSharedRuntimeConfig(t *testin
 		t.Fatalf("OpenCode runtime config = %s", data)
 	}
 }
+
+func TestEnsurePromptAttachLLMFacadeEnvPiUsesSharedRuntimeConfig(t *testing.T) {
+	root := t.TempDir()
+	config := &appconfig.Config{
+		RuntimeBaseURL: "http://agent-compose.test:7410",
+		GuestHomePath:  "/root",
+	}
+	store := &promptAttachFacadeStore{
+		providers: []llms.Provider{{
+			ID:             "openai-test",
+			ProviderType:   llms.ProviderFamilyOpenAI,
+			DefaultWireAPI: llms.APIProtocolResponses,
+			BaseURL:        "https://openai.example.test/v1",
+			APIKey:         "openai-key",
+			Enabled:        true,
+		}},
+		models: []llms.Model{{ID: "gpt-test", Name: "gpt-test", DefaultModel: true, Enabled: true}},
+	}
+	sandbox := &domain.Sandbox{Summary: domain.SandboxSummary{
+		ID:            "sandbox-pi-attach",
+		Driver:        driver.RuntimeDriverDocker,
+		WorkspacePath: filepath.Join(root, "sandbox", "workspace"),
+	}}
+	controller := &Controller{config: config, configDB: store}
+
+	env, err := controller.ensurePromptAttachLLMFacadeEnv(
+		context.Background(),
+		sandbox,
+		execution.AgentConfig{Provider: "pi", Model: "openai-test/gpt-test"},
+		"run-pi-attach",
+	)
+	if err != nil {
+		t.Fatalf("ensurePromptAttachLLMFacadeEnv returned error: %v", err)
+	}
+	if env["LLM_API_PROTOCOL"] != llms.APIProtocolResponses || env["PI_CODING_AGENT_DIR"] != "/root/.pi/agent" {
+		t.Fatalf("Pi facade env = %#v", env)
+	}
+	if env["AGENT_COMPOSE_SANDBOX_TOKEN"] == "" || len(store.tokens) != 1 {
+		t.Fatalf("Pi token env = %q, saved tokens = %#v", env["AGENT_COMPOSE_SANDBOX_TOKEN"], store.tokens)
+	}
+	token := store.tokens[0]
+	if token.Model != "gpt-test" || token.ProviderID != "openai-test" || token.Source != "agent" || token.RunID != "run-pi-attach" {
+		t.Fatalf("stored token = %#v", token)
+	}
+	configPath := filepath.Join(root, "sandbox", "home", ".pi", "agent", "models.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read Pi runtime config: %v", err)
+	}
+	if !strings.Contains(string(data), `"gpt-test"`) || !strings.Contains(string(data), `"openai-responses"`) {
+		t.Fatalf("Pi runtime config = %s", data)
+	}
+}
