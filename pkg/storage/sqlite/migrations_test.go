@@ -177,8 +177,8 @@ func TestLoaderBindingConfigHashMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if len(available) < 3 || available[2].version != 3 {
-		t.Fatalf("available migrations = %#v, want version 3", available)
+	if len(available) < 4 || available[3].version != 4 || available[3].name != "000004_loader_binding_config_hash" {
+		t.Fatalf("available migrations = %#v, want loader binding config hash at version 4", available)
 	}
 	if err := applyMigrationSet(ctx, db, available[:1]); err != nil {
 		t.Fatalf("apply baseline migration: %v", err)
@@ -199,20 +199,20 @@ func TestLoaderBindingConfigHashMigration(t *testing.T) {
 		t.Fatalf("migrated binding = (%q, %q), want (%q, %q)", sandboxID, configHash, "sandbox-1", "")
 	}
 	var versionCount int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 4`).Scan(&versionCount); err != nil {
 		t.Fatalf("query migration history: %v", err)
 	}
 	if versionCount != 1 {
-		t.Fatalf("version 3 history count = %d, want 1", versionCount)
+		t.Fatalf("version 4 history count = %d, want 1", versionCount)
 	}
 	if err := applyMigrations(ctx, db, embeddedMigrations); err != nil {
 		t.Fatalf("reapply migrations: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 4`).Scan(&versionCount); err != nil {
 		t.Fatalf("query migration history after reapply: %v", err)
 	}
 	if versionCount != 1 {
-		t.Fatalf("version 3 history count after reapply = %d, want 1", versionCount)
+		t.Fatalf("version 4 history count after reapply = %d, want 1", versionCount)
 	}
 }
 
