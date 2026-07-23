@@ -183,6 +183,33 @@ describe("PiRunner", () => {
     });
   });
 
+  it("surfaces the final Pi model error instead of returning an empty turn", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
+      processState.lines = [
+        JSON.stringify({ type: "session", id: "pi-session" }),
+        JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "OpenAI API error (401): Unauthorized" } }),
+        JSON.stringify({ type: "agent_end", stopReason: "completed" }),
+      ];
+      await expect(new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt"))
+        .rejects.toThrow("pi model request failed: OpenAI API error (401): Unauthorized");
+    });
+  });
+
+  it("does not retain a retry error after a successful assistant response", async () => {
+    const { PiRunner } = await import("../src/runners/pi.js");
+    await withTempSession(async (root) => {
+      processState.lines = [
+        JSON.stringify({ type: "session", id: "pi-session" }),
+        JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "temporary" } }),
+        JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "recovered" }], stopReason: "stop" } }),
+        JSON.stringify({ type: "agent_end", stopReason: "completed" }),
+      ];
+      const result = await new PiRunner(runnerOptions(root, "", "pi")).runPrompt("prompt");
+      expect(result.finalText).toBe("recovered");
+    });
+  });
+
   it("rejects missing, traversing, and symlink-escaping skills", async () => {
     const { PiRunner } = await import("../src/runners/pi.js");
     await withTempSession(async (root) => {

@@ -13,6 +13,7 @@ const maxToolResultBytes = 16 * 1024;
 
 export class PiRunner {
   private reportedError: Error | null = null;
+  private latestAssistantError: Error | null = null;
 
   constructor(
     private readonly options: RunnerOptions,
@@ -21,6 +22,7 @@ export class PiRunner {
 
   async runPrompt(promptText: string): Promise<AgentResult> {
     this.reportedError = null;
+    this.latestAssistantError = null;
     if (this.options.outputSchema) {
       throw new Error("structured JSON output is not supported by pi runner");
     }
@@ -150,6 +152,13 @@ export class PiRunner {
     if (type === "message_end") {
       const message = recordValue(event.message);
       if (String(message?.role || event.role || "") === "assistant") {
+        const stopReason = firstString(message, "stopReason", "stop_reason");
+        if (stopReason === "error") {
+          const detail = firstString(message, "errorMessage", "error_message") || "unknown Pi model error";
+          this.latestAssistantError = new Error(`pi model request failed: ${detail}`);
+        } else {
+          this.latestAssistantError = null;
+        }
         result.finalText = extractText(message?.content) || extractText(event.content) || result.finalText;
       }
       return;
@@ -166,6 +175,7 @@ export class PiRunner {
     if (type === "agent_end") {
       result.stopReason = firstString(event, "stopReason", "stop_reason") || "completed";
       result.finalText ||= lastAssistantMessage(event.messages);
+      this.reportedError ??= this.latestAssistantError;
       return;
     }
     if (type.startsWith("auto_retry_") || type.startsWith("compaction_")) {
