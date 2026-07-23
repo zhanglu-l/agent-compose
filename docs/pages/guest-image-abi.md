@@ -277,10 +277,50 @@ a baseline image requirement.
 
 A project that compiles or tests Go code **MUST** select a development or custom
 guest image that installs Go. The repository's
-`guest-images/Dockerfile.devbox-archlinux` is an x86_64-oriented development
-image example with Go and other build tools; it is not the default guest image.
-Production deployments should build and publish an immutable, architecture-
-appropriate development image and select it explicitly in the agent spec.
+`guest-images/Dockerfile.devbox-archlinux` remains an x86_64-oriented
+development image example with Go and other build tools; it is not the default
+guest image. Production deployments should build and publish an immutable,
+architecture-appropriate development image and select it explicitly in the
+agent spec.
+
+### 6.1 Optional Arch Linux Guest
+
+The repository also provides
+`guest-images/Dockerfile.agent-compose-guest-archlinux`. It uses Arch Linux and
+`pacman`, while retaining the default guest's provider CLIs, Jupyter support,
+JavaScript runtime, offline runtime SDK bundle, root user, directories,
+entrypoint, and startup command. Like the default guest, its final image does
+not contain the Go toolchain; Go is used only in an isolated builder stage to
+produce `grpcurl`. It installs Node.js 22 LTS and only the compiler packages
+needed by native npm dependencies rather than the full Arch `base-devel` group.
+
+Build it locally from the repository root:
+
+```bash
+task image:agent-compose-guest-archlinux
+```
+
+The resulting tag is `agent-compose-guest-archlinux:latest`. The task explicitly
+targets `linux/amd64`, so it also works through emulation on an Arm development
+host. Override the tag with `IMAGE_TAG`, and use `ARCHLINUX_TAG` or
+`ARCHLINUX_MIRROR` when a deployment needs a pinned base tag or another package
+mirror:
+
+```bash
+IMAGE_TAG=registry.example.com/team/agent-compose-guest-archlinux:vX.Y.Z \
+ARCHLINUX_TAG=<pinned-tag> \
+task image:agent-compose-guest-archlinux
+```
+
+Image CI builds this variant on pull requests and publishes it as
+`ghcr.io/chaitin/agent-compose-guest-archlinux` on pushes to `main` and version
+tags. It follows the default images' branch, version, SHA, and release `latest`
+tagging policy, but its manifest contains only `linux/amd64`. The upstream
+`library/archlinux` image used by the build is x86_64-only; a team that supplies
+its own compatible Arch Linux base for another architecture must build and
+validate that variant independently. The Arch Linux guest is not the deployment
+default, so select it explicitly in the agent spec and run the validation in
+Section 10 before using it.
 
 ## 7. Recommended Build: Extend the Published Guest
 
@@ -463,7 +503,7 @@ For every daemon upgrade:
 1. Rebase the custom image on the matching published guest tag, or rebuild
    `runtime/javascript` from the matching source tag.
 2. Reconcile provider CLI versions with
-   `guest-images/Dockerfile.agent-compose-guest`.
+   the selected guest Dockerfile.
 3. Re-run the static probe and Docker lifecycle tests.
 4. Re-run Jupyter, provider, and selected-driver acceptance tests for enabled
    capabilities.
@@ -473,6 +513,7 @@ For every daemon upgrade:
 The implementation sources of truth are:
 
 - [`guest-images/Dockerfile.agent-compose-guest`](https://github.com/chaitin/agent-compose/blob/main/guest-images/Dockerfile.agent-compose-guest)
+- [`guest-images/Dockerfile.agent-compose-guest-archlinux`](https://github.com/chaitin/agent-compose/blob/main/guest-images/Dockerfile.agent-compose-guest-archlinux)
 - [`pkg/driver/runtime_mount_manifest.go`](https://github.com/chaitin/agent-compose/blob/main/pkg/driver/runtime_mount_manifest.go)
 - [`pkg/driver/directory_only_guest_bootstrap.go`](https://github.com/chaitin/agent-compose/blob/main/pkg/driver/directory_only_guest_bootstrap.go)
 - [`pkg/driver/docker_runtime.go`](https://github.com/chaitin/agent-compose/blob/main/pkg/driver/docker_runtime.go)

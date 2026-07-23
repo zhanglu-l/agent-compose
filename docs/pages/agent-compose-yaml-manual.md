@@ -417,14 +417,15 @@ agents:
 
 At runtime, the selected driver must be able to obtain this image. When `build` is also configured, `image` becomes one of the build output tags. `agent-compose build` fails if neither `image` nor `build.tags` provides a tag.
 
-GitHub CI currently publishes exactly these two multi-platform images to GHCR:
+GitHub CI publishes these images to GHCR:
 
 | Image | Purpose | Dockerfile | Platforms |
 | --- | --- | --- | --- |
 | `ghcr.io/chaitin/agent-compose` | Control-plane daemon | `Dockerfile` | `linux/amd64`, `linux/arm64` |
 | `ghcr.io/chaitin/agent-compose-guest` | Sandbox guest runtime | `guest-images/Dockerfile.agent-compose-guest` | `linux/amd64`, `linux/arm64` |
+| `ghcr.io/chaitin/agent-compose-guest-archlinux` | Optional Arch Linux sandbox guest runtime | `guest-images/Dockerfile.agent-compose-guest-archlinux` | `linux/amd64` |
 
-Use `ghcr.io/chaitin/agent-compose-guest:<tag>` for an agent's `image`. The daemon image deploys the control plane and is not a guest image. CI does not publish separate BoxLite-only, Microsandbox-only, or per-driver guest images.
+Use either guest image for an agent's `image`. The daemon image deploys the control plane and is not a guest image. Neither guest is tied to one driver: CI does not publish separate BoxLite-only, Microsandbox-only, or other per-driver guest images.
 
 ### `build`
 

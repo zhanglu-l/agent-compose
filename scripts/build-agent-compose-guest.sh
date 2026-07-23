@@ -11,6 +11,10 @@ build_args=(
   -t "$IMAGE_TAG"
 )
 
+if [[ -n ${BUILD_PLATFORM:-} ]]; then
+  build_args+=(--platform "$BUILD_PLATFORM")
+fi
+
 append_build_arg() {
   local name=$1
   local value=$2
@@ -25,6 +29,12 @@ append_build_arg GO_VERSION "${GO_VERSION:-}"
 append_build_arg GRPCURL_VERSION "${GRPCURL_VERSION:-}"
 append_build_arg PYPI_INDEX_URL "${PYPI_INDEX_URL:-}"
 append_build_arg PYPI_TRUSTED_HOST "${PYPI_TRUSTED_HOST:-}"
+append_build_arg ARCHLINUX_TAG "${ARCHLINUX_TAG:-}"
+append_build_arg ARCHLINUX_MIRROR "${ARCHLINUX_MIRROR:-}"
+append_build_arg CODEX_VERSION "${CODEX_VERSION:-}"
+append_build_arg CLAUDE_CODE_VERSION "${CLAUDE_CODE_VERSION:-}"
+append_build_arg GEMINI_CLI_VERSION "${GEMINI_CLI_VERSION:-}"
+append_build_arg OPENCODE_VERSION "${OPENCODE_VERSION:-}"
 
 docker build "${build_args[@]}" "$ROOT_DIR"
 

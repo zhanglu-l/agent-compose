@@ -146,12 +146,66 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The upstream Arch Linux base is x86_64-only, so publish this guest through
+  # the same digest/tag pipeline as the default images but only for amd64.
+  build-archlinux-guest:
+    name: Build agent-compose-guest-archlinux (linux/amd64)
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/agent-compose-guest-archlinux
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: guest-images/Dockerfile.agent-compose-guest-archlinux
+          platforms: linux/amd64
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/agent-compose-guest-archlinux,push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          build-args: |
+            REGISTRY_MIRROR=${{ env.REGISTRY_MIRROR }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=agent-compose-guest-archlinux-amd64
+          cache-to: type=gha,mode=max,scope=agent-compose-guest-archlinux-amd64
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-agent-compose-guest-archlinux--amd64
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
   # Build loadable amd64 images independently from the push-by-digest matrix.
   # The smoke proves the published Dockerfile starts without KVM and completes
   # a real Docker-driver sandbox lifecycle through the public API.
   image-smoke:
     name: Full image Docker smoke (linux/amd64)
-    needs: build
+    needs:
+      - build
+      - build-archlinux-guest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +229,19 @@ jobs:
             GOPROXY=${{ env.GOPROXY }}
           cache-from: type=gha,scope=agent-compose-guest-amd64
           cache-to: type=gha,mode=max,scope=agent-compose-guest-amd64
+      - name: Build loadable Arch Linux guest image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: guest-images/Dockerfile.agent-compose-guest-archlinux
+          platforms: linux/amd64
+          load: true
+          tags: agent-compose-guest-archlinux:image-smoke
+          build-args: |
+            REGISTRY_MIRROR=${{ env.REGISTRY_MIRROR }}
+            GOPROXY=${{ env.GOPROXY }}
+          cache-from: type=gha,scope=agent-compose-guest-archlinux-amd64
+          cache-to: type=gha,mode=max,scope=agent-compose-guest-archlinux-amd64
       - name: Build loadable full daemon image
         uses: docker/build-push-action@v6
         with:
@@ -194,26 +261,40 @@ jobs:
           ./scripts/verify-agent-compose-image.sh \
             --image agent-compose:image-smoke \
             --arch amd64
-      - name: Run no-KVM Docker lifecycle smoke
+      - name: Run default guest no-KVM Docker lifecycle smoke
         env:
           AGENT_COMPOSE_E2E_DAEMON_IMAGE: agent-compose:image-smoke
           AGENT_COMPOSE_E2E_GUEST_IMAGE: agent-compose-guest:image-smoke
           AGENT_COMPOSE_E2E_DOCKER_SOCKET: /var/run/docker.sock
           GOCACHE: ${{ github.workspace }}/.cache/go-build
         run: ./scripts/test-image-docker-e2e.sh
+      - name: Run Arch Linux guest no-KVM Docker lifecycle smoke
+        env:
+          AGENT_COMPOSE_E2E_DAEMON_IMAGE: agent-compose:image-smoke
+          AGENT_COMPOSE_E2E_GUEST_IMAGE: agent-compose-guest-archlinux:image-smoke
+          AGENT_COMPOSE_E2E_DOCKER_SOCKET: /var/run/docker.sock
+          GOCACHE: ${{ github.workspace }}/.cache/go-build
+        run: ./scripts/test-image-docker-e2e.sh
 
-  # Combine the per-arch digests into a single multi-arch manifest per image.
+  # Combine each image's per-platform digests into its published manifest.
   merge:
     name: Merge ${{ matrix.image }} manifest
     if: github.event_name != 'pull_request'
     needs:
       - build
+      - build-archlinux-guest
       - image-smoke
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image: [agent-compose, agent-compose-guest]
+        include:
+          - image: agent-compose
+            platforms: linux/amd64,linux/arm64
+          - image: agent-compose-guest
+            platforms: linux/amd64,linux/arm64
+          - image: agent-compose-guest-archlinux
+            platforms: linux/amd64
     steps:
       - uses: actions/checkout@v4
       - name: Download digests
@@ -258,11 +339,11 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             "${refs[@]}"
-      - name: Verify multi-arch image
+      - name: Verify published image manifest
         run: |
           ./scripts/verify-image-manifest.sh \
             --image ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ steps.meta.outputs.version }} \
-            --platforms linux/amd64,linux/arm64
+            --platforms ${{ matrix.platforms }}
 
   # Publish the installer assets. The stack pulls its multi-arch images from the
   # registry at install time, so no per-arch binary artifacts are shipped here.
