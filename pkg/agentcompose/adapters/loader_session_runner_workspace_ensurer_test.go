@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-compose/pkg/capabilities"
 	driverpkg "agent-compose/pkg/driver"
 	domain "agent-compose/pkg/model"
 	"agent-compose/pkg/workspaces"
@@ -384,7 +385,7 @@ func TestLoaderSandboxRunnerLoadOrResumeUsesWorkspaceEnsurer(t *testing.T) {
 	})
 }
 
-func TestLoaderSandboxRunnerStickyRunningReuseSkipsEnsurerAndPreservesWorkspaceSnapshot(t *testing.T) {
+func TestLoaderSandboxRunnerStickyRunningMatchingConfigSkipsEnsurerAndPreservesWorkspaceSnapshot(t *testing.T) {
 	ctx := context.Background()
 	bridge, driver := newTestSandboxRPCBridge(t)
 	workspaceConfig, err := bridge.configDB.CreateWorkspaceConfig(ctx, domain.WorkspaceConfig{
@@ -397,7 +398,7 @@ func TestLoaderSandboxRunnerStickyRunningReuseSkipsEnsurerAndPreservesWorkspaceS
 		t.Fatalf("CreateWorkspaceConfig returned error: %v", err)
 	}
 	originalSnapshot := &domain.SandboxWorkspace{ID: workspaceConfig.ID, Name: workspaceConfig.Name, Type: workspaceConfig.Type, ConfigJSON: workspaceConfig.ConfigJSON}
-	running, err := bridge.store.CreateSandbox(ctx, "sticky running", "", driverpkg.RuntimeDriverBoxlite, "", workspaceConfig.ID, "loader", originalSnapshot, nil, nil)
+	running, err := bridge.store.CreateSandbox(ctx, "sticky running", "", driverpkg.RuntimeDriverDocker, "", workspaceConfig.ID, "loader", originalSnapshot, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateSandbox returned error: %v", err)
 	}
@@ -408,25 +409,30 @@ func TestLoaderSandboxRunnerStickyRunningReuseSkipsEnsurerAndPreservesWorkspaceS
 	if err := bridge.store.UpdateSandbox(ctx, running); err != nil {
 		t.Fatalf("UpdateSandbox returned error: %v", err)
 	}
-	workspaceConfig.ConfigJSON = `{"root":"source-v2"}`
-	if _, err := bridge.configDB.UpdateWorkspaceConfig(ctx, workspaceConfig); err != nil {
-		t.Fatalf("UpdateWorkspaceConfig returned error: %v", err)
-	}
 	loader := domain.Loader{Summary: domain.LoaderSummary{
 		ID:            "loader-sticky",
 		Name:          "Loader Sticky",
 		WorkspaceID:   workspaceConfig.ID,
-		Driver:        driverpkg.RuntimeDriverBoxlite,
+		Driver:        driverpkg.RuntimeDriverDocker,
 		SandboxPolicy: domain.LoaderSandboxPolicySticky,
 	}}
-	if err := bridge.configDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "sticky-trigger", SandboxID: running.Summary.ID}); err != nil {
-		t.Fatalf("UpsertLoaderBinding returned error: %v", err)
-	}
+	request := domain.LoaderAgentRequest{Agent: "codex", BindingTriggerID: "sticky-trigger"}
 	ensurer := &recordingLoaderWorkspaceEnsurer{err: errors.New("running sticky path must not ensure workspace")}
 	publisher := &loaderSessionPublisherFake{}
 	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, ensurer, driver, nil, nil, bridge.streams, publisher, nil)
-
-	reused, eventType, err := runner.Ensure(ctx, loader, domain.LoaderAgentRequest{Agent: "codex", BindingTriggerID: "sticky-trigger"}, false)
+	baseConfigHash, err := loaderSandboxConfigHash(loader)
+	if err != nil {
+		t.Fatalf("loaderSandboxConfigHash returned error: %v", err)
+	}
+	guestImage := runner.guestImage(request, loader, nil, driverpkg.RuntimeDriverDocker)
+	configHash, err := loaderRequestSandboxConfigHash(baseConfigHash, request, nil, nil, nil, originalSnapshot, driverpkg.RuntimeDriverDocker, guestImage, nil)
+	if err != nil {
+		t.Fatalf("loaderRequestSandboxConfigHash returned error: %v", err)
+	}
+	if err := bridge.configDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: "sticky-trigger", SandboxID: running.Summary.ID, SandboxConfigHash: configHash}); err != nil {
+		t.Fatalf("UpsertLoaderBinding returned error: %v", err)
+	}
+	reused, eventType, err := runner.Ensure(ctx, loader, request, false)
 	if err != nil {
 		t.Fatalf("Ensure sticky reuse returned error: %v", err)
 	}
@@ -436,14 +442,308 @@ func TestLoaderSandboxRunnerStickyRunningReuseSkipsEnsurerAndPreservesWorkspaceS
 	if len(ensurer.calls) != 0 || len(driver.startCalls) != 0 {
 		t.Fatalf("workspace Ensure/driver calls on running sticky reuse = %d/%d, want 0/0", len(ensurer.calls), len(driver.startCalls))
 	}
-	if reused.Workspace == nil || reused.Workspace.ConfigJSON != originalSnapshot.ConfigJSON || reused.Workspace.ConfigJSON == workspaceConfig.ConfigJSON {
-		t.Fatalf("sticky workspace snapshot = %#v, want original %#v and not updated source %q", reused.Workspace, originalSnapshot, workspaceConfig.ConfigJSON)
+	if reused.Workspace == nil || reused.Workspace.ConfigJSON != originalSnapshot.ConfigJSON {
+		t.Fatalf("sticky workspace snapshot = %#v, want original %#v", reused.Workspace, originalSnapshot)
 	}
 	if reused.WorkspaceProvisioning == nil || reused.WorkspaceProvisioning.Status != domain.SandboxWorkspaceProvisioningStatusReady {
 		t.Fatalf("sticky provisioning = %#v, want ready", reused.WorkspaceProvisioning)
 	}
 	if len(publisher.events) != 0 {
 		t.Fatalf("publisher events for running sticky fast path = %#v, want none", publisher.events)
+	}
+}
+
+func TestLoaderSandboxRunnerAdoptsLegacyStickyBindingWithoutStoppingSandbox(t *testing.T) {
+	tests := []struct {
+		name  string
+		reuse func(context.Context, *LoaderSandboxRunner, domain.Loader, string, string) (*domain.Sandbox, string, bool, error)
+	}{
+		{
+			name: "initial reuse",
+			reuse: func(ctx context.Context, runner *LoaderSandboxRunner, loader domain.Loader, triggerID, configHash string) (*domain.Sandbox, string, bool, error) {
+				sandbox, eventType, reused, _, err := runner.reuseCompatibleLoaderBinding(ctx, loader, triggerID, configHash)
+				return sandbox, eventType, reused, err
+			},
+		},
+		{
+			name: "concurrent winner",
+			reuse: func(ctx context.Context, runner *LoaderSandboxRunner, loader domain.Loader, triggerID, configHash string) (*domain.Sandbox, string, bool, error) {
+				return runner.reuseWinningLoaderBinding(ctx, loader.Summary.ID, triggerID, configHash)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			bridge, driver := newTestSandboxRPCBridge(t)
+			runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, &recordingLoaderWorkspaceEnsurer{}, driver, nil, nil, bridge.streams, nil, nil)
+			loader := domain.Loader{Summary: domain.LoaderSummary{ID: "legacy-loader", SandboxPolicy: domain.LoaderSandboxPolicySticky}}
+			const triggerID = "legacy-trigger"
+			const configHash = "sha256:current"
+			running, err := bridge.store.CreateSandbox(ctx, "legacy sticky", "", driverpkg.RuntimeDriverDocker, "", "", domain.SandboxTypeScript+":"+loader.Summary.ID, nil, nil, nil)
+			if err != nil {
+				t.Fatalf("CreateSandbox returned error: %v", err)
+			}
+			running.Summary.VMStatus = domain.VMStatusRunning
+			if err := bridge.store.UpdateSandbox(ctx, running); err != nil {
+				t.Fatalf("UpdateSandbox returned error: %v", err)
+			}
+			if err := bridge.configDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: loader.Summary.ID, TriggerID: triggerID, SandboxID: running.Summary.ID}); err != nil {
+				t.Fatalf("UpsertLoaderBinding returned error: %v", err)
+			}
+
+			reusedSandbox, eventType, reused, err := test.reuse(ctx, runner, loader, triggerID, configHash)
+			if err != nil {
+				t.Fatalf("reuse legacy binding returned error: %v", err)
+			}
+			if !reused || reusedSandbox == nil || reusedSandbox.Summary.ID != running.Summary.ID || eventType != "" {
+				t.Fatalf("reuse result = %#v/%q/%v, want sandbox %q/empty/true", reusedSandbox, eventType, reused, running.Summary.ID)
+			}
+			if len(driver.stopCalls) != 0 || len(driver.startCalls) != 0 {
+				t.Fatalf("driver stop/start calls = %#v/%#v, want none", driver.stopCalls, driver.startCalls)
+			}
+			binding, found, err := bridge.configDB.GetLoaderBinding(ctx, loader.Summary.ID, triggerID)
+			if err != nil || !found || binding.SandboxID != running.Summary.ID || binding.SandboxConfigHash != configHash {
+				t.Fatalf("adopted binding = %#v found=%v err=%v, want sandbox %q hash %q", binding, found, err, running.Summary.ID, configHash)
+			}
+		})
+	}
+}
+
+func TestLoaderSandboxRunnerConcurrentStickyClaimReusesWinner(t *testing.T) {
+	ctx := context.Background()
+	bridge, driver := newTestSandboxRPCBridge(t)
+	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, &recordingLoaderWorkspaceEnsurer{}, driver, nil, nil, bridge.streams, nil, nil)
+	loader := domain.Loader{Summary: domain.LoaderSummary{
+		ID:                "loader-concurrent-sticky",
+		Name:              "Concurrent Sticky",
+		Driver:            driverpkg.RuntimeDriverDocker,
+		SandboxPolicy:     domain.LoaderSandboxPolicySticky,
+		ConcurrencyPolicy: domain.LoaderConcurrencyPolicyParallel,
+	}}
+	request := domain.LoaderAgentRequest{Agent: "codex", BindingTriggerID: "trigger-1"}
+	guestImage := runner.guestImage(request, loader, nil, driverpkg.RuntimeDriverDocker)
+	baseConfigHash, err := loaderSandboxConfigHash(loader)
+	if err != nil {
+		t.Fatalf("loaderSandboxConfigHash returned error: %v", err)
+	}
+	configHash, err := loaderRequestSandboxConfigHash(baseConfigHash, request, nil, nil, nil, nil, driverpkg.RuntimeDriverDocker, guestImage, nil)
+	if err != nil {
+		t.Fatalf("loaderRequestSandboxConfigHash returned error: %v", err)
+	}
+	winner, err := bridge.store.CreateSandbox(ctx, "winner", "", driverpkg.RuntimeDriverDocker, guestImage, "", domain.SandboxTypeScript+":"+loader.Summary.ID, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSandbox winner returned error: %v", err)
+	}
+	winner.Summary.VMStatus = domain.VMStatusRunning
+	if err := bridge.store.UpdateSandbox(ctx, winner); err != nil {
+		t.Fatalf("UpdateSandbox winner returned error: %v", err)
+	}
+	var bindErr error
+	driver.onStart = func(*domain.Sandbox) {
+		if bindErr != nil {
+			return
+		}
+		bindErr = bridge.configDB.UpsertLoaderBinding(ctx, domain.LoaderBinding{
+			LoaderID:          loader.Summary.ID,
+			TriggerID:         request.BindingTriggerID,
+			SandboxID:         winner.Summary.ID,
+			SandboxConfigHash: configHash,
+		})
+	}
+
+	reused, eventType, err := runner.Ensure(ctx, loader, request, false)
+	if bindErr != nil {
+		t.Fatalf("seed winning binding returned error: %v", bindErr)
+	}
+	if err != nil {
+		t.Fatalf("Ensure returned error: %v", err)
+	}
+	if reused.Summary.ID != winner.Summary.ID || eventType != "" {
+		t.Fatalf("Ensure result = %q/%q, want winning sandbox %q with no resume event", reused.Summary.ID, eventType, winner.Summary.ID)
+	}
+	if len(driver.startCalls) != 1 {
+		t.Fatalf("driver starts = %#v, want one losing sandbox start", driver.startCalls)
+	}
+	loser, err := bridge.store.GetSandbox(ctx, driver.startCalls[0])
+	if err != nil {
+		t.Fatalf("GetSandbox loser returned error: %v", err)
+	}
+	if loser.Summary.VMStatus != domain.VMStatusStopped {
+		t.Fatalf("losing sandbox status = %q, want stopped", loser.Summary.VMStatus)
+	}
+}
+
+func TestLoaderSandboxRunnerStickyWorkspaceConfigChangeCreatesReplacement(t *testing.T) {
+	ctx := context.Background()
+	bridge, driver := newTestSandboxRPCBridge(t)
+	workspace, err := bridge.configDB.CreateWorkspaceConfig(ctx, domain.WorkspaceConfig{
+		ID:         "loader-sticky-workspace-update",
+		Name:       "Loader Sticky Workspace Update",
+		Type:       "file",
+		ConfigJSON: `{"root":"source-v1"}`,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspaceConfig returned error: %v", err)
+	}
+	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, &recordingLoaderWorkspaceEnsurer{}, driver, nil, nil, bridge.streams, &loaderSessionPublisherFake{}, nil)
+	loader := domain.Loader{Summary: domain.LoaderSummary{
+		ID:            "loader-sticky-workspace-update",
+		Name:          "Loader Sticky Workspace Update",
+		WorkspaceID:   workspace.ID,
+		Driver:        driverpkg.RuntimeDriverDocker,
+		SandboxPolicy: domain.LoaderSandboxPolicySticky,
+	}}
+	request := domain.LoaderAgentRequest{BindingTriggerID: "sticky-trigger"}
+	first, _, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("first Ensure returned error: %v", err)
+	}
+	workspace.ConfigJSON = `{"root":"source-v2"}`
+	if _, err := bridge.configDB.UpdateWorkspaceConfig(ctx, workspace); err != nil {
+		t.Fatalf("UpdateWorkspaceConfig returned error: %v", err)
+	}
+	replacement, eventType, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("Ensure after workspace update returned error: %v", err)
+	}
+	if replacement.Summary.ID == first.Summary.ID || eventType != "loader.sandbox.created" {
+		t.Fatalf("replacement sandbox/event = %q/%q, want a new sandbox/loader.sandbox.created", replacement.Summary.ID, eventType)
+	}
+	if replacement.Workspace == nil || replacement.Workspace.ConfigJSON != workspace.ConfigJSON {
+		t.Fatalf("replacement workspace = %#v, want updated %#v", replacement.Workspace, workspace)
+	}
+}
+
+func TestLoaderSandboxRunnerStickyRunningConfigChangeCreatesReplacement(t *testing.T) {
+	ctx := context.Background()
+	bridge, driver := newTestSandboxRPCBridge(t)
+	capabilityProvider := testCapabilityProvider{
+		target: "http://capability-gateway.test",
+		guide: func(_ context.Context, capsetID string) ([]byte, error) {
+			return []byte("# " + capsetID), nil
+		},
+	}
+	capTokens := NewCapabilitySandboxResolver(bridge.store)
+	runner := NewLoaderSandboxRunner(
+		bridge.config,
+		bridge.store,
+		bridge.configDB,
+		&recordingLoaderWorkspaceEnsurer{},
+		driver,
+		capabilityProvider,
+		nil,
+		bridge.streams,
+		&loaderSessionPublisherFake{},
+		capTokens,
+	)
+	loader := domain.Loader{
+		Summary: domain.LoaderSummary{
+			ID:            "loader-sticky-update",
+			Name:          "Loader Sticky Update",
+			Driver:        driverpkg.RuntimeDriverDocker,
+			SandboxPolicy: domain.LoaderSandboxPolicySticky,
+			CapsetIDs:     []string{"A"},
+		},
+		EnvItems: []domain.SandboxEnvVar{{Name: "BUG_VALUE", Value: "A"}},
+		Script:   "function main() {}",
+	}
+	loader, err := bridge.configDB.CreateLoader(ctx, loader)
+	if err != nil {
+		t.Fatalf("CreateLoader returned error: %v", err)
+	}
+	request := domain.LoaderAgentRequest{BindingTriggerID: "sticky-trigger"}
+	first, _, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("first Ensure returned error: %v", err)
+	}
+	oldToken := capabilities.SandboxToken(first)
+	if oldToken == "" {
+		t.Fatal("first sticky sandbox has no CAP_TOKEN")
+	}
+	firstBinding, found, err := bridge.configDB.GetLoaderBinding(ctx, loader.Summary.ID, request.BindingTriggerID)
+	if err != nil || !found {
+		t.Fatalf("first binding = %#v found=%v err=%v", firstBinding, found, err)
+	}
+
+	loader.EnvItems[0].Value = "B"
+	loader.Summary.CapsetIDs = []string{"B"}
+	loader, err = bridge.configDB.UpdateLoader(ctx, loader)
+	if err != nil {
+		t.Fatalf("UpdateLoader returned error: %v", err)
+	}
+	replacement, eventType, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("Ensure after Loader update returned error: %v", err)
+	}
+	if replacement.Summary.ID == first.Summary.ID || eventType != "loader.sandbox.created" {
+		t.Fatalf("replacement sandbox/event = %q/%q, want a new sandbox/loader.sandbox.created", replacement.Summary.ID, eventType)
+	}
+	if got := domain.SandboxEnvMap(replacement.EnvItems)["BUG_VALUE"]; got != "B" {
+		t.Fatalf("replacement BUG_VALUE = %q, want B", got)
+	}
+	retired, err := bridge.store.GetSandbox(ctx, first.Summary.ID)
+	if err != nil {
+		t.Fatalf("load retired sandbox: %v", err)
+	}
+	if retired.Summary.VMStatus != domain.VMStatusStopped {
+		t.Fatalf("retired sandbox status = %q, want stopped", retired.Summary.VMStatus)
+	}
+	if len(driver.stopCalls) != 1 || driver.stopCalls[0] != first.Summary.ID {
+		t.Fatalf("driver stop calls = %#v, want [%q]", driver.stopCalls, first.Summary.ID)
+	}
+	binding, found, err := bridge.configDB.GetLoaderBinding(ctx, loader.Summary.ID, request.BindingTriggerID)
+	if err != nil || !found || binding.SandboxID != replacement.Summary.ID {
+		t.Fatalf("replacement binding = %#v found=%v err=%v", binding, found, err)
+	}
+	if binding.SandboxConfigHash == "" || binding.SandboxConfigHash == firstBinding.SandboxConfigHash {
+		t.Fatalf("replacement binding hash = %q, want a non-empty hash different from %q", binding.SandboxConfigHash, firstBinding.SandboxConfigHash)
+	}
+	if _, err := capTokens.ResolveCapabilitySandbox(ctx, oldToken); err == nil {
+		t.Fatal("old CAP_TOKEN still resolves after stale sandbox retirement")
+	}
+	newToken := capabilities.SandboxToken(replacement)
+	resolved, err := capTokens.ResolveCapabilitySandbox(ctx, newToken)
+	if err != nil {
+		t.Fatalf("new CAP_TOKEN did not resolve: %v", err)
+	}
+	if len(resolved.CapsetIDs) != 1 || resolved.CapsetIDs[0] != "B" {
+		t.Fatalf("new CAP_TOKEN capsets = %#v, want [B]", resolved.CapsetIDs)
+	}
+}
+
+func TestLoaderSandboxRunnerStickyStoppedConfigChangeDoesNotResume(t *testing.T) {
+	ctx := context.Background()
+	bridge, driver := newTestSandboxRPCBridge(t)
+	runner := NewLoaderSandboxRunner(bridge.config, bridge.store, bridge.configDB, &recordingLoaderWorkspaceEnsurer{}, driver, nil, nil, bridge.streams, &loaderSessionPublisherFake{}, nil)
+	loader := domain.Loader{
+		Summary: domain.LoaderSummary{
+			ID:            "loader-sticky-stopped-update",
+			Name:          "Loader Sticky Stopped Update",
+			Driver:        driverpkg.RuntimeDriverDocker,
+			SandboxPolicy: domain.LoaderSandboxPolicySticky,
+		},
+		EnvItems: []domain.SandboxEnvVar{{Name: "BUG_VALUE", Value: "A"}},
+	}
+	request := domain.LoaderAgentRequest{BindingTriggerID: "sticky-trigger"}
+	first, _, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("first Ensure returned error: %v", err)
+	}
+	if err := runner.Shutdown(ctx, first.Summary.ID); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+
+	loader.EnvItems[0].Value = "B"
+	replacement, eventType, err := runner.Ensure(ctx, loader, request, false)
+	if err != nil {
+		t.Fatalf("Ensure after Loader update returned error: %v", err)
+	}
+	if replacement.Summary.ID == first.Summary.ID || eventType != "loader.sandbox.created" {
+		t.Fatalf("replacement sandbox/event = %q/%q, want a new sandbox/loader.sandbox.created", replacement.Summary.ID, eventType)
+	}
+	if len(driver.startCalls) != 2 || driver.startCalls[0] != first.Summary.ID || driver.startCalls[1] != replacement.Summary.ID {
+		t.Fatalf("driver start calls = %#v, want create/create without old resume", driver.startCalls)
 	}
 }
 

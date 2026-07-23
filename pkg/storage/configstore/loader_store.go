@@ -777,6 +777,7 @@ func (s *loaderStore) UpsertLoaderBinding(ctx context.Context, binding domain.Lo
 	binding.LoaderID = strings.TrimSpace(binding.LoaderID)
 	binding.TriggerID = strings.TrimSpace(binding.TriggerID)
 	binding.SandboxID = strings.TrimSpace(binding.SandboxID)
+	binding.SandboxConfigHash = strings.TrimSpace(binding.SandboxConfigHash)
 	if binding.LoaderID == "" || binding.SandboxID == "" {
 		return fmt.Errorf("loader binding requires loader id and sandbox id")
 	}
@@ -785,10 +786,49 @@ func (s *loaderStore) UpsertLoaderBinding(ctx context.Context, binding domain.Lo
 		binding.CreatedAt = now
 	}
 	binding.UpdatedAt = now
-	_, err := s.db.ExecContext(ctx, `INSERT INTO loader_binding(loader_id, trigger_id, sandbox_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?)
-		ON CONFLICT(loader_id, trigger_id) DO UPDATE SET sandbox_id = excluded.sandbox_id, updated_at = excluded.updated_at`, binding.LoaderID, binding.TriggerID, binding.SandboxID, binding.CreatedAt.Unix(), binding.UpdatedAt.Unix())
+	_, err := s.db.ExecContext(ctx, `INSERT INTO loader_binding(loader_id, trigger_id, sandbox_id, sandbox_config_hash, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)
+		ON CONFLICT(loader_id, trigger_id) DO UPDATE SET sandbox_id = excluded.sandbox_id, sandbox_config_hash = excluded.sandbox_config_hash, updated_at = excluded.updated_at`, binding.LoaderID, binding.TriggerID, binding.SandboxID, binding.SandboxConfigHash, binding.CreatedAt.Unix(), binding.UpdatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("upsert loader binding: %w", err)
 	}
 	return nil
+}
+
+func (s *loaderStore) CompareAndSwapLoaderBinding(ctx context.Context, expected *domain.LoaderBinding, replacement domain.LoaderBinding) (bool, error) {
+	replacement.LoaderID = strings.TrimSpace(replacement.LoaderID)
+	replacement.TriggerID = strings.TrimSpace(replacement.TriggerID)
+	replacement.SandboxID = strings.TrimSpace(replacement.SandboxID)
+	replacement.SandboxConfigHash = strings.TrimSpace(replacement.SandboxConfigHash)
+	if replacement.LoaderID == "" || replacement.SandboxID == "" {
+		return false, fmt.Errorf("loader binding requires loader id and sandbox id")
+	}
+	now := time.Now().UTC()
+	if expected == nil {
+		result, err := s.db.ExecContext(ctx, `INSERT INTO loader_binding(loader_id, trigger_id, sandbox_id, sandbox_config_hash, created_at, updated_at)
+			VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(loader_id, trigger_id) DO NOTHING`, replacement.LoaderID, replacement.TriggerID, replacement.SandboxID, replacement.SandboxConfigHash, now.Unix(), now.Unix())
+		if err != nil {
+			return false, fmt.Errorf("claim loader binding: %w", err)
+		}
+		rows, _ := result.RowsAffected()
+		return rows == 1, nil
+	}
+	if strings.TrimSpace(expected.LoaderID) != replacement.LoaderID || strings.TrimSpace(expected.TriggerID) != replacement.TriggerID {
+		return false, fmt.Errorf("loader binding replacement key does not match expected binding")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE loader_binding
+		SET sandbox_id = ?, sandbox_config_hash = ?, updated_at = ?
+		WHERE loader_id = ? AND trigger_id = ? AND sandbox_id = ? AND sandbox_config_hash = ?`,
+		replacement.SandboxID,
+		replacement.SandboxConfigHash,
+		now.Unix(),
+		replacement.LoaderID,
+		replacement.TriggerID,
+		strings.TrimSpace(expected.SandboxID),
+		strings.TrimSpace(expected.SandboxConfigHash),
+	)
+	if err != nil {
+		return false, fmt.Errorf("replace loader binding: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	return rows == 1, nil
 }

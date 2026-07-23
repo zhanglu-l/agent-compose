@@ -87,7 +87,7 @@ type TriggerResolverStore interface {
 
 type stickyBindingStore interface {
 	GetLoaderBinding(context.Context, string, string) (domain.LoaderBinding, bool, error)
-	UpsertLoaderBinding(context.Context, domain.LoaderBinding) error
+	CompareAndSwapLoaderBinding(context.Context, *domain.LoaderBinding, domain.LoaderBinding) (bool, error)
 }
 
 // SandboxRuntimeStore is the subset of sandbox runtime persistence the run
@@ -187,24 +187,25 @@ func NewController(deps ControllerDependencies) *Controller {
 }
 
 type RunAgentRequest struct {
-	ProjectID              string
-	AgentName              string
-	Prompt                 string
-	Command                string
-	Source                 string
-	SchedulerID            string
-	TriggerID              string
-	PayloadJSON            string
-	ClientRequestID        string
-	Env                    []*agentcomposev2.EnvVarSpec
-	SandboxID              string
-	Volumes                []domain.VolumeMountSpec
-	Driver                 string
-	OutputSchemaJSON       string
-	CleanupPolicy          agentcomposev2.RunSandboxCleanupPolicy
-	Jupyter                *agentcomposev2.RunJupyterSpec
-	StickyBindingLoaderID  string
-	StickyBindingTriggerID string
+	ProjectID               string
+	AgentName               string
+	Prompt                  string
+	Command                 string
+	Source                  string
+	SchedulerID             string
+	TriggerID               string
+	PayloadJSON             string
+	ClientRequestID         string
+	Env                     []*agentcomposev2.EnvVarSpec
+	SandboxID               string
+	Volumes                 []domain.VolumeMountSpec
+	Driver                  string
+	OutputSchemaJSON        string
+	CleanupPolicy           agentcomposev2.RunSandboxCleanupPolicy
+	Jupyter                 *agentcomposev2.RunJupyterSpec
+	StickyBindingLoaderID   string
+	StickyBindingTriggerID  string
+	StickyBindingConfigHash string
 }
 
 type StreamSink struct {
@@ -1941,39 +1942,100 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 	if err != nil {
 		return SandboxResult{}, err
 	}
+	stickyLoaderID := strings.TrimSpace(req.StickyBindingLoaderID)
+	stickyTriggerID := strings.TrimSpace(req.StickyBindingTriggerID)
+	driver, err := driverpkg.ResolveSandboxRuntimeDriver(run.Driver, c.config.RuntimeDriver)
+	if err != nil {
+		return SandboxResult{}, err
+	}
+	driverValidated := false
+	if stickyLoaderID == "" || strings.TrimSpace(req.StickyBindingConfigHash) != "" {
+		if err := c.validateSandboxRuntimeDriver(driver); err != nil {
+			return SandboxResult{}, err
+		}
+		driverValidated = true
+	}
+	guestImage := driverpkg.ResolveSandboxGuestImage(run.ImageRef, driverpkg.DefaultGuestImageForDriver(c.config, driver))
+	var volumeMounts []domain.SandboxVolumeMount
+	var volumeWarnings []string
+	volumesResolved := false
+	if strings.TrimSpace(req.SandboxID) == "" && strings.TrimSpace(req.StickyBindingConfigHash) != "" {
+		volumeMounts, volumeWarnings, err = c.resolveProjectRunVolumeMounts(ctx, prepared, req)
+		if err != nil {
+			return SandboxResult{}, err
+		}
+		jupyterOptions.VolumeMounts = volumeMounts
+		volumesResolved = true
+	}
+	stickyConfigHash, err := stickyProjectRunConfigHash(req.StickyBindingConfigHash, run, prepared, driver, guestImage, volumeMounts, jupyterOptions)
+	if err != nil {
+		return SandboxResult{}, fmt.Errorf("hash sticky project sandbox configuration: %w", err)
+	}
 	tags := SandboxTags(run)
 	capabilityVars, capabilityTags := capabilities.BuildGatewaySandboxVars(capabilities.ProxyTarget(c.cap), prepared.CapsetIDs)
 	tags = append(tags, capabilityTags...)
-	stickyLoaderID := strings.TrimSpace(req.StickyBindingLoaderID)
-	stickyTriggerID := strings.TrimSpace(req.StickyBindingTriggerID)
 	bindingStore, hasBindingStore := c.configDB.(stickyBindingStore)
+	var previousStickyBinding *domain.LoaderBinding
 	boundSandbox := false
 	warnings := []string(nil)
 	if stickyLoaderID != "" && strings.TrimSpace(req.SandboxID) == "" {
 		if !hasBindingStore {
 			return SandboxResult{}, fmt.Errorf("sticky sandbox binding store is required")
 		}
-		binding, found, err := bindingStore.GetLoaderBinding(ctx, stickyLoaderID, stickyTriggerID)
+		sandboxID, binding, bindingWarnings, err := c.resolveStickyLoaderBinding(ctx, bindingStore, stickyLoaderID, stickyTriggerID, stickyConfigHash)
 		if err != nil {
-			return SandboxResult{}, fmt.Errorf("load sticky sandbox binding: %w", err)
+			return SandboxResult{}, err
 		}
-		if found {
-			req.SandboxID = binding.SandboxID
+		warnings = append(warnings, bindingWarnings...)
+		previousStickyBinding = binding
+		if sandboxID != "" {
+			req.SandboxID = sandboxID
 			boundSandbox = true
 		}
 	}
 	if sandboxID := strings.TrimSpace(req.SandboxID); sandboxID != "" {
 		unlock := c.lifecycleLocks.Lock(sandboxID)
-		defer unlock()
+		locked := true
+		defer func() {
+			if locked {
+				unlock()
+			}
+		}()
 		if len(req.Volumes) > 0 {
 			return SandboxResult{}, fmt.Errorf("%w: run volumes cannot be combined with an existing sandbox", ErrInvalidRequest)
+		}
+		if boundSandbox && previousStickyBinding != nil {
+			current, found, err := bindingStore.GetLoaderBinding(ctx, stickyLoaderID, stickyTriggerID)
+			if err != nil {
+				return SandboxResult{}, fmt.Errorf("revalidate sticky sandbox binding: %w", err)
+			}
+			if !found || !loaders.LoaderBindingsMatch(current, *previousStickyBinding) {
+				return SandboxResult{}, fmt.Errorf("sticky sandbox binding changed concurrently")
+			}
 		}
 		sandbox, err := c.store.GetSandbox(ctx, sandboxID)
 		if err != nil {
 			if !boundSandbox {
 				return SandboxResult{}, fmt.Errorf("load sandbox %s: %w", sandboxID, err)
 			}
+			if !driverValidated {
+				if validateErr := c.validateSandboxRuntimeDriver(driver); validateErr != nil {
+					return SandboxResult{}, validateErr
+				}
+				driverValidated = true
+			}
+			retiring := loaders.RetiringLoaderBinding(*previousStickyBinding, stickyConfigHash)
+			claimed, claimErr := bindingStore.CompareAndSwapLoaderBinding(ctx, previousStickyBinding, retiring)
+			if claimErr != nil {
+				return SandboxResult{}, fmt.Errorf("claim unavailable sticky sandbox %s retirement: %w", sandboxID, claimErr)
+			}
+			if !claimed {
+				return SandboxResult{}, fmt.Errorf("sticky sandbox binding changed concurrently")
+			}
+			previousStickyBinding = &retiring
 			warnings = append(warnings, fmt.Sprintf("sticky sandbox %s is unavailable; creating a replacement", sandboxID))
+			unlock()
+			locked = false
 		} else {
 			if sandbox.Summary.VMStatus == domain.VMStatusDeleting {
 				return SandboxResult{Sandbox: sandbox}, fmt.Errorf("sandbox %s is being deleted", sandboxID)
@@ -2012,14 +2074,18 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 	if prepared.Workspace != nil {
 		workspaceID = strings.TrimSpace(prepared.Workspace.ID)
 	}
-	driver, err := driverpkg.ResolveSandboxRuntimeDriver(run.Driver, c.config.RuntimeDriver)
-	if err != nil {
-		return SandboxResult{}, err
+	if !driverValidated {
+		if err := c.validateSandboxRuntimeDriver(driver); err != nil {
+			return SandboxResult{}, err
+		}
 	}
-	if err := c.validateSandboxRuntimeDriver(driver); err != nil {
-		return SandboxResult{}, err
+	if !volumesResolved {
+		volumeMounts, volumeWarnings, err = c.resolveProjectRunVolumeMounts(ctx, prepared, req)
+		if err != nil {
+			return SandboxResult{}, err
+		}
+		jupyterOptions.VolumeMounts = volumeMounts
 	}
-	guestImage := driverpkg.ResolveSandboxGuestImage(run.ImageRef, driverpkg.DefaultGuestImageForDriver(c.config, driver))
 	if err := images.EnsureDriverImage(ctx, c.config, c.images, images.EnsureRequest{
 		Driver:      driver,
 		ImageRef:    guestImage,
@@ -2028,11 +2094,6 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 	}); err != nil {
 		return SandboxResult{}, err
 	}
-	volumeMounts, volumeWarnings, err := c.resolveProjectRunVolumeMounts(ctx, prepared, req)
-	if err != nil {
-		return SandboxResult{}, err
-	}
-	jupyterOptions.VolumeMounts = volumeMounts
 	sandbox, err := c.store.CreateSandboxWithOptions(ctx,
 		SandboxTitle(run),
 		"",
@@ -2056,8 +2117,36 @@ func (c *Controller) ensureProjectRunSandbox(ctx context.Context, run domain.Pro
 		if !hasBindingStore {
 			return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, fmt.Errorf("sticky sandbox binding store is required")
 		}
-		if err := bindingStore.UpsertLoaderBinding(ctx, domain.LoaderBinding{LoaderID: stickyLoaderID, TriggerID: stickyTriggerID, SandboxID: sandbox.Summary.ID}); err != nil {
+		claimed, err := bindingStore.CompareAndSwapLoaderBinding(ctx, previousStickyBinding, domain.LoaderBinding{LoaderID: stickyLoaderID, TriggerID: stickyTriggerID, SandboxID: sandbox.Summary.ID, SandboxConfigHash: stickyConfigHash})
+		if err != nil {
+			if stopErr := c.stopProjectRunSandbox(ctx, sandbox); stopErr != nil {
+				return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, errors.Join(fmt.Errorf("persist sticky sandbox binding: %w", err), fmt.Errorf("retire unbound sticky sandbox: %w", stopErr))
+			}
 			return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, fmt.Errorf("persist sticky sandbox binding: %w", err)
+		}
+		if !claimed {
+			if err := c.stopProjectRunSandbox(ctx, sandbox); err != nil {
+				return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, fmt.Errorf("retire unclaimed sticky sandbox: %w", err)
+			}
+			winner, compatible, err := loadCompatibleStickyLoaderBinding(ctx, bindingStore, stickyLoaderID, stickyTriggerID, stickyConfigHash)
+			if err != nil {
+				return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, fmt.Errorf("load concurrently claimed sticky sandbox: %w", err)
+			}
+			if compatible {
+				reuseRequest := req
+				reuseRequest.SandboxID = winner.SandboxID
+				reuseRequest.Volumes = nil
+				reuseRequest.StickyBindingLoaderID = ""
+				reuseRequest.StickyBindingTriggerID = ""
+				reuseRequest.StickyBindingConfigHash = ""
+				result, reuseErr := c.ensureProjectRunSandbox(ctx, run, prepared, reuseRequest)
+				result.Warnings = append(append(warnings, volumeWarnings...), result.Warnings...)
+				if reuseErr != nil {
+					return result, fmt.Errorf("reuse concurrently claimed sticky sandbox: %w", reuseErr)
+				}
+				return result, nil
+			}
+			return SandboxResult{Sandbox: sandbox, Created: true, Warnings: volumeWarnings}, fmt.Errorf("sticky sandbox binding changed concurrently")
 		}
 	}
 	volumeWarnings = append(warnings, volumeWarnings...)

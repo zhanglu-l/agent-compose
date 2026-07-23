@@ -170,6 +170,52 @@ func TestMigrationBaseline(t *testing.T) {
 	}
 }
 
+func TestLoaderBindingConfigHashMigration(t *testing.T) {
+	ctx := context.Background()
+	db := newMemoryDB(t)
+	available, err := loadMigrations(embeddedMigrations)
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	if len(available) < 3 || available[2].version != 3 {
+		t.Fatalf("available migrations = %#v, want version 3", available)
+	}
+	if err := applyMigrationSet(ctx, db, available[:1]); err != nil {
+		t.Fatalf("apply baseline migration: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO loader_binding(loader_id, trigger_id, sandbox_id, created_at, updated_at)
+		VALUES('loader-1', 'trigger-1', 'sandbox-1', 1, 2)`); err != nil {
+		t.Fatalf("insert pre-migration binding: %v", err)
+	}
+
+	if err := applyMigrations(ctx, db, embeddedMigrations); err != nil {
+		t.Fatalf("apply config hash migration: %v", err)
+	}
+	var sandboxID, configHash string
+	if err := db.QueryRowContext(ctx, `SELECT sandbox_id, sandbox_config_hash FROM loader_binding WHERE loader_id = 'loader-1' AND trigger_id = 'trigger-1'`).Scan(&sandboxID, &configHash); err != nil {
+		t.Fatalf("query migrated binding: %v", err)
+	}
+	if sandboxID != "sandbox-1" || configHash != "" {
+		t.Fatalf("migrated binding = (%q, %q), want (%q, %q)", sandboxID, configHash, "sandbox-1", "")
+	}
+	var versionCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
+		t.Fatalf("query migration history: %v", err)
+	}
+	if versionCount != 1 {
+		t.Fatalf("version 3 history count = %d, want 1", versionCount)
+	}
+	if err := applyMigrations(ctx, db, embeddedMigrations); err != nil {
+		t.Fatalf("reapply migrations: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = 3`).Scan(&versionCount); err != nil {
+		t.Fatalf("query migration history after reapply: %v", err)
+	}
+	if versionCount != 1 {
+		t.Fatalf("version 3 history count after reapply = %d, want 1", versionCount)
+	}
+}
+
 func TestSandboxProjectProjectionMigrationInvalidatesCache(t *testing.T) {
 	ctx := context.Background()
 	db := newMemoryDB(t)

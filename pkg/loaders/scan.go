@@ -153,7 +153,7 @@ func ScanLoaderBinding(scan func(dest ...any) error) (domain.LoaderBinding, erro
 	var item domain.LoaderBinding
 	var createdAtRaw any
 	var updatedAtRaw any
-	if err := scan(&item.LoaderID, &item.TriggerID, &item.SandboxID, &createdAtRaw, &updatedAtRaw); err != nil {
+	if err := scan(&item.LoaderID, &item.TriggerID, &item.SandboxID, &item.SandboxConfigHash, &createdAtRaw, &updatedAtRaw); err != nil {
 		return domain.LoaderBinding{}, fmt.Errorf("scan loader binding: %w", err)
 	}
 	item.CreatedAt = parseStoredTime(createdAtRaw)
@@ -278,5 +278,5 @@ func SelectLoaderEventSQL() string {
 }
 
 func SelectLoaderBindingSQL() string {
-	return `SELECT loader_id, trigger_id, sandbox_id, created_at, updated_at FROM loader_binding`
+	return `SELECT loader_id, trigger_id, sandbox_id, sandbox_config_hash, created_at, updated_at FROM loader_binding`
 }

@@ -112,11 +112,12 @@ type LoaderEvent struct {
 }
 
 type LoaderBinding struct {
-	LoaderID  string    `json:"loader_id"`
-	TriggerID string    `json:"trigger_id,omitempty"`
-	SandboxID string    `json:"sandbox_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	LoaderID          string    `json:"loader_id"`
+	TriggerID         string    `json:"trigger_id,omitempty"`
+	SandboxID         string    `json:"sandbox_id"`
+	SandboxConfigHash string    `json:"sandbox_config_hash,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type LoaderAgentRequest struct {

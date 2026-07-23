@@ -1815,6 +1815,86 @@ func TestRunsControllerStickyBindingsAreScopedByTrigger(t *testing.T) {
 	}
 }
 
+func TestRunsControllerStickyLoaderConfigChangeCreatesReplacement(t *testing.T) {
+	fixture := newControllerRunFixture(t)
+	loader := domain.Loader{
+		Summary: domain.LoaderSummary{
+			ID:                 "loader-1",
+			Name:               "Loader",
+			Runtime:            domain.LoaderRuntimeScheduler,
+			DefaultAgent:       "codex",
+			SandboxPolicy:      domain.LoaderSandboxPolicySticky,
+			ManagedProjectID:   "project-1",
+			ManagedRevision:    1,
+			ManagedAgentName:   "worker",
+			ManagedSchedulerID: "scheduler-1",
+		},
+		Script:   "function main() {}",
+		EnvItems: []domain.SandboxEnvVar{{Name: "BUG_VALUE", Value: "A"}},
+	}
+	runSticky := func(requestID, configHash string) domain.ProjectRunRecord {
+		t.Helper()
+		run, execErr, err := fixture.controller.RunProjectAgent(fixture.ctx, RunAgentRequest{
+			ProjectID:               "project-1",
+			AgentName:               "worker",
+			Prompt:                  "do sticky work",
+			Source:                  domain.ProjectRunSourceScheduler,
+			SchedulerID:             "scheduler-1",
+			TriggerID:               "trigger-a",
+			ClientRequestID:         requestID,
+			CleanupPolicy:           agentcomposev2.RunSandboxCleanupPolicy_RUN_SANDBOX_CLEANUP_POLICY_KEEP_RUNNING,
+			StickyBindingLoaderID:   loader.Summary.ID,
+			StickyBindingTriggerID:  "trigger-a",
+			StickyBindingConfigHash: configHash,
+		}, nil)
+		if err != nil || execErr != nil {
+			t.Fatalf("RunProjectAgent err=%v execErr=%v run=%#v", err, execErr, run)
+		}
+		return run
+	}
+
+	fixture.configDB.agent.EnvItems = []domain.SandboxEnvVar{{Name: "BUG_VALUE", Value: "A"}}
+	firstHash, err := loaders.LoaderSandboxConfigHash(loader)
+	if err != nil {
+		t.Fatalf("LoaderSandboxConfigHash(A) returned error: %v", err)
+	}
+	first := runSticky("sticky-config-a", firstHash)
+	firstBindingHash := fixture.configDB.bindings["loader-1/trigger-a"].SandboxConfigHash
+	if firstBindingHash == "" {
+		t.Fatal("first managed sticky binding has no effective sandbox config hash")
+	}
+
+	loader.EnvItems[0].Value = "B"
+	loader.Summary.ManagedRevision = 2
+	fixture.configDB.agent.EnvItems = []domain.SandboxEnvVar{{Name: "BUG_VALUE", Value: "B"}}
+	secondHash, err := loaders.LoaderSandboxConfigHash(loader)
+	if err != nil {
+		t.Fatalf("LoaderSandboxConfigHash(B) returned error: %v", err)
+	}
+	second := runSticky("sticky-config-b", secondHash)
+	if second.SandboxID == first.SandboxID {
+		t.Fatalf("updated Loader reused stale sandbox %q", first.SandboxID)
+	}
+	oldSandbox, err := fixture.store.GetSandbox(fixture.ctx, first.SandboxID)
+	if err != nil {
+		t.Fatalf("GetSandbox(old) returned error: %v", err)
+	}
+	if oldSandbox.Summary.VMStatus != domain.VMStatusStopped {
+		t.Fatalf("old sandbox status = %q, want stopped", oldSandbox.Summary.VMStatus)
+	}
+	newSandbox, err := fixture.store.GetSandbox(fixture.ctx, second.SandboxID)
+	if err != nil {
+		t.Fatalf("GetSandbox(new) returned error: %v", err)
+	}
+	if got := domain.SandboxEnvMap(newSandbox.EnvItems)["BUG_VALUE"]; got != "B" {
+		t.Fatalf("new sandbox BUG_VALUE = %q, want B", got)
+	}
+	binding := fixture.configDB.bindings["loader-1/trigger-a"]
+	if binding.SandboxID != second.SandboxID || binding.SandboxConfigHash == firstBindingHash {
+		t.Fatalf("replacement binding = %#v, want sandbox %q with a new effective config hash", binding, second.SandboxID)
+	}
+}
+
 func TestRunsControllerRejectsUncompiledScheduledSandboxBeforePersistence(t *testing.T) {
 	for _, runtimeDriver := range []string{driverpkg.RuntimeDriverBoxlite, driverpkg.RuntimeDriverMicrosandbox} {
 		t.Run(runtimeDriver, func(t *testing.T) {
@@ -2435,6 +2515,26 @@ func (s *fakeControllerStore) UpsertLoaderBinding(_ context.Context, binding dom
 	return nil
 }
 
+func (s *fakeControllerStore) CompareAndSwapLoaderBinding(_ context.Context, expected *domain.LoaderBinding, replacement domain.LoaderBinding) (bool, error) {
+	if s.bindings == nil {
+		s.bindings = map[string]domain.LoaderBinding{}
+	}
+	key := replacement.LoaderID + "/" + replacement.TriggerID
+	current, found := s.bindings[key]
+	if expected == nil {
+		if found {
+			return false, nil
+		}
+		s.bindings[key] = replacement
+		return true, nil
+	}
+	if !found || current.SandboxID != expected.SandboxID || current.SandboxConfigHash != expected.SandboxConfigHash {
+		return false, nil
+	}
+	s.bindings[key] = replacement
+	return true, nil
+}
+
 type fakeControllerDriver struct {
 	started   bool
 	stopped   bool
@@ -2443,10 +2543,17 @@ type fakeControllerDriver struct {
 	stopErr   error
 	removeErr error
 	store     *sessionstore.Store
+	onStart   func(*domain.Sandbox) error
+	onStop    func(*domain.Sandbox) error
 }
 
 func (d *fakeControllerDriver) StartSandboxVM(_ context.Context, session *domain.Sandbox) error {
 	d.started = true
+	if d.onStart != nil {
+		if err := d.onStart(session); err != nil {
+			return err
+		}
+	}
 	if d.startErr != nil {
 		return d.startErr
 	}
@@ -2456,8 +2563,13 @@ func (d *fakeControllerDriver) StartSandboxVM(_ context.Context, session *domain
 	return nil
 }
 
-func (d *fakeControllerDriver) StopSandboxVM(context.Context, *domain.Sandbox) error {
+func (d *fakeControllerDriver) StopSandboxVM(_ context.Context, sandbox *domain.Sandbox) error {
 	d.stopped = true
+	if d.onStop != nil {
+		if err := d.onStop(sandbox); err != nil {
+			return err
+		}
+	}
 	if d.stopErr != nil {
 		return d.stopErr
 	}

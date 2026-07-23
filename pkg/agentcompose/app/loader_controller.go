@@ -117,18 +117,19 @@ func (r loaderProjectAgentRunner) RunProjectAgent(ctx context.Context, request l
 		stickyTriggerID = request.TriggerID
 	}
 	run, execErr, err := r.controller.RunProjectAgent(ctx, runs.RunAgentRequest{
-		ProjectID:              request.ProjectID,
-		AgentName:              request.AgentName,
-		Prompt:                 request.Prompt,
-		Source:                 domain.ProjectRunSourceScheduler,
-		SchedulerID:            request.SchedulerID,
-		TriggerID:              request.TriggerID,
-		OutputSchemaJSON:       request.OutputSchemaJSON,
-		ClientRequestID:        request.ClientRequestID,
-		Volumes:                request.Volumes,
-		CleanupPolicy:          cleanupPolicy,
-		StickyBindingLoaderID:  stickyLoaderID,
-		StickyBindingTriggerID: stickyTriggerID,
+		ProjectID:               request.ProjectID,
+		AgentName:               request.AgentName,
+		Prompt:                  request.Prompt,
+		Source:                  domain.ProjectRunSourceScheduler,
+		SchedulerID:             request.SchedulerID,
+		TriggerID:               request.TriggerID,
+		OutputSchemaJSON:        request.OutputSchemaJSON,
+		ClientRequestID:         request.ClientRequestID,
+		Volumes:                 request.Volumes,
+		CleanupPolicy:           cleanupPolicy,
+		StickyBindingLoaderID:   stickyLoaderID,
+		StickyBindingTriggerID:  stickyTriggerID,
+		StickyBindingConfigHash: request.SandboxConfigHash,
 	}, nil)
 	if err != nil {
 		return domain.ProjectRunRecord{}, nil, err
