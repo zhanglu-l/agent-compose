@@ -53,13 +53,8 @@ func normalizeRuntimeRawResponsesInput(payload map[string]json.RawMessage, gener
 		return false
 	}
 	var changed bool
-	defaultTextType := "input_text"
-	if genericTextParts {
-		defaultTextType = "text"
-	}
-	textTypeJSON, _ := json.Marshal(defaultTextType)
 	for _, item := range items {
-		if normalizeRuntimeRawResponsesContent(item, textTypeJSON) {
+		if normalizeRuntimeRawResponsesContent(item, genericTextParts) {
 			changed = true
 		}
 	}
@@ -74,7 +69,7 @@ func normalizeRuntimeRawResponsesInput(payload map[string]json.RawMessage, gener
 	return true
 }
 
-func normalizeRuntimeRawResponsesContent(item map[string]json.RawMessage, textType []byte) bool {
+func normalizeRuntimeRawResponsesContent(item map[string]json.RawMessage, genericTextParts bool) bool {
 	raw := item["content"]
 	if len(raw) == 0 || string(raw) == "null" {
 		return false
@@ -83,18 +78,30 @@ func normalizeRuntimeRawResponsesContent(item map[string]json.RawMessage, textTy
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return false
 	}
+	textType := "input_text"
+	if genericTextParts {
+		textType = "text"
+	} else {
+		var role string
+		if err := json.Unmarshal(item["role"], &role); err == nil && role == string(protocolbridge.RoleAssistant) {
+			textType = "output_text"
+		}
+	}
+	textTypeJSON, _ := json.Marshal(textType)
 	var changed bool
 	for _, part := range parts {
 		if len(part["text"]) == 0 || string(part["text"]) == "null" {
 			continue
 		}
 		if len(part["type"]) == 0 || string(part["type"]) == "null" {
-			part["type"] = textType
+			part["type"] = textTypeJSON
 			changed = true
 			continue
 		}
-		if string(part["type"]) == `"output_text"` || (string(textType) == `"text"` && string(part["type"]) == `"input_text"`) {
-			part["type"] = textType
+		var partType string
+		if err := json.Unmarshal(part["type"], &partType); err == nil &&
+			(partType == "input_text" || partType == "output_text") && partType != textType {
+			part["type"] = textTypeJSON
 			changed = true
 		}
 	}
